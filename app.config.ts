@@ -10,7 +10,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: 'dark',
   runtimeVersion: { policy: 'fingerprint' },
   updates: {
-    url: 'https://u.expo.dev/TBD',
+    url: 'https://u.expo.dev/11a5a62e-83b3-4b48-9704-437201cde5fb',
     checkAutomatically: 'ON_ERROR_RECOVERY',
     fallbackToCacheTimeout: 0,
   },
@@ -56,7 +56,7 @@ const config: ExpoConfig = {
   ],
   experiments: { typedRoutes: true },
   extra: {
-    eas: { projectId: 'TBD' },
+    eas: { projectId: '11a5a62e-83b3-4b48-9704-437201cde5fb' },
   },
   owner: 'nodes-bio',
 };

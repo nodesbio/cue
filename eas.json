@@ -1,5 +1,5 @@
 {
-  "cli": { "version": ">= 10.0.0" },
+  "cli": { "version": ">= 10.0.0", "appVersionSource": "remote" },
   "build": {
     "development": {
       "developmentClient": true,
@@ -19,8 +19,9 @@
     "production": {
       "ios": {
         "appleId": "john@nodes.bio",
-        "ascAppId": "TBD",
-        "appleTeamId": "TBD"
+        "appleTeamId": "2P4TWT85Z",
+        "ascApiKeyId": "26664ZL92N",
+        "ascApiKeyIssuerId": "69a6de7e-e0e9-47e3-e053-5b8c7c11a4d1"
       }
     }
   }
