@@ -74,9 +74,34 @@ export class G1Core {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  async connect(): Promise<void> {
+  /** Scan and return all discovered pairs (channel → {L,R} device). */
+  async scanPairs(durationMs = 8000): Promise<Record<string, Partial<Record<Side, Device>>>> {
     await this._ensureBleReady();
-    await this._scan();
+    return new Promise((resolve) => {
+      const pairs: Record<string, Partial<Record<Side, Device>>> = {};
+      const timeout = setTimeout(() => {
+        this.manager.stopDeviceScan();
+        resolve(pairs);
+      }, durationMs);
+
+      this.manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
+        if (error || !device?.name) return;
+        const side = this._parseSide(device.name);
+        if (!side) return;
+        const ch = this._parseChannel(device.name);
+        if (!ch) return;
+        if (!pairs[ch]) pairs[ch] = {};
+        pairs[ch][side] = device;
+        // Resolve early if we have 2+ complete pairs
+        const complete = Object.values(pairs).filter(p => p.L && p.R).length;
+        if (complete >= 2) { clearTimeout(timeout); this.manager.stopDeviceScan(); resolve(pairs); }
+      });
+    });
+  }
+
+  async connect(channel?: string): Promise<void> {
+    await this._ensureBleReady();
+    await this._scan(channel);
   }
 
   async disconnect(): Promise<void> {
@@ -166,30 +191,30 @@ export class G1Core {
     });
   }
 
-  private async _scan(): Promise<void> {
+  private async _scan(channel?: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const found: Partial<Record<Side, Device>> = {};
       const timeout = setTimeout(() => {
         this.manager.stopDeviceScan();
-        if (!found.L || !found.R) {
-          reject(new Error('G1 glasses not found. Make sure they are on and in range.'));
-        }
+        reject(new Error('G1 glasses not found. Make sure they are on and in range.'));
       }, SCAN_TIMEOUT_MS);
 
       this.manager.startDeviceScan(
         null,
         { allowDuplicates: false },
         async (error, device) => {
-          if (error) {
-            clearTimeout(timeout);
-            reject(error);
-            return;
-          }
+          if (error) { clearTimeout(timeout); reject(error); return; }
           if (!device?.name) return;
 
           const side = this._parseSide(device.name);
           if (!side) return;
-          if (found[side]) return; // already found this side
+          if (found[side]) return;
+
+          // If a channel filter is set, skip devices that don't match
+          if (channel) {
+            const ch = this._parseChannel(device.name);
+            if (ch !== channel) return;
+          }
 
           found[side] = device;
 
@@ -208,6 +233,12 @@ export class G1Core {
         },
       );
     });
+  }
+
+  /** Extract channel string from device name, e.g. "Even G1_30_L_91C189" → "30" */
+  private _parseChannel(name: string): string | null {
+    const m = name.match(/G1_(\d+)_[LR]/);
+    return m ? m[1] : null;
   }
 
   /** Parse "Even G1_<ch>_L_<serial>" or legacy "G1_..._L_..." → Side */
