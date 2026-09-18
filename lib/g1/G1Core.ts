@@ -236,7 +236,8 @@ export class G1Core {
         if (ch.uuid.toLowerCase() === P.UART_TX) {
           this.txChars[side] = ch;
         }
-        if (ch.uuid.toLowerCase() === P.UART_RX && ch.isNotifiable) {
+        if (ch.uuid.toLowerCase() === P.UART_RX) {
+          console.log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
           await discovered.monitorCharacteristicForService(
             svc.uuid, P.UART_RX,
             (err, char) => this._onNotify(side, err, char),
@@ -281,6 +282,7 @@ export class G1Core {
   // ── Notifications ─────────────────────────────────────────────────────────
 
   private _onNotify(side: Side, error: Error | null, char: Characteristic | null): void {
+    console.log(`[G1] notify [${side}] err=${error?.message} hasChar=${!!char}`);
     if (error || !char?.value) return;
     const data = base64ToUint8(char.value);
     if (!data.length) return;
