@@ -4,7 +4,7 @@
  * Port of g1core/core.py (EvenBridge).
  */
 
-import { BleManager, Device, State, Characteristic } from 'react-native-ble-plx';
+import { BleManager, Device, State, Characteristic, Subscription } from 'react-native-ble-plx';
 import { encode as btoa } from 'base-64';
 import * as P from './packets';
 
@@ -52,6 +52,7 @@ export class G1Core {
   private manager: BleManager;
   private devices: Partial<Record<Side, Device>> = {};
   private txChars: Partial<Record<Side, Characteristic>> = {};
+  private rxSubs: Partial<Record<Side, Subscription>> = {};
   private seq = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts: Partial<Record<Side, number>> = { L: 0, R: 0 };
@@ -126,6 +127,8 @@ export class G1Core {
 
   destroy(): void {
     this._stopHeartbeat();
+    this.rxSubs.L?.remove();
+    this.rxSubs.R?.remove();
     this.manager.destroy();
   }
 
@@ -238,7 +241,8 @@ export class G1Core {
         }
         if (ch.uuid.toLowerCase() === P.UART_RX) {
           console.log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
-          await discovered.monitorCharacteristicForService(
+          this.rxSubs[side]?.remove();
+          this.rxSubs[side] = discovered.monitorCharacteristicForService(
             svc.uuid, P.UART_RX,
             (err, char) => this._onNotify(side, err, char),
           );
