@@ -42,7 +42,14 @@ export default function DashboardScreen() {
       scanCoreRef.current = null;
 
       const channels = Object.keys(pairs).filter(ch => pairs[ch].L && pairs[ch].R);
-      if (channels.length === 0) throw new Error('No complete G1 pair found. Make sure both lenses are on.');
+      if (channels.length === 0) {
+        const incomplete = Object.entries(pairs)
+          .map(([serial, p]) => `${serial}: ${p.L ? 'L✓' : 'L✗'} ${p.R ? 'R✓' : 'R✗'}`)
+          .join(', ');
+        throw new Error(
+          `No complete G1 pair found — put both lenses on your face and wait ~5s.\n\nSeen: ${incomplete || 'nothing'}`
+        );
+      }
       if (channels.length === 1) {
         await connectToChannel(channels[0]);
       } else {
@@ -134,16 +141,20 @@ export default function DashboardScreen() {
       {phase === 'picking' && (
         <View style={s.pickerCard}>
           <Text style={s.pickerTitle}>Multiple pairs found — tap 👁 to flash ID on lenses, then connect:</Text>
-          {Object.keys(availablePairs).filter(ch => availablePairs[ch].L && availablePairs[ch].R).map(ch => (
-            <View key={ch} style={s.pickerRow}>
-              <Pressable style={[s.btn, { flex: 1 }]} onPress={() => connectToChannel(ch)}>
-                <Text style={s.btnText}>G1 pair #{ch}</Text>
-              </Pressable>
-              <Pressable style={s.identifyBtn} onPress={() => identifyPair(ch)}>
-                <Text style={s.btnText}>👁</Text>
-              </Pressable>
-            </View>
-          ))}
+          {Object.keys(availablePairs).filter(ch => availablePairs[ch].L && availablePairs[ch].R).map(ch => {
+            const rName = availablePairs[ch].R?.name ?? ch;
+            const label = rName.match(/G1_(\d+)_/)?.[1] ? `G1 ch${rName.match(/G1_(\d+)_/)![1]}` : `G1 ${ch}`;
+            return (
+              <View key={ch} style={s.pickerRow}>
+                <Pressable style={[s.btn, { flex: 1 }]} onPress={() => connectToChannel(ch)}>
+                  <Text style={s.btnText}>{label}  ·  {ch}</Text>
+                </Pressable>
+                <Pressable style={s.identifyBtn} onPress={() => identifyPair(ch)}>
+                  <Text style={s.btnText}>👁</Text>
+                </Pressable>
+              </View>
+            );
+          })}
         </View>
       )}
 
