@@ -86,9 +86,9 @@ export class G1Core {
 
       this.manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
         if (error || !device?.name) return;
-        const side = this._parseSide(device.name);
+        const side = this._parseSide(device);
         if (!side) return;
-        const ch = this._parseChannel(device.name);
+        const ch = this._parseChannel(device);
         if (!ch) return;
         if (!pairs[ch]) pairs[ch] = {};
         pairs[ch][side] = device;
@@ -186,6 +186,7 @@ export class G1Core {
         seen.add(device.id);
 
         const isG1 = device.name.includes('G1');
+        const parsed = isG1 ? this._parseManufacturerData(device) : null;
         const info = isG1
           ? {
               name: device.name,
@@ -197,6 +198,7 @@ export class G1Core {
               manufacturerData: device.manufacturerData,
               localName: device.localName,
               mtu: device.mtu,
+              decoded: parsed,
             }
           : { name: device.name, id: device.id };
 
@@ -226,13 +228,13 @@ export class G1Core {
           if (error) { clearTimeout(timeout); reject(error); return; }
           if (!device?.name) return;
 
-          const side = this._parseSide(device.name);
+          const side = this._parseSide(device);
           if (!side) return;
           if (found[side]) return;
 
           // If a channel filter is set, skip devices that don't match
           if (channel) {
-            const ch = this._parseChannel(device.name);
+            const ch = this._parseChannel(device);
             if (ch !== channel) return;
           }
 
@@ -255,19 +257,51 @@ export class G1Core {
     });
   }
 
-  /** Extract channel string from device name, e.g. "Even G1_30_L_91C189" → "30" */
-  private _parseChannel(name: string): string | null {
-    const m = name.match(/G1_(\d+)_[LR]/);
+  /**
+   * Decode G1 manufacturer advertisement data.
+   * Format: [side(1)] [S] [firmware(6)] [serial(7)] [padding(5)]
+   *   side: 0x01 = Right, 0x02 = Left
+   *   serial: e.g. "H290028" or "H290036" — unique per physical pair
+   *
+   * Falls back to name parsing if manufacturerData is absent.
+   */
+  private _parseManufacturerData(device: Device): { side: Side; serial: string; firmware: string } | null {
+    if (device.manufacturerData) {
+      try {
+        const buf = Buffer.from(device.manufacturerData, 'base64');
+        const sidebyte = buf[0];
+        const side: Side = sidebyte === 0x02 ? 'L' : 'R';
+        const firmware = buf.slice(2, 8).toString('ascii').replace(/\0/g, '');
+        const serial   = buf.slice(8, 15).toString('ascii').replace(/\0/g, '');
+        if (serial.length > 0) return { side, serial, firmware };
+      } catch {}
+    }
+    // Fallback: parse from name
+    const name = device.name ?? '';
+    const m = name.match(/G1_(\d+)_([LR])_([0-9A-Fa-f]+)/);
+    if (m) {
+      return { side: m[2] as Side, serial: `name-ch${m[1]}`, firmware: 'unknown' };
+    }
+    return null;
+  }
+
+  /** Extract channel/pair key from device. Uses serial from manufacturerData (preferred) or channel from name. */
+  private _parseChannel(device: Device): string | null {
+    const parsed = this._parseManufacturerData(device);
+    if (parsed) return parsed.serial;
+    // last-resort: name-based channel number
+    const m = (device.name ?? '').match(/G1_(\d+)_[LR]/);
     return m ? m[1] : null;
   }
 
-  /** Parse "Even G1_<ch>_L_<serial>" or legacy "G1_..._L_..." → Side */
-  private _parseSide(name: string): Side | null {
-    const normalized = name.replace('Even G1', 'G1');
-    if (!normalized.startsWith('G1_')) return null;
-    const parts = normalized.split('_');
-    // format: G1_<ch>_L_<serial>  or  G1_L_<serial>
-    for (const part of parts) {
+  /** Parse Side from device. Uses manufacturerData byte (preferred) or name. */
+  private _parseSide(device: Device): Side | null {
+    const parsed = this._parseManufacturerData(device);
+    if (parsed) return parsed.side;
+    // last-resort: name-based
+    const name = (device.name ?? '').replace('Even G1', 'G1');
+    if (!name.startsWith('G1_')) return null;
+    for (const part of name.split('_')) {
       if (part === 'L') return 'L';
       if (part === 'R') return 'R';
     }
