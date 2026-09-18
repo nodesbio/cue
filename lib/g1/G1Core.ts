@@ -16,6 +16,7 @@ export interface LensState {
   device: Device | null;
   connected: boolean;
   batteryPct: number;
+  rssi: number | null;
 }
 
 export interface G1Status {
@@ -56,10 +57,11 @@ export class G1Core {
   private seq = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts: Partial<Record<Side, number>> = { L: 0, R: 0 };
+  private destroyed = false;
 
   public status: G1Status = {
-    left:  { device: null, connected: false, batteryPct: 0 },
-    right: { device: null, connected: false, batteryPct: 0 },
+    left:  { device: null, connected: false, batteryPct: 0, rssi: null },
+    right: { device: null, connected: false, batteryPct: 0, rssi: null },
     firmwareVersion: null,
   };
 
@@ -107,13 +109,16 @@ export class G1Core {
   async disconnect(): Promise<void> {
     this._stopHeartbeat();
     for (const side of ['L', 'R'] as Side[]) {
+      this.rxSubs[side]?.remove();
+      this.rxSubs[side] = undefined;
       const dev = this.devices[side];
       if (dev) {
         try { await dev.cancelConnection(); } catch {}
-        this.devices[side] = undefined;
-        this.txChars[side] = undefined;
-        this._setConnected(side, false);
       }
+      this.devices[side] = undefined;
+      this.txChars[side] = undefined;
+      this.reconnectAttempts[side] = 0;
+      this._setConnected(side, false);
     }
   }
 
@@ -121,9 +126,9 @@ export class G1Core {
     return !!(this.status.left.connected && this.status.right.connected);
   }
 
-  /** Send a text string to both lenses. */
-  async sendText(str: string): Promise<void> {
-    const packet = P.text(str, this._nextSeq());
+  /** Send a text string to both lenses. curLine / totalLines populate the status bar counter. */
+  async sendText(str: string, curLine = 1, totalLines = 1): Promise<void> {
+    const packet = P.text(str, this._nextSeq(), curLine, totalLines);
     await this._sendBoth(packet);
   }
 
@@ -151,6 +156,7 @@ export class G1Core {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this._stopHeartbeat();
     this.rxSubs.L?.remove();
     this.rxSubs.R?.remove();
@@ -163,9 +169,20 @@ export class G1Core {
     // iOS prompts for BLE permission automatically on first scan (via Info.plist entries).
     // We just need to wait for the manager to reach PoweredOn state (up to 5s).
     await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('Bluetooth not powered on — check device settings')), 5000);
-      this.manager.onStateChange((state) => {
-        if (state === State.PoweredOn) { clearTimeout(t); resolve(); }
+      let settled = false;
+      const t = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        sub.remove();
+        reject(new Error('Bluetooth not powered on — check device settings'));
+      }, 5000);
+      const sub = this.manager.onStateChange((state) => {
+        if (state === State.PoweredOn && !settled) {
+          settled = true;
+          clearTimeout(t);
+          sub.remove();
+          resolve();
+        }
       }, true);
     });
   }
@@ -202,7 +219,15 @@ export class G1Core {
             }
           : { name: device.name, id: device.id };
 
-        if (isG1) console.log('[G1 DEBUG]', JSON.stringify(info, null, 2));
+        if (isG1) {
+          // Also log raw manufacturer bytes for in-case detection research
+          if (device.manufacturerData) {
+            const buf = base64ToUint8(device.manufacturerData);
+            const hex = Array.from(buf).map(b => b.toString(16).padStart(2,'0')).join(' ');
+            console.log(`[G1 MFR RAW] ${device.name} bytes[${buf.length}]: ${hex}`);
+          }
+          console.log('[G1 DEBUG]', JSON.stringify(info, null, 2));
+        }
         else       console.log('[BLE DEBUG]', device.name, `[${device.id}]`);
 
         const entry = isG1
@@ -215,17 +240,19 @@ export class G1Core {
 
   private async _scan(channel?: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const done = (fn: () => void | Promise<void>) => { if (settled) return; settled = true; fn(); };
       const found: Partial<Record<Side, Device>> = {};
       const timeout = setTimeout(() => {
         this.manager.stopDeviceScan();
-        reject(new Error('G1 glasses not found. Make sure they are on and in range.'));
+        done(() => reject(new Error('G1 glasses not found. Make sure they are on and in range.')));
       }, SCAN_TIMEOUT_MS);
 
       this.manager.startDeviceScan(
         null,
-        { allowDuplicates: false },
+        { allowDuplicates: true },
         async (error, device) => {
-          if (error) { clearTimeout(timeout); reject(error); return; }
+          if (error) { clearTimeout(timeout); done(() => reject(error)); return; }
           if (!device?.name) return;
 
           const side = this._parseSide(device);
@@ -243,14 +270,16 @@ export class G1Core {
           if (found.L && found.R) {
             clearTimeout(timeout);
             this.manager.stopDeviceScan();
-            try {
-              await this._connectLens('L', found.L!);
-              await this._connectLens('R', found.R!);
-              this._startHeartbeat();
-              resolve();
-            } catch (e) {
-              reject(e);
-            }
+            done(async () => {
+              try {
+                await this._connectLens('L', found.L!);
+                await this._connectLens('R', found.R!);
+                this._startHeartbeat();
+                resolve();
+              } catch (e) {
+                reject(e);
+              }
+            });
           }
         },
       );
@@ -313,6 +342,9 @@ export class G1Core {
     const connected = await device.connect({ autoConnect: false });
     const discovered = await connected.discoverAllServicesAndCharacteristics();
     this.devices[side] = discovered;
+    // Capture RSSI at connect time
+    if (side === 'L') this.status.left.rssi = device.rssi ?? null;
+    if (side === 'R') this.status.right.rssi = device.rssi ?? null;
 
     // Find TX characteristic (write)
     const services = await discovered.services();
@@ -326,10 +358,14 @@ export class G1Core {
         if (ch.uuid.toLowerCase() === P.UART_RX) {
           console.log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
           this.rxSubs[side]?.remove();
-          this.rxSubs[side] = discovered.monitorCharacteristicForService(
-            svc.uuid, P.UART_RX,
-            (err, char) => this._onNotify(side, err, char),
-          );
+          try {
+            this.rxSubs[side] = discovered.monitorCharacteristicForService(
+              svc.uuid, P.UART_RX,
+              (err, char) => this._onNotify(side, err, char),
+            );
+          } catch (monErr: any) {
+            console.warn(`[G1] monitor setup failed [${side}]:`, monErr?.message ?? monErr);
+          }
         }
       }
     }
@@ -353,10 +389,12 @@ export class G1Core {
   }
 
   private _scheduleReconnect(side: Side): void {
+    if (this.destroyed) return;
     const attempts = this.reconnectAttempts[side] ?? 0;
     const delay = RECONNECT_BACKOFF_MS[Math.min(attempts, RECONNECT_BACKOFF_MS.length - 1)];
     this.reconnectAttempts[side] = attempts + 1;
     setTimeout(async () => {
+      if (this.destroyed) return;
       const dev = this.devices[side];
       if (!dev) return;
       try {
@@ -370,7 +408,11 @@ export class G1Core {
   // ── Notifications ─────────────────────────────────────────────────────────
 
   private _onNotify(side: Side, error: Error | null, char: Characteristic | null): void {
-    if (error || !char?.value) return;
+    if (error) {
+      console.warn(`[G1] notify error [${side}]:`, (error as any)?.message ?? error);
+      return;
+    }
+    if (!char?.value) return;
     const data = base64ToUint8(char.value);
     if (!data.length) return;
 
@@ -400,10 +442,15 @@ export class G1Core {
     const dev = this.devices[side];
     if (!ch || !dev) return;
     const b64 = uint8ToBase64(data);
-    // writeWithoutResponse is fastest for streaming
-    await dev.writeCharacteristicWithoutResponseForService(
-      P.UART_SVC, P.UART_TX, b64,
-    );
+    try {
+      // writeWithoutResponse is fastest for streaming
+      await dev.writeCharacteristicWithoutResponseForService(
+        P.UART_SVC, P.UART_TX, b64,
+      );
+    } catch (e: any) {
+      // Device disconnected mid-write — let onDisconnected handle reconnect
+      console.warn(`[G1] _send [${side}] write failed:`, e?.message ?? e);
+    }
   }
 
   /** Send to left first, then right (per protocol ACK order). */
@@ -414,11 +461,18 @@ export class G1Core {
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
 
+  private _hbCount = 0;
+
   private _startHeartbeat(): void {
     this._stopHeartbeat();
+    this._hbCount = 0;
     this.heartbeatTimer = setInterval(async () => {
-      const packet = P.heartbeat(this._nextSeq());
-      await this._sendBoth(packet);
+      await this._sendBoth(P.heartbeat(this._nextSeq()));
+      // Poll battery every 4th heartbeat (~32s)
+      if (++this._hbCount % 4 === 0) {
+        await this._send('L', P.batteryRequest());
+        await this._send('R', P.batteryRequest());
+      }
     }, HEARTBEAT_INTERVAL_MS);
   }
 
@@ -438,8 +492,8 @@ export class G1Core {
   }
 
   private _setConnected(side: Side, connected: boolean): void {
-    if (side === 'L') this.status.left.connected = connected;
-    if (side === 'R') this.status.right.connected = connected;
+    if (side === 'L') { this.status.left.connected = connected; if (!connected) this.status.left.rssi = null; }
+    if (side === 'R') { this.status.right.connected = connected; if (!connected) this.status.right.rssi = null; }
     this.onStatusChange?.({ ...this.status });
   }
 }

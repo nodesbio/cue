@@ -108,18 +108,21 @@ export function exitToDashboard(): Uint8Array {
 
 /**
  * Single-packet text display (≤191 UTF-8 bytes).
- * Header: [4E, seq, total=1, cur=0, 71, 00, 00, cur_page=1, max_page=1] + text
+ * Header: [4E, seq, total=1, cur=0, 71, 00, 00, cur_page, max_page] + text
+ *
+ * curPage / maxPage are used by the status bar to show e.g. "▶ 14/56".
+ * For the teleprompter, pass the current line index and total line count.
  */
-export function text(str: string, seq: number): Uint8Array {
+export function text(str: string, seq: number, curPage = 1, maxPage = 1): Uint8Array {
   const encoded = new TextEncoder().encode(str).slice(0, 191);
-  const header = u8(OP_TEXT, seq & 0xff, 1, 0, NEWSCREEN_TEXT_SHOW, 0x00, 0x00, 1, 1);
+  const header = u8(OP_TEXT, seq & 0xff, 1, 0, NEWSCREEN_TEXT_SHOW, 0x00, 0x00, curPage & 0xff, maxPage & 0xff);
   return concat(header, encoded);
 }
 
 // ── Info requests ──────────────────────────────────────────────────────────
 
 export function batteryRequest(): Uint8Array {
-  return u8(OP_BATTERY, 0x02);
+  return u8(OP_BATTERY, 0x01);
 }
 
 export function firmwareInfoRequest(): Uint8Array {
@@ -176,13 +179,15 @@ export interface BatteryInfo {
   version?: string;
 }
 
+/**
+ * Parse a per-lens battery notification.
+ * Each lens sends: [2C] [status=66] [battery_pct 0-100] [voltage_hi] [voltage_lo] ...
+ * batteryLeft/Right are the same value — caller assigns to the correct side.
+ */
 export function parseBatteryInfo(resp: Uint8Array): BatteryInfo | null {
-  if (!resp || resp.length < 4 || resp[0] !== OP_BATTERY) return null;
-  const info: BatteryInfo = { batteryLeft: resp[2], batteryRight: resp[3] };
-  if (resp.length >= 13) {
-    info.version = `${resp[10]}.${resp[11]}.${resp[12]}`;
-  }
-  return info;
+  if (!resp || resp.length < 3 || resp[0] !== OP_BATTERY) return null;
+  const pct = resp[2];
+  return { batteryLeft: pct, batteryRight: pct };
 }
 
 export function parseFirmwareString(resp: Uint8Array): string | null {
