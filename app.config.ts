@@ -5,7 +5,7 @@ const config: ExpoConfig = {
   slug: 'cue-glasses',
   version: '1.0.0',
   orientation: 'portrait',
-  icon: './assets/images/icon.png',
+  icon: './assets/icon.png',
   scheme: 'cue',
   userInterfaceStyle: 'dark',
   runtimeVersion: { policy: 'fingerprint' },
@@ -30,7 +30,7 @@ const config: ExpoConfig = {
   android: {
     package: 'bio.nodes.cue',
     adaptiveIcon: {
-      foregroundImage: './assets/images/adaptive-icon.png',
+      foregroundImage: './assets/android-icon-foreground.png',
       backgroundColor: '#0a0a0a',
     },
     permissions: [
