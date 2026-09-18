@@ -134,8 +134,8 @@ export default function TeleprompterScreen() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   const connected = status?.left.connected && status?.right.connected;
-  const battL = status?.left.batteryPct ?? 0;
-  const battR = status?.right.batteryPct ?? 0;
+  const battL = status?.left.batteryPct;
+  const battR = status?.right.batteryPct;
 
   return (
     <SafeAreaView style={s.root}>
@@ -148,7 +148,7 @@ export default function TeleprompterScreen() {
           <Text style={s.title}>Cue</Text>
           <View style={s.connRow}>
             {connected ? (
-              <Text style={s.connOn}>● G1  L:{battL}%  R:{battR}%</Text>
+              <Text style={s.connOn}>● G1  L:{battL ?? '--'}{battL != null ? '%' : ''}  R:{battR ?? '--'}{battR != null ? '%' : ''}</Text>
             ) : (
               <Pressable onPress={connect} disabled={phase === 'connecting'}>
                 <Text style={s.connOff}>

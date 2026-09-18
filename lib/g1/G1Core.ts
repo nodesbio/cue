@@ -17,7 +17,7 @@ export interface LensState {
   connected: boolean;
   /** TX characteristic was discovered — lens is actually usable, not just OS-connected */
   txReady: boolean;
-  batteryPct: number;
+  batteryPct: number | null;
   rssi: number | null;
 }
 
@@ -62,8 +62,8 @@ export class G1Core {
   private destroyed = false;
 
   public status: G1Status = {
-    left:  { device: null, connected: false, txReady: false, batteryPct: 0, rssi: null },
-    right: { device: null, connected: false, txReady: false, batteryPct: 0, rssi: null },
+    left:  { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
+    right: { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
     firmwareVersion: null,
   };
 

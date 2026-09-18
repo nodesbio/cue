@@ -1,18 +1,14 @@
 /**
  * Dashboard — pushes a rich status card to the G1 HUD every 60s.
- * Shows: time, next calendar event, battery.
- * (EventKit access via expo-calendar; add to app.config.ts when needed.)
+ * Reads connection state from G1Context (single source of truth).
  */
-
+import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
-import { G1Core, G1Status } from '@/lib/g1/G1Core';
-import { Device } from 'react-native-ble-plx';
-
-const REFRESH_MS = 60_000;
+import { Keyboard, Pressable, SafeAreaView, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
+import { useG1, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
 function formatTime(): string {
-  return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 function formatDate(): string {
@@ -20,183 +16,131 @@ function formatDate(): string {
 }
 
 export default function DashboardScreen() {
-  const [status, setStatus] = useState<G1Status | null>(null);
-  const [phase, setPhase] = useState<'idle' | 'scanning' | 'picking' | 'connecting' | 'live'>('idle');
+  const router = useRouter();
+  const { core, status, disconnect, pairedSerial } = useG1();
   const [lastPush, setLastPush] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [debugDevices, setDebugDevices] = useState<string[]>([]);
-  const [availablePairs, setAvailablePairs] = useState<Record<string, Partial<Record<'L'|'R', Device>>>>({});
-  const scanCoreRef = useRef<G1Core | null>(null);
-
-  const g1 = useRef<G1Core | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function connect() {
-    setPhase('scanning');
-    setErrorMsg(null);
-    try {
-      const scanCore = new G1Core();
-      scanCoreRef.current = scanCore;
-      const pairs = await scanCore.scanPairs(8000);
-      scanCore.destroy();
-      scanCoreRef.current = null;
+  const connected = !!(status?.left.connected && status?.right.connected);
 
-      const channels = Object.keys(pairs).filter(ch => pairs[ch].L && pairs[ch].R);
-      if (channels.length === 0) {
-        const incomplete = Object.entries(pairs)
-          .map(([serial, p]) => `${serial}: ${p.L ? 'L✓' : 'L✗'} ${p.R ? 'R✓' : 'R✗'}`)
-          .join(', ');
-        throw new Error(
-          `No complete G1 pair found — put both lenses on your face and wait ~5s.\n\nSeen: ${incomplete || 'nothing'}`
-        );
-      }
-      if (channels.length === 1) {
-        await connectToChannel(channels[0]);
-      } else {
-        setAvailablePairs(pairs);
-        setPhase('picking');
-      }
-    } catch (e: any) {
-      setErrorMsg(e.message ?? 'Scan failed');
-      setPhase('idle');
+  // Push immediately on connect, then re-align to every minute boundary.
+  // e.g. connect at :47 → push now, then again at :00, :01, :02, ...
+  useEffect(() => {
+    if (!connected) {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      return;
     }
-  }
 
-  async function connectToChannel(channel: string) {
-    setPhase('connecting');
-    setErrorMsg(null);
-    try {
-      const core = new G1Core({ onStatusChange: (s) => setStatus({ ...s }) });
-      await core.connect(channel);
-      g1.current = core;
-      setPhase('live');
-      await pushDashboard();
-      timerRef.current = setInterval(pushDashboard, REFRESH_MS);
-    } catch (e: any) {
-      setErrorMsg(e.message ?? 'Connection failed');
-      setPhase('idle');
-    }
-  }
+    pushDashboard();
+
+    // Wait until the next whole minute, then tick every 60s exactly.
+    const msUntilNextMinute = 60_000 - (Date.now() % 60_000);
+    const alignTimeout = setTimeout(() => {
+      pushDashboard();
+      timerRef.current = setInterval(pushDashboard, 60_000);
+    }, msUntilNextMinute);
+
+    return () => {
+      clearTimeout(alignTimeout);
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    };
+  }, [connected]);
 
   async function pushDashboard() {
-    const core = g1.current;
-    if (!core) return;
     const time = formatTime();
     const date = formatDate();
-    const battL = status?.left.batteryPct ?? '?';
-    const battR = status?.right.batteryPct ?? '?';
-    const line = `${time}  ${date}\nL:${battL}%  R:${battR}%`;
-    await core.sendText(line);
+    const battL = status?.left.batteryPct ?? '--';
+    const battR = status?.right.batteryPct ?? '--';
+    await core.sendText(`${time}  ${date}\nL:${battL}%  R:${battR}%`);
     setLastPush(time);
   }
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      g1.current?.destroy();
-    };
-  }, []);
-
-  async function runDebugScan() {
-    setDebugDevices(['Scanning…']);
-    const core = new G1Core();
-    const devices = await core.scanDebug(8000);
-    core.destroy();
-    setDebugDevices(devices.length ? devices : ['No devices found']);
-  }
-
-  async function identifyPair(channel: string) {
-    try {
-      const core = new G1Core();
-      await core.connect(channel);
-      await core.sendText(`PAIR #${channel}`);
-      await new Promise(r => setTimeout(r, 3000));
-      core.destroy();
-    } catch (e: any) {
-      setErrorMsg(`Identify failed: ${e.message}`);
+  function handleConnectPress() {
+    if (pairedSerial) {
+      // Reconnect goes through the same pairing connecting screen so the
+      // shared core handles it — just navigate there with the known serial.
+      router.push({ pathname: '/pairing/connecting', params: { serial: pairedSerial } });
+    } else {
+      router.push('/pairing/prep');
     }
   }
 
-  const connected = status?.left.connected && status?.right.connected;
+  async function handleDisconnect() {
+    await disconnect();
+    setLastPush(null);
+  }
+
+  async function runDebugScan() {
+    setDebugDevices(['Scanning…']);
+    const devices = await core.scanDebug(8000);
+    setDebugDevices(devices.length ? devices : ['No devices found']);
+  }
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-    <SafeAreaView style={s.root}>
-      <Text style={s.title}>Dashboard</Text>
-      <Text style={s.subtitle}>Auto-pushes to G1 every minute</Text>
+      <SafeAreaView style={s.root}>
+        <Text style={s.title}>Dashboard</Text>
+        <Text style={s.subtitle}>Auto-pushes to G1 every minute</Text>
 
-      {errorMsg && <Text style={s.error}>{errorMsg}</Text>}
+        {errorMsg && <Text style={s.error}>{errorMsg}</Text>}
 
-      <View style={s.card}>
-        <Text style={s.clockLabel}>{formatTime()}</Text>
-        <Text style={s.dateLabel}>{formatDate()}</Text>
-        {connected && (
-          <Text style={s.battLabel}>
-            L: {status?.left.batteryPct}%  ·  R: {status?.right.batteryPct}%
-          </Text>
-        )}
-        {lastPush && <Text style={s.pushLabel}>Last push: {lastPush}</Text>}
-      </View>
-
-      {phase === 'picking' && (
-        <View style={s.pickerCard}>
-          <Text style={s.pickerTitle}>Multiple pairs found — tap 👁 to flash ID on lenses, then connect:</Text>
-          {Object.keys(availablePairs).filter(ch => availablePairs[ch].L && availablePairs[ch].R).map(ch => {
-            const rName = availablePairs[ch].R?.name ?? ch;
-            const label = rName.match(/G1_(\d+)_/)?.[1] ? `G1 ch${rName.match(/G1_(\d+)_/)![1]}` : `G1 ${ch}`;
-            return (
-              <View key={ch} style={s.pickerRow}>
-                <Pressable style={[s.btn, { flex: 1 }]} onPress={() => connectToChannel(ch)}>
-                  <Text style={s.btnText}>{label}  ·  {ch}</Text>
-                </Pressable>
-                <Pressable style={s.identifyBtn} onPress={() => identifyPair(ch)}>
-                  <Text style={s.btnText}>👁</Text>
-                </Pressable>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      <View style={s.btnRow}>
-        {(phase === 'idle' || phase === 'scanning' || phase === 'connecting') && (
-          <Pressable style={s.btn} onPress={connect} disabled={phase === 'scanning' || phase === 'connecting'}>
-            <Text style={s.btnText}>
-              {phase === 'scanning' ? 'Scanning…' : phase === 'connecting' ? 'Connecting…' : '● Start Dashboard'}
+        <View style={s.card}>
+          <Text style={s.clockLabel}>{formatTime()}</Text>
+          <Text style={s.dateLabel}>{formatDate()}</Text>
+          {connected && (
+            <Text style={s.battLabel}>
+              L: {status?.left.batteryPct ?? '--'}{status?.left.batteryPct != null ? '%' : ''}  ·  R: {status?.right.batteryPct ?? '--'}{status?.right.batteryPct != null ? '%' : ''}
             </Text>
-          </Pressable>
-        )}
-        {phase === 'live' && (
-          <>
-            <Pressable style={s.btn} onPress={pushDashboard}>
-              <Text style={s.btnText}>↺  Refresh Now</Text>
+          )}
+          {connected && (status?.left.rssi != null || status?.right.rssi != null) && (
+            <Text style={s.battLabel}>
+              {status?.left.rssi != null ? `L: ${status.left.rssi} dBm` : ''}
+              {status?.left.rssi != null && status?.right.rssi != null ? '  ·  ' : ''}
+              {status?.right.rssi != null ? `R: ${status.right.rssi} dBm` : ''}
+            </Text>
+          )}
+          {lastPush && <Text style={s.pushLabel}>Last push: {lastPush}</Text>}
+        </View>
+
+        <View style={s.btnRow}>
+          {!connected && (
+            <Pressable style={s.btn} onPress={handleConnectPress}>
+              <Text style={s.btnText}>
+                {pairedSerial ? `● Reconnect G1 · ${pairedSerial}` : '● Pair G1 Glasses'}
+              </Text>
             </Pressable>
+          )}
+          {!connected && pairedSerial && (
             <Pressable
               style={[s.btn, s.btnSecondary]}
-              onPress={() => {
-                if (timerRef.current) clearInterval(timerRef.current);
-                g1.current?.destroy();
-                g1.current = null;
-                setPhase('idle');
-              }}
+              onPress={() => router.push('/pairing/prep')}
             >
-              <Text style={[s.btnText, { color: '#fff' }]}>Disconnect</Text>
+              <Text style={[s.btnText, { color: '#888' }]}>⊕ Pair a different G1</Text>
             </Pressable>
-          </>
-        )}
-      </View>
+          )}
+          {connected && (
+            <>
+              <Pressable style={s.btn} onPress={pushDashboard}>
+                <Text style={s.btnText}>↺  Refresh Now</Text>
+              </Pressable>
+              <Pressable style={[s.btn, s.btnSecondary]} onPress={handleDisconnect}>
+                <Text style={[s.btnText, { color: '#fff' }]}>Disconnect</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
 
-      <Pressable style={[s.btn, { marginTop: 16, backgroundColor: '#1e1e1e' }]} onPress={runDebugScan}>
-        <Text style={[s.btnText, { color: '#888' }]}>🔍 Debug: Scan All BLE</Text>
-      </Pressable>
-      {debugDevices.map((d, i) => (
-        <Text key={i} style={{ color: '#666', fontSize: 11, marginTop: 4 }}>{d}</Text>
-      ))}
+        <Pressable style={[s.btn, { marginTop: 16, backgroundColor: '#1e1e1e' }]} onPress={runDebugScan}>
+          <Text style={[s.btnText, { color: '#888' }]}>🔍 Debug: Scan All BLE</Text>
+        </Pressable>
+        {debugDevices.map((d, i) => (
+          <Text key={i} style={s.debugText}>{d}</Text>
+        ))}
 
-      <Text style={s.hint}>
-        Calendar integration coming in v1.1
-      </Text>
-    </SafeAreaView>
+        <Text style={s.hint}>Calendar integration coming in v1.1</Text>
+      </SafeAreaView>
     </TouchableWithoutFeedback>
   );
 }
@@ -214,10 +158,7 @@ const s = StyleSheet.create({
   btnRow:      { gap: 12 },
   btn:         { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   btnSecondary:{ backgroundColor: '#1e1e1e' },
-  pickerCard:   { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, marginBottom: 12, gap: 8 },
-  pickerTitle:  { color: '#aaa', fontSize: 13, marginBottom: 4 },
-  pickerRow:    { flexDirection: 'row', gap: 8 },
-  identifyBtn:  { backgroundColor: '#2a2a2a', borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center' },
   btnText:     { fontSize: 16, fontWeight: '600', color: '#000' },
+  debugText:   { color: '#666', fontSize: 11, marginTop: 4 },
   hint:        { textAlign: 'center', color: '#2a2a2a', fontSize: 12, marginTop: 'auto', paddingBottom: 16 },
 });
