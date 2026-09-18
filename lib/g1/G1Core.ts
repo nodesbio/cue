@@ -268,11 +268,10 @@ export class G1Core {
   private _parseManufacturerData(device: Device): { side: Side; serial: string; firmware: string } | null {
     if (device.manufacturerData) {
       try {
-        const buf = Buffer.from(device.manufacturerData, 'base64');
-        const sidebyte = buf[0];
-        const side: Side = sidebyte === 0x02 ? 'L' : 'R';
-        const firmware = buf.slice(2, 8).toString('ascii').replace(/\0/g, '');
-        const serial   = buf.slice(8, 15).toString('ascii').replace(/\0/g, '');
+        const buf = base64ToUint8(device.manufacturerData);
+        const side: Side = buf[0] === 0x02 ? 'L' : 'R';
+        const firmware = String.fromCharCode(...buf.slice(2, 8)).replace(/\0/g, '');
+        const serial   = String.fromCharCode(...buf.slice(8, 15)).replace(/\0/g, '');
         if (serial.length > 0) return { side, serial, firmware };
       } catch {}
     }
