@@ -148,13 +148,14 @@ export default function DashboardScreen() {
       )}
 
       <View style={s.btnRow}>
-        {phase !== 'live' && phase !== 'picking' ? (
+        {(phase === 'idle' || phase === 'scanning' || phase === 'connecting') && (
           <Pressable style={s.btn} onPress={connect} disabled={phase === 'scanning' || phase === 'connecting'}>
             <Text style={s.btnText}>
               {phase === 'scanning' ? 'Scanning…' : phase === 'connecting' ? 'Connecting…' : '● Start Dashboard'}
             </Text>
           </Pressable>
-        ) : phase === 'live' ? (
+        )}
+        {phase === 'live' && (
           <>
             <Pressable style={s.btn} onPress={pushDashboard}>
               <Text style={s.btnText}>↺  Refresh Now</Text>
@@ -171,7 +172,7 @@ export default function DashboardScreen() {
               <Text style={[s.btnText, { color: '#fff' }]}>Disconnect</Text>
             </Pressable>
           </>
-        ) : null}
+        )}
       </View>
 
       <Pressable style={[s.btn, { marginTop: 16, backgroundColor: '#1e1e1e' }]} onPress={runDebugScan}>
