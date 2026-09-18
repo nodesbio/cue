@@ -282,7 +282,6 @@ export class G1Core {
   // ── Notifications ─────────────────────────────────────────────────────────
 
   private _onNotify(side: Side, error: Error | null, char: Characteristic | null): void {
-    console.log(`[G1] notify [${side}] err=${error?.message} hasChar=${!!char}`);
     if (error || !char?.value) return;
     const data = base64ToUint8(char.value);
     if (!data.length) return;
@@ -297,9 +296,8 @@ export class G1Core {
 
     if (op === P.OP_BATTERY) {
       console.log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
-      // Each glass reports its own level. We'll read resp[1] as the level until
-      // we confirm the real layout from the raw log above.
-      const level = data[1] ?? 0;
+      // resp[2] = battery % (confirmed from raw log). Each glass reports its own.
+      const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
       if (side === 'R') this.status.right.batteryPct = level;
       this.onStatusChange?.(this.status);
