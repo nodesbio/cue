@@ -1,261 +1,324 @@
 /**
- * Teleprompter — paste text, set speed, scroll to G1 HUD.
- * Temple tap (single_tap) → pause / resume.
- * Temple double-tap → exit to G1 dashboard.
+ * teleprompter.tsx — Teleprompter mode screen.
+ *
+ * Wires TeleprompterEngine to the G1 glasses and shows a phone-side
+ * preview of the rolling window with full playback controls.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { G1Core, G1Status } from '@/lib/g1/G1Core';
-import { G1Event } from '@/lib/g1/packets';
+import Slider from '@react-native-community/slider';
+import { useG1 } from '@/lib/g1/G1Context';
+import {
+  TeleprompterEngine,
+  EngineSnapshot,
+  SPEED_SLOW,
+  SPEED_NORMAL,
+  SPEED_FAST,
+} from '@/lib/teleprompter/TeleprompterEngine';
 
-// ── How many chars to push per "tick" ─────────────────────────────────────
-const CHARS_PER_SEGMENT = 160; // fits one G1 screen comfortably
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-type Phase = 'idle' | 'connecting' | 'ready' | 'playing' | 'paused' | 'done';
+function speedLabel(s: number): string {
+  if (s >= SPEED_SLOW)   return 'Slow';
+  if (s <= SPEED_FAST)   return 'Fast';
+  return 'Normal';
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
 
 export default function TeleprompterScreen() {
-  const [text, setText] = useState('');
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [scrollPct, setScrollPct] = useState(0);      // 0–100 progress
-  const [wpm, setWpm] = useState(120);                 // approx reading speed
-  const [status, setStatus] = useState<G1Status | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { core, isConnected: connected, isPartiallyConnected: partiallyConnected } = useG1();
 
-  const g1 = useRef<G1Core | null>(null);
-  const segmentIndex = useRef(0);
-  const segments = useRef<string[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Engine lives in a ref — stable across renders, no remounting
+  const engineRef = useRef<TeleprompterEngine | null>(null);
 
-  // ms per segment based on WPM (avg 5 chars/word)
-  const msPerSegment = useCallback(() => {
-    const words = CHARS_PER_SEGMENT / 5;
-    return Math.round((words / wpm) * 60_000);
-  }, [wpm]);
+  const [snap, setSnap] = useState<EngineSnapshot | null>(null);
+  const [scriptText, setScriptText] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [loop, setLoop] = useState(false);
 
-  // ── G1 event handler ──────────────────────────────────────────────────────
-  const handleEvent = useCallback((event: G1Event) => {
-    if (event.name === 'single_tap') {
-      setPhase(prev => {
-        if (prev === 'playing') { _pause(); return 'paused'; }
-        if (prev === 'paused')  { _resume(); return 'playing'; }
-        return prev;
-      });
-    }
-    if (event.name === 'double_tap') {
-      _stop();
-    }
-  }, []);
-
-  // ── Connect ───────────────────────────────────────────────────────────────
-  async function connect() {
-    setPhase('connecting');
-    setErrorMsg(null);
-    try {
-      const core = new G1Core({
-        onEvent: handleEvent,
-        onStatusChange: (s) => setStatus({ ...s }),
-      });
-      await core.connect();
-      g1.current = core;
-      setPhase('ready');
-    } catch (e: any) {
-      setErrorMsg(e.message ?? 'Connection failed');
-      setPhase('idle');
-    }
-  }
-
-  // ── Scroll control ────────────────────────────────────────────────────────
-  function buildSegments(raw: string): string[] {
-    const segs: string[] = [];
-    for (let i = 0; i < raw.length; i += CHARS_PER_SEGMENT) {
-      segs.push(raw.slice(i, i + CHARS_PER_SEGMENT).trim());
-    }
-    return segs.filter(Boolean);
-  }
-
-  async function _pushNextSegment() {
-    const core = g1.current;
-    if (!core) return;
-    const idx = segmentIndex.current;
-    const segs = segments.current;
-    if (idx >= segs.length) {
-      setPhase('done');
-      return;
-    }
-    await core.sendText(segs[idx]);
-    segmentIndex.current = idx + 1;
-    setScrollPct(Math.round(((idx + 1) / segs.length) * 100));
-    timerRef.current = setTimeout(_pushNextSegment, msPerSegment());
-  }
-
-  function _pause() {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }
-
-  function _resume() {
-    _pushNextSegment();
-  }
-
-  function _stop() {
-    _pause();
-    segmentIndex.current = 0;
-    setScrollPct(0);
-    setPhase('ready');
-    g1.current?.exitToDashboard();
-  }
-
-  async function startScroll() {
-    if (!g1.current || !text.trim()) return;
-    segments.current = buildSegments(text);
-    segmentIndex.current = 0;
-    setScrollPct(0);
-    setPhase('playing');
-    await _pushNextSegment();
-  }
-
-  // ── Cleanup ───────────────────────────────────────────────────────────────
+  // Initialise engine once
   useEffect(() => {
-    return () => {
-      _pause();
-      g1.current?.destroy();
-    };
+    const engine = new TeleprompterEngine({
+      onFrame: (frame, curLine, totalLines) => {
+        if (connected) {
+          core.sendText(frame, curLine, totalLines).catch(() => {});
+        }
+      },
+      onStateChange: (s) => setSnap({ ...s }),
+    });
+    engineRef.current = engine;
+    setSnap(engine.getSnapshot());
+
+    return () => engine.destroy();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-send on reconnect (glasses may have restarted)
+  useEffect(() => {
+    if (connected && snap) {
+      core.sendText(snap.frame, snap.topIndex + 1, snap.totalLines).catch(() => {});
+    }
+  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleLoad = useCallback(() => {
+    if (!scriptText.trim()) return;
+    engineRef.current?.loadScript(scriptText);
+    setEditMode(false);
+    Keyboard.dismiss();
+  }, [scriptText]);
+
+  const handleToggle = useCallback(() => engineRef.current?.toggle(), []);
+  const handleNext   = useCallback(() => engineRef.current?.next(),   []);
+  const handlePrev   = useCallback(() => engineRef.current?.prev(),   []);
+
+  const handleSpeed = useCallback((val: number) => {
+    // Slider goes left=slow (4.5) to right=fast (2.5) — invert
+    engineRef.current?.setSpeed(val);
   }, []);
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  const connected = status?.left.connected && status?.right.connected;
-  const battL = status?.left.batteryPct;
-  const battR = status?.right.batteryPct;
+  const handleLoop = useCallback(() => {
+    const next = !loop;
+    setLoop(next);
+    engineRef.current?.setLoop(next);
+  }, [loop]);
+
+  if (!snap) return null;
+
+  const playing = snap.state === 'playing';
+  const ended   = snap.state === 'ended';
+  const hasScript = snap.totalLines > 0;
+
+  // Phone-side preview: show the current 5-line frame
+  const frameLines = snap.frame.split('\n');
 
   return (
-    <SafeAreaView style={s.root}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        {/* Header */}
-        <View style={s.header}>
-          <Text style={s.title}>Cue</Text>
-          <View style={s.connRow}>
-            {connected ? (
-              <Text style={s.connOn}>● G1  L:{battL ?? '--'}{battL != null ? '%' : ''}  R:{battR ?? '--'}{battR != null ? '%' : ''}</Text>
-            ) : (
-              <Pressable onPress={connect} disabled={phase === 'connecting'}>
-                <Text style={s.connOff}>
-                  {phase === 'connecting' ? 'Connecting…' : '○ Connect G1'}
-                </Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <SafeAreaView style={s.root}>
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+
+          {/* ── Header ───────────────────────────────────────────────── */}
+          <Text style={s.title}>Teleprompter</Text>
+          <Text style={[s.subtitle,
+            connected ? { color: '#4ade80' } :
+            partiallyConnected ? { color: '#f59e0b' } : {}]}>
+            {connected
+              ? '● Connected'
+              : partiallyConnected
+              ? '◑ Half-connected — forget & re-pair in iOS Settings'
+              : '○ Not connected — controls still work'}
+          </Text>
+
+          {/* ── HUD Preview ──────────────────────────────────────────── */}
+          <View style={s.hudCard}>
+            <Text style={s.hudLabel}>G1 DISPLAY</Text>
+            {frameLines.map((line, i) => (
+              <Text
+                key={i}
+                style={[
+                  s.hudLine,
+                  i === 0 && s.hudStatus,
+                  i === 3 && s.hudActive, // line 4 = reading anchor
+                ]}
+                numberOfLines={1}
+              >
+                {line || ' '}
+              </Text>
+            ))}
+          </View>
+
+          {/* ── Progress ─────────────────────────────────────────────── */}
+          {hasScript && (
+            <View style={s.progressRow}>
+              <Text style={s.progressText}>
+                Line {snap.topIndex + 1} / {snap.totalLines}
+              </Text>
+              <View style={s.progressBar}>
+                <View
+                  style={[
+                    s.progressFill,
+                    { width: `${((snap.topIndex + 1) / snap.totalLines) * 100}%` },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
+
+          {/* ── Playback Controls ─────────────────────────────────────── */}
+          <View style={s.controlRow}>
+            <Pressable style={[s.ctrlBtn, s.ctrlSecondary]} onPress={handlePrev} disabled={!hasScript}>
+              <Text style={s.ctrlIcon}>←</Text>
+            </Pressable>
+
+            <Pressable
+              style={[s.ctrlBtn, s.ctrlPrimary, !hasScript && s.ctrlDisabled]}
+              onPress={handleToggle}
+              disabled={!hasScript}
+            >
+              <Text style={s.ctrlPlayIcon}>{playing ? '⏸' : '▶'}</Text>
+            </Pressable>
+
+            <Pressable style={[s.ctrlBtn, s.ctrlSecondary]} onPress={handleNext} disabled={!hasScript}>
+              <Text style={s.ctrlIcon}>→</Text>
+            </Pressable>
+          </View>
+
+          {ended && (
+            <Pressable style={s.restartBtn} onPress={() => engineRef.current?.restart()}>
+              <Text style={s.restartText}>↺  Restart from top</Text>
+            </Pressable>
+          )}
+
+          {/* ── Speed Slider ─────────────────────────────────────────── */}
+          <View style={s.speedCard}>
+            <View style={s.speedHeader}>
+              <Text style={s.speedLabel}>Speed</Text>
+              <Text style={s.speedValue}>{speedLabel(snap.secondsPerLine)}</Text>
+            </View>
+            <Slider
+              style={s.slider}
+              minimumValue={SPEED_FAST}    // 2.5s  (right = fast)
+              maximumValue={SPEED_SLOW}    // 4.5s  (left  = slow)
+              value={snap.secondsPerLine === Infinity ? SPEED_NORMAL : snap.secondsPerLine}
+              onValueChange={handleSpeed}
+              minimumTrackTintColor="#ffffff"
+              maximumTrackTintColor="#333"
+              thumbTintColor="#ffffff"
+              // Invert so left = slow, right = fast (feels natural)
+              inverted
+            />
+            <View style={s.speedTicks}>
+              <Text style={s.speedTick}>Slow</Text>
+              <Text style={s.speedTick}>Normal</Text>
+              <Text style={s.speedTick}>Fast</Text>
+            </View>
+          </View>
+
+          {/* ── Loop Toggle ──────────────────────────────────────────── */}
+          <Pressable style={s.loopRow} onPress={handleLoop}>
+            <View style={[s.toggle, loop && s.toggleOn]}>
+              <View style={[s.toggleThumb, loop && s.toggleThumbOn]} />
+            </View>
+            <Text style={s.loopLabel}>Repeat automatically</Text>
+          </Pressable>
+
+          {/* ── Script Editor ─────────────────────────────────────────── */}
+          <View style={s.scriptSection}>
+            <View style={s.scriptHeader}>
+              <Text style={s.sectionTitle}>Script</Text>
+              <Pressable onPress={() => setEditMode(e => !e)}>
+                <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Edit'}</Text>
               </Pressable>
+            </View>
+
+            {editMode ? (
+              <>
+                <TextInput
+                  style={s.scriptInput}
+                  multiline
+                  autoFocus
+                  value={scriptText}
+                  onChangeText={setScriptText}
+                  placeholder="Paste or type your script here…"
+                  placeholderTextColor="#444"
+                  textAlignVertical="top"
+                />
+                <Pressable
+                  style={[s.loadBtn, !scriptText.trim() && s.ctrlDisabled]}
+                  onPress={handleLoad}
+                  disabled={!scriptText.trim()}
+                >
+                  <Text style={s.loadBtnText}>Load Script →</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Text style={s.scriptPreview} numberOfLines={4}>
+                {scriptText || '(using default script — tap Edit to load your own)'}
+              </Text>
             )}
           </View>
-        </View>
 
-        {errorMsg && (
-          <Text style={s.error}>{errorMsg}</Text>
-        )}
-
-        {/* Text input */}
-        <TextInput
-          style={s.input}
-          multiline
-          placeholder="Paste your text here…"
-          placeholderTextColor="#444"
-          value={text}
-          onChangeText={setText}
-          editable={phase !== 'playing'}
-          scrollEnabled
-        />
-
-        {/* Speed + progress */}
-        <View style={s.controls}>
-          <View style={s.wpmRow}>
-            <Pressable onPress={() => setWpm(w => Math.max(40, w - 20))} style={s.wpmBtn}>
-              <Text style={s.wpmBtnText}>−</Text>
-            </Pressable>
-            <Text style={s.wpmLabel}>{wpm} WPM</Text>
-            <Pressable onPress={() => setWpm(w => Math.min(400, w + 20))} style={s.wpmBtn}>
-              <Text style={s.wpmBtnText}>+</Text>
-            </Pressable>
-          </View>
-
-          {(phase === 'playing' || phase === 'paused' || phase === 'done') && (
-            <View style={s.progressBar}>
-              <View style={[s.progressFill, { width: `${scrollPct}%` }]} />
-            </View>
-          )}
-        </View>
-
-        {/* Action button */}
-        <View style={s.actionRow}>
-          {(phase === 'idle' || phase === 'ready') && (
-            <Pressable
-              style={[s.btn, (!connected || !text.trim()) && s.btnDisabled]}
-              onPress={startScroll}
-              disabled={!connected || !text.trim()}
-            >
-              <Text style={s.btnText}>▶  Start</Text>
-            </Pressable>
-          )}
-          {phase === 'playing' && (
-            <Pressable style={s.btn} onPress={() => { _pause(); setPhase('paused'); }}>
-              <Text style={s.btnText}>⏸  Pause</Text>
-            </Pressable>
-          )}
-          {phase === 'paused' && (
-            <View style={s.btnGroup}>
-              <Pressable style={s.btn} onPress={() => { _resume(); setPhase('playing'); }}>
-                <Text style={s.btnText}>▶  Resume</Text>
-              </Pressable>
-              <Pressable style={[s.btn, s.btnSecondary]} onPress={_stop}>
-                <Text style={s.btnText}>■  Stop</Text>
-              </Pressable>
-            </View>
-          )}
-          {phase === 'done' && (
-            <Pressable style={[s.btn, s.btnSecondary]} onPress={_stop}>
-              <Text style={s.btnText}>↺  Reset</Text>
-            </Pressable>
-          )}
-        </View>
-
-        <Text style={s.hint}>
-          Temple tap — pause/resume  ·  Double tap — exit
-        </Text>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </TouchableWithoutFeedback>
   );
 }
 
+// ── Styles ─────────────────────────────────────────────────────────────────
+
 const s = StyleSheet.create({
-  root:        { flex: 1, backgroundColor: '#0a0a0a' },
-  header:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
-  title:       { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: 1 },
-  connRow:     {},
-  connOn:      { color: '#4ade80', fontSize: 12 },
-  connOff:     { color: '#888', fontSize: 12 },
-  error:       { color: '#f87171', fontSize: 13, marginHorizontal: 20, marginBottom: 8 },
-  input:       { flex: 1, marginHorizontal: 16, padding: 14, backgroundColor: '#141414', borderRadius: 10, color: '#fff', fontSize: 16, lineHeight: 24, textAlignVertical: 'top' },
-  controls:    { paddingHorizontal: 20, paddingVertical: 12 },
-  wpmRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 },
-  wpmBtn:      { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1e1e1e', alignItems: 'center', justifyContent: 'center' },
-  wpmBtnText:  { color: '#fff', fontSize: 20, fontWeight: '300' },
-  wpmLabel:    { color: '#aaa', fontSize: 15, width: 90, textAlign: 'center' },
-  progressBar: { height: 3, backgroundColor: '#222', borderRadius: 2, marginTop: 12 },
-  progressFill:{ height: 3, backgroundColor: '#ffffff', borderRadius: 2 },
-  actionRow:   { paddingHorizontal: 20, paddingBottom: 8 },
-  btnGroup:    { flexDirection: 'row', gap: 12 },
-  btn:         { flex: 1, backgroundColor: '#fff', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
-  btnSecondary:{ backgroundColor: '#1e1e1e' },
-  btnDisabled: { opacity: 0.3 },
-  btnText:     { fontSize: 16, fontWeight: '600', color: '#000' },
-  hint:        { textAlign: 'center', color: '#333', fontSize: 11, paddingBottom: 8 },
+  root:             { flex: 1, backgroundColor: '#0a0a0a' },
+  scroll:           { paddingHorizontal: 20, paddingBottom: 40 },
+
+  title:            { color: '#fff', fontSize: 28, fontWeight: '700', marginTop: 20 },
+  subtitle:         { color: '#555', fontSize: 13, marginTop: 4, marginBottom: 24 },
+
+  // HUD preview
+  hudCard:          { backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20, marginBottom: 20,
+                       borderWidth: 1, borderColor: '#1a3a1a' },
+  hudLabel:         { color: '#1a4a1a', fontSize: 10, fontWeight: '700', letterSpacing: 2,
+                       marginBottom: 12 },
+  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 13, lineHeight: 22 },
+  hudStatus:        { color: '#4ade80', fontWeight: '600' },
+  hudActive:        { color: '#86efac', backgroundColor: '#0f2a0f', borderRadius: 4,
+                       paddingHorizontal: 4 },
+
+  // Progress
+  progressRow:      { marginBottom: 20, gap: 8 },
+  progressText:     { color: '#555', fontSize: 12 },
+  progressBar:      { height: 2, backgroundColor: '#1e1e1e', borderRadius: 1 },
+  progressFill:     { height: 2, backgroundColor: '#22c55e', borderRadius: 1 },
+
+  // Controls
+  controlRow:       { flexDirection: 'row', gap: 12, marginBottom: 20, justifyContent: 'center' },
+  ctrlBtn:          { borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  ctrlPrimary:      { backgroundColor: '#fff', width: 72, height: 72 },
+  ctrlSecondary:    { backgroundColor: '#1e1e1e', width: 56, height: 56 },
+  ctrlDisabled:     { opacity: 0.3 },
+  ctrlPlayIcon:     { fontSize: 28 },
+  ctrlIcon:         { fontSize: 22, color: '#fff' },
+
+  restartBtn:       { alignSelf: 'center', marginBottom: 20, paddingVertical: 10, paddingHorizontal: 24,
+                       backgroundColor: '#1e1e1e', borderRadius: 12 },
+  restartText:      { color: '#888', fontSize: 14 },
+
+  // Speed
+  speedCard:        { backgroundColor: '#141414', borderRadius: 16, padding: 20, marginBottom: 16 },
+  speedHeader:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  speedLabel:       { color: '#888', fontSize: 13 },
+  speedValue:       { color: '#fff', fontSize: 13, fontWeight: '600' },
+  slider:           { width: '100%', height: 40 },
+  speedTicks:       { flexDirection: 'row', justifyContent: 'space-between' },
+  speedTick:        { color: '#333', fontSize: 11 },
+
+  // Loop toggle
+  loopRow:          { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 28 },
+  toggle:           { width: 44, height: 26, borderRadius: 13, backgroundColor: '#1e1e1e',
+                       justifyContent: 'center', paddingHorizontal: 3 },
+  toggleOn:         { backgroundColor: '#22c55e' },
+  toggleThumb:      { width: 20, height: 20, borderRadius: 10, backgroundColor: '#555' },
+  toggleThumbOn:    { backgroundColor: '#fff', alignSelf: 'flex-end' },
+  loopLabel:        { color: '#888', fontSize: 14 },
+
+  // Script editor
+  scriptSection:    { gap: 12 },
+  scriptHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionTitle:     { color: '#fff', fontSize: 18, fontWeight: '600' },
+  editToggle:       { color: '#22c55e', fontSize: 14 },
+  scriptInput:      { backgroundColor: '#141414', borderRadius: 12, padding: 16, color: '#fff',
+                       fontSize: 14, lineHeight: 22, minHeight: 180 },
+  scriptPreview:    { color: '#444', fontSize: 13, lineHeight: 20 },
+  loadBtn:          { backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 14,
+                       alignItems: 'center', marginTop: 4 },
+  loadBtnText:      { color: '#000', fontSize: 16, fontWeight: '700' },
 });

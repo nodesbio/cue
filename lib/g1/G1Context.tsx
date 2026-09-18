@@ -17,6 +17,10 @@ interface G1ContextValue {
   /** The shared core — use for sendText, sendBmp, etc. */
   core: G1Core;
   status: G1Status | null;
+  /** Both lenses TX-ready and usable. */
+  isConnected: boolean;
+  /** OS reports connected but UART not yet ready (half-bonded). */
+  isPartiallyConnected: boolean;
   /** Connect to a specific serial (from pairing scan). */
   connect: (serial: string) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -62,8 +66,10 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.removeItem(PAIRED_SERIAL_KEY).catch(() => {});
   }
 
+  const core = coreRef.current;
+
   return (
-    <G1Context.Provider value={{ core: coreRef.current, status, connect, disconnect, pairedSerial }}>
+    <G1Context.Provider value={{ core, status, isConnected: core.isConnected, isPartiallyConnected: core.isPartiallyConnected, connect, disconnect, pairedSerial }}>
       {children}
     </G1Context.Provider>
   );

@@ -17,13 +17,11 @@ function formatDate(): string {
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { core, status, disconnect, pairedSerial } = useG1();
+  const { core, status, isConnected: connected, disconnect, pairedSerial } = useG1();
   const [lastPush, setLastPush] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [debugDevices, setDebugDevices] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const connected = !!(status?.left.connected && status?.right.connected);
 
   // Push immediately on connect, then re-align to every minute boundary.
   // e.g. connect at :47 → push now, then again at :00, :01, :02, ...
