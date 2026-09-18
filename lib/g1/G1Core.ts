@@ -74,10 +74,7 @@ export class G1Core {
   // ── Public API ────────────────────────────────────────────────────────────
 
   async connect(): Promise<void> {
-    const bleState = await this.manager.state();
-    if (bleState !== State.PoweredOn) {
-      throw new Error(`Bluetooth not ready: ${bleState}`);
-    }
+    await this._ensureBleReady();
     await this._scan();
   }
 
@@ -134,8 +131,22 @@ export class G1Core {
 
   // ── Scanning ──────────────────────────────────────────────────────────────
 
+  private async _ensureBleReady(): Promise<void> {
+    // Request permission (iOS 13+ / Android 12+)
+    const granted = await this.manager.requestPermissions();
+    if (!granted) throw new Error('Bluetooth permission denied');
+    // Wait for BLE to power on (up to 5s)
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('Bluetooth not powered on')), 5000);
+      this.manager.onStateChange((state) => {
+        if (state === State.PoweredOn) { clearTimeout(t); resolve(); }
+      }, true);
+    });
+  }
+
   /** Scan all BLE devices (no filter) and log names — for debugging. */
   async scanDebug(durationMs = 8000): Promise<string[]> {
+    await this._ensureBleReady();
     const found: string[] = [];
     return new Promise((resolve) => {
       const t = setTimeout(() => {
