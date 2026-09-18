@@ -4,7 +4,7 @@
  * Port of g1core/core.py (EvenBridge).
  */
 
-import { BleManager, Device, State, Characteristic, Subscription } from 'react-native-ble-plx';
+import { BleManager, Device, State, Characteristic, Subscription, BleError, BleErrorCode } from 'react-native-ble-plx';
 import { encode as btoa } from 'base-64';
 import * as P from './packets';
 
@@ -421,7 +421,21 @@ export class G1Core {
 
   private _onNotify(side: Side, error: Error | null, char: Characteristic | null): void {
     if (error) {
-      console.warn(`[G1] notify error [${side}]:`, (error as any)?.message ?? error);
+      const bleErr = error as BleError;
+      const isDisconnect =
+        bleErr.errorCode === BleErrorCode.DeviceDisconnected ||
+        bleErr.errorCode === BleErrorCode.OperationCancelled;
+      if (isDisconnect) {
+        // Monitor subscription is dead — ensure state is cleaned up immediately
+        // (onDisconnected will fire too, but this closes the gap)
+        this._setConnected(side, false);
+        this.txChars[side] = undefined;
+        return; // not an unexpected error — don't log
+      }
+      console.warn(
+        `[G1] notify error [${side}] code=${bleErr.errorCode} reason=${bleErr.reason ?? '—'}:`,
+        bleErr.message,
+      );
       return;
     }
     if (!char?.value) return;
@@ -442,7 +456,7 @@ export class G1Core {
       const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
       if (side === 'R') this.status.right.batteryPct = level;
-      this.onStatusChange?.(this.status);
+      this.onStatusChange?.({ left: { ...this.status.left }, right: { ...this.status.right } });
       return;
     }
   }
@@ -460,8 +474,13 @@ export class G1Core {
         P.UART_SVC, P.UART_TX, b64,
       );
     } catch (e: any) {
-      // Device disconnected mid-write — let onDisconnected handle reconnect
-      console.warn(`[G1] _send [${side}] write failed:`, e?.message ?? e);
+      // Suppress disconnect-during-write noise — onDisconnected handles reconnect
+      const code = (e as BleError)?.errorCode;
+      if (code === BleErrorCode.DeviceDisconnected || code === BleErrorCode.OperationCancelled) return;
+      console.warn(
+        `[G1] _send [${side}] write failed code=${code ?? '?'} reason=${(e as BleError)?.reason ?? '—'}:`,
+        e?.message ?? e,
+      );
     }
   }
 
@@ -512,6 +531,9 @@ export class G1Core {
       this.status.right.connected = connected;
       if (!connected) { this.status.right.rssi = null; this.status.right.txReady = false; }
     }
-    this.onStatusChange?.({ ...this.status });
+    this.onStatusChange?.({
+      left:  { ...this.status.left },
+      right: { ...this.status.right },
+    });
   }
 }
