@@ -15,6 +15,8 @@ export type Side = 'L' | 'R';
 export interface LensState {
   device: Device | null;
   connected: boolean;
+  /** TX characteristic was discovered — lens is actually usable, not just OS-connected */
+  txReady: boolean;
   batteryPct: number;
   rssi: number | null;
 }
@@ -60,8 +62,8 @@ export class G1Core {
   private destroyed = false;
 
   public status: G1Status = {
-    left:  { device: null, connected: false, batteryPct: 0, rssi: null },
-    right: { device: null, connected: false, batteryPct: 0, rssi: null },
+    left:  { device: null, connected: false, txReady: false, batteryPct: 0, rssi: null },
+    right: { device: null, connected: false, txReady: false, batteryPct: 0, rssi: null },
     firmwareVersion: null,
   };
 
@@ -122,8 +124,15 @@ export class G1Core {
     }
   }
 
+  /** Both lenses OS-connected AND UART TX characteristic discovered (actually usable). */
   get isConnected(): boolean {
-    return !!(this.status.left.connected && this.status.right.connected);
+    return !!(this.status.left.txReady && this.status.right.txReady);
+  }
+
+  /** OS reports connected but TX not ready — partial/half-bonded state. */
+  get isPartiallyConnected(): boolean {
+    const l = this.status.left; const r = this.status.right;
+    return (l.connected || r.connected) && !this.isConnected;
   }
 
   /** Send a text string to both lenses. curLine / totalLines populate the status bar counter. */
@@ -354,6 +363,9 @@ export class G1Core {
       for (const ch of chars) {
         if (ch.uuid.toLowerCase() === P.UART_TX) {
           this.txChars[side] = ch;
+          // Mark lens as actually usable (not just OS-connected)
+          if (side === 'L') this.status.left.txReady = true;
+          if (side === 'R') this.status.right.txReady = true;
         }
         if (ch.uuid.toLowerCase() === P.UART_RX) {
           console.log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
@@ -492,8 +504,14 @@ export class G1Core {
   }
 
   private _setConnected(side: Side, connected: boolean): void {
-    if (side === 'L') { this.status.left.connected = connected; if (!connected) this.status.left.rssi = null; }
-    if (side === 'R') { this.status.right.connected = connected; if (!connected) this.status.right.rssi = null; }
+    if (side === 'L') {
+      this.status.left.connected = connected;
+      if (!connected) { this.status.left.rssi = null; this.status.left.txReady = false; }
+    }
+    if (side === 'R') {
+      this.status.right.connected = connected;
+      if (!connected) { this.status.right.rssi = null; this.status.right.txReady = false; }
+    }
     this.onStatusChange?.({ ...this.status });
   }
 }

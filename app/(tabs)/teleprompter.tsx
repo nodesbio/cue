@@ -39,7 +39,8 @@ function speedLabel(s: number): string {
 
 export default function TeleprompterScreen() {
   const { core, status } = useG1();
-  const connected = !!(status?.left.connected && status?.right.connected);
+  const connected = !!(status?.left.txReady && status?.right.txReady);
+  const partiallyConnected = !connected && !!(status?.left.connected || status?.right.connected);
 
   // Engine lives in a ref — stable across renders, no remounting
   const engineRef = useRef<TeleprompterEngine | null>(null);
@@ -110,8 +111,14 @@ export default function TeleprompterScreen() {
 
           {/* ── Header ───────────────────────────────────────────────── */}
           <Text style={s.title}>Teleprompter</Text>
-          <Text style={s.subtitle}>
-            {connected ? '● Connected' : '○ Not connected — controls still work'}
+          <Text style={[s.subtitle,
+            connected ? { color: '#4ade80' } :
+            partiallyConnected ? { color: '#f59e0b' } : {}]}>
+            {connected
+              ? '● Connected'
+              : partiallyConnected
+              ? '◑ Half-connected — forget & re-pair in iOS Settings'
+              : '○ Not connected — controls still work'}
           </Text>
 
           {/* ── HUD Preview ──────────────────────────────────────────── */}
