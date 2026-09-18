@@ -3,7 +3,7 @@
  * Reads connection state from G1Context (single source of truth).
  */
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, Pressable, SafeAreaView, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import { useG1, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
@@ -22,38 +22,37 @@ export default function DashboardScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [debugDevices, setDebugDevices] = useState<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectedRef = useRef(connected);
+  const coreRef2 = useRef(core);
+  const statusRef = useRef(status);
+  connectedRef.current = connected;
+  coreRef2.current = core;
+  statusRef.current = status;
 
-  // Push immediately on connect, then re-align to every minute boundary.
-  // e.g. connect at :47 → push now, then again at :00, :01, :02, ...
+  const pushDashboard = useCallback(async () => {
+    if (!connectedRef.current) return;
+    const time = formatTime();
+    const date = formatDate();
+    const battL = statusRef.current?.left.batteryPct ?? '--';
+    const battR = statusRef.current?.right.batteryPct ?? '--';
+    console.log('[Dashboard] pushing time:', time);
+    await coreRef2.current.sendText(`${time}  ${date}\nL:${battL}%  R:${battR}%`);
+    setLastPush(time);
+  }, []);
+
+  // Push immediately on connect, then every 60s. Uses refs so the interval
+  // callback always sees current state without being recreated.
   useEffect(() => {
     if (!connected) {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       return;
     }
-
     pushDashboard();
-
-    // Wait until the next whole minute, then tick every 60s exactly.
-    const msUntilNextMinute = 60_000 - (Date.now() % 60_000);
-    const alignTimeout = setTimeout(() => {
-      pushDashboard();
-      timerRef.current = setInterval(pushDashboard, 60_000);
-    }, msUntilNextMinute);
-
+    timerRef.current = setInterval(pushDashboard, 60_000);
     return () => {
-      clearTimeout(alignTimeout);
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [connected]);
-
-  async function pushDashboard() {
-    const time = formatTime();
-    const date = formatDate();
-    const battL = status?.left.batteryPct ?? '--';
-    const battR = status?.right.batteryPct ?? '--';
-    await core.sendText(`${time}  ${date}\nL:${battL}%  R:${battR}%`);
-    setLastPush(time);
-  }
+  }, [connected, pushDashboard]);
 
   function handleConnectPress() {
     if (pairedSerial) {
