@@ -170,23 +170,43 @@ export class G1Core {
     });
   }
 
-  /** Scan all BLE devices (no filter) and log names — for debugging. */
+  /** Scan all BLE devices and return rich debug info per device. */
   async scanDebug(durationMs = 8000): Promise<string[]> {
     await this._ensureBleReady();
     const found: string[] = [];
+    const seen = new Set<string>();
     return new Promise((resolve) => {
       const t = setTimeout(() => {
         this.manager.stopDeviceScan();
         resolve(found);
       }, durationMs);
       this.manager.startDeviceScan(null, { allowDuplicates: false }, (_err, device) => {
-        if (device?.name) {
-          const entry = `${device.name} [${device.id}]`;
-          if (!found.includes(entry)) {
-            found.push(entry);
-            console.log('[BLE DEBUG]', entry);
-          }
-        }
+        if (!device?.name) return;
+        if (seen.has(device.id)) return;
+        seen.add(device.id);
+
+        const isG1 = device.name.includes('G1');
+        const info = isG1
+          ? {
+              name: device.name,
+              id: device.id,
+              rssi: device.rssi,
+              isConnectable: device.isConnectable,
+              txPower: device.txPowerLevel,
+              serviceUUIDs: device.serviceUUIDs,
+              manufacturerData: device.manufacturerData,
+              localName: device.localName,
+              mtu: device.mtu,
+            }
+          : { name: device.name, id: device.id };
+
+        if (isG1) console.log('[G1 DEBUG]', JSON.stringify(info, null, 2));
+        else       console.log('[BLE DEBUG]', device.name, `[${device.id}]`);
+
+        const entry = isG1
+          ? `${device.name} rssi=${device.rssi} connectable=${device.isConnectable}`
+          : `${device.name} [${device.id}]`;
+        found.push(entry);
       });
     });
   }
