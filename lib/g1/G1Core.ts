@@ -291,6 +291,7 @@ export class G1Core {
     }
 
     if (op === P.OP_BATTERY) {
+      console.log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
       const info = P.parseBatteryInfo(data);
       if (info) {
         if (side === 'L') this.status.left.batteryPct = info.batteryLeft;
