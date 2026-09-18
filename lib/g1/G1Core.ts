@@ -134,6 +134,26 @@ export class G1Core {
 
   // ── Scanning ──────────────────────────────────────────────────────────────
 
+  /** Scan all BLE devices (no filter) and log names — for debugging. */
+  async scanDebug(durationMs = 8000): Promise<string[]> {
+    const found: string[] = [];
+    return new Promise((resolve) => {
+      const t = setTimeout(() => {
+        this.manager.stopDeviceScan();
+        resolve(found);
+      }, durationMs);
+      this.manager.startDeviceScan(null, { allowDuplicates: false }, (_err, device) => {
+        if (device?.name) {
+          const entry = `${device.name} [${device.id}]`;
+          if (!found.includes(entry)) {
+            found.push(entry);
+            console.log('[BLE DEBUG]', entry);
+          }
+        }
+      });
+    });
+  }
+
   private async _scan(): Promise<void> {
     return new Promise((resolve, reject) => {
       const found: Partial<Record<Side, Device>> = {};

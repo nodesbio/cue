@@ -23,6 +23,7 @@ export default function DashboardScreen() {
   const [phase, setPhase] = useState<'idle' | 'connecting' | 'live'>('idle');
   const [lastPush, setLastPush] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [debugDevices, setDebugDevices] = useState<string[]>([]);
 
   const g1 = useRef<G1Core | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -61,6 +62,14 @@ export default function DashboardScreen() {
       g1.current?.destroy();
     };
   }, []);
+
+  async function runDebugScan() {
+    setDebugDevices(['Scanning…']);
+    const core = new G1Core();
+    const devices = await core.scanDebug(8000);
+    core.destroy();
+    setDebugDevices(devices.length ? devices : ['No devices found']);
+  }
 
   const connected = status?.left.connected && status?.right.connected;
 
@@ -108,6 +117,13 @@ export default function DashboardScreen() {
           </>
         )}
       </View>
+
+      <Pressable style={[s.btn, { marginTop: 16, backgroundColor: '#1e1e1e' }]} onPress={runDebugScan}>
+        <Text style={[s.btnText, { color: '#888' }]}>🔍 Debug: Scan All BLE</Text>
+      </Pressable>
+      {debugDevices.map((d, i) => (
+        <Text key={i} style={{ color: '#666', fontSize: 11, marginTop: 4 }}>{d}</Text>
+      ))}
 
       <Text style={s.hint}>
         Calendar integration coming in v1.1
