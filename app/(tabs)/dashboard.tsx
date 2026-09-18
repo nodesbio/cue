@@ -98,6 +98,18 @@ export default function DashboardScreen() {
     setDebugDevices(devices.length ? devices : ['No devices found']);
   }
 
+  async function identifyPair(channel: string) {
+    try {
+      const core = new G1Core();
+      await core.connect(channel);
+      await core.sendText(`PAIR #${channel}`);
+      await new Promise(r => setTimeout(r, 3000));
+      core.destroy();
+    } catch (e: any) {
+      setErrorMsg(`Identify failed: ${e.message}`);
+    }
+  }
+
   const connected = status?.left.connected && status?.right.connected;
 
   return (
@@ -121,11 +133,16 @@ export default function DashboardScreen() {
 
       {phase === 'picking' && (
         <View style={s.pickerCard}>
-          <Text style={s.pickerTitle}>Multiple pairs found — pick one:</Text>
+          <Text style={s.pickerTitle}>Multiple pairs found — tap 👁 to flash ID on lenses, then connect:</Text>
           {Object.keys(availablePairs).filter(ch => availablePairs[ch].L && availablePairs[ch].R).map(ch => (
-            <Pressable key={ch} style={s.btn} onPress={() => connectToChannel(ch)}>
-              <Text style={s.btnText}>G1 pair #{ch}</Text>
-            </Pressable>
+            <View key={ch} style={s.pickerRow}>
+              <Pressable style={[s.btn, { flex: 1 }]} onPress={() => connectToChannel(ch)}>
+                <Text style={s.btnText}>G1 pair #{ch}</Text>
+              </Pressable>
+              <Pressable style={s.identifyBtn} onPress={() => identifyPair(ch)}>
+                <Text style={s.btnText}>👁</Text>
+              </Pressable>
+            </View>
           ))}
         </View>
       )}
@@ -185,8 +202,10 @@ const s = StyleSheet.create({
   btnRow:      { gap: 12 },
   btn:         { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   btnSecondary:{ backgroundColor: '#1e1e1e' },
-  pickerCard:  { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, marginBottom: 12, gap: 8 },
-  pickerTitle: { color: '#aaa', fontSize: 13, marginBottom: 4 },
+  pickerCard:   { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, marginBottom: 12, gap: 8 },
+  pickerTitle:  { color: '#aaa', fontSize: 13, marginBottom: 4 },
+  pickerRow:    { flexDirection: 'row', gap: 8 },
+  identifyBtn:  { backgroundColor: '#2a2a2a', borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center' },
   btnText:     { fontSize: 16, fontWeight: '600', color: '#000' },
   hint:        { textAlign: 'center', color: '#2a2a2a', fontSize: 12, marginTop: 'auto', paddingBottom: 16 },
 });
