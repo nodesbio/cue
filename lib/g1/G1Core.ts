@@ -174,7 +174,7 @@ export class G1Core {
       }, SCAN_TIMEOUT_MS);
 
       this.manager.startDeviceScan(
-        [P.UART_SVC],
+        null,
         { allowDuplicates: false },
         async (error, device) => {
           if (error) {
