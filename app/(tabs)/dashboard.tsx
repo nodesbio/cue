@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import { G1Core, G1Status } from '@/lib/g1/G1Core';
 
 const REFRESH_MS = 60_000;
@@ -74,6 +74,7 @@ export default function DashboardScreen() {
   const connected = status?.left.connected && status?.right.connected;
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
     <SafeAreaView style={s.root}>
       <Text style={s.title}>Dashboard</Text>
       <Text style={s.subtitle}>Auto-pushes to G1 every minute</Text>
@@ -129,6 +130,7 @@ export default function DashboardScreen() {
         Calendar integration coming in v1.1
       </Text>
     </SafeAreaView>
+    </TouchableWithoutFeedback>
   );
 }
 
