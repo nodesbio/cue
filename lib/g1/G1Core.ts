@@ -250,6 +250,9 @@ export class G1Core {
     this._setConnected(side, true);
     this.reconnectAttempts[side] = 0;
 
+    // Request battery level after connect
+    setTimeout(() => this._send(side, P.batteryRequest()), 500);
+
     // Watch for disconnection
     discovered.onDisconnected(() => this._onDisconnected(side));
   }
@@ -292,15 +295,12 @@ export class G1Core {
 
     if (op === P.OP_BATTERY) {
       console.log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
-      const info = P.parseBatteryInfo(data);
-      if (info) {
-        if (side === 'L') this.status.left.batteryPct = info.batteryLeft;
-        if (side === 'R') {
-          this.status.right.batteryPct = info.batteryRight;
-          if (info.version) this.status.firmwareVersion = info.version;
-        }
-        this.onStatusChange?.(this.status);
-      }
+      // Each glass reports its own level. We'll read resp[1] as the level until
+      // we confirm the real layout from the raw log above.
+      const level = data[1] ?? 0;
+      if (side === 'L') this.status.left.batteryPct = level;
+      if (side === 'R') this.status.right.batteryPct = level;
+      this.onStatusChange?.(this.status);
       return;
     }
   }
