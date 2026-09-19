@@ -117,16 +117,20 @@ export default function TeleprompterScreen() {
   const DEDUP_MS = 300;
 
   const dedupRef   = useRef<{ name: string; until: number }>({ name: '', until: 0 });
+  const handleToggleRef = useRef<() => void>(() => {});
 
   useG1Event((event) => {
-    if (event.side !== 'R') return;
+    // G1 glasses emit from both arms — only handle the right side to avoid
+    // doubles. SmartRemote events carry no side and pass through.
+    if (event.side !== undefined && event.side !== 'R') return;
 
-    const isUp     = event.name === 'head_up';
-    const isDown   = event.name === 'head_down';
-    const isTap    = event.name === 'single_tap';
-    const isDblTap = event.name === 'double_tap';
+    const isUp      = event.name === 'head_up';
+    const isDown    = event.name === 'head_down';
+    const isTap     = event.name === 'single_tap';
+    const isDblTap  = event.name === 'double_tap';
+    const isTriTap  = event.name === 'triple_tap';
 
-    if (!isUp && !isDown && !isTap && !isDblTap) return;
+    if (!isUp && !isDown && !isTap && !isDblTap && !isTriTap) return;
 
     // ── Dedup ────────────────────────────────────────────────────────────
     const now = Date.now();
@@ -141,6 +145,13 @@ export default function TeleprompterScreen() {
     }
     if (isDblTap) {
       engineRef.current?.prev();
+      return;
+    }
+    // triple_tap = SmartRemote play/pause button. Route through handleToggle
+    // so manualPauseRef stays in sync — a remote pause must also block head
+    // gestures, exactly like a UI pause.
+    if (isTriTap) {
+      handleToggleRef.current();
       return;
     }
 
@@ -229,6 +240,7 @@ export default function TeleprompterScreen() {
     manualPauseRef.current = isPlaying;
     engineRef.current?.toggle();
   }, []);
+  handleToggleRef.current = handleToggle;
   const handleNext   = useCallback(() => engineRef.current?.next(),   []);
   const handlePrev   = useCallback(() => engineRef.current?.prev(),   []);
 
