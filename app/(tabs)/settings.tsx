@@ -2,10 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useG1, useG1Event, useLogs, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
+export const BRIGHTNESS_KEY   = 'g1_brightness';
+const BRIGHTNESS_DEFAULT      = 21;
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -13,6 +16,7 @@ export default function SettingsScreen() {
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
+  const [brightness, setBrightnessState]      = useState(BRIGHTNESS_DEFAULT);
   const [lastEvent, setLastEvent]             = useState<string | null>(null);
   const [debugDevices, setDebugDevices]       = useState<string[]>([]);
   const [scanning, setScanning]               = useState(false);
@@ -20,9 +24,11 @@ export default function SettingsScreen() {
   const logs = useLogs();
 
   useEffect(() => {
-    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY]).then(pairs => {
+    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY, BRIGHTNESS_KEY]).then(pairs => {
       if (pairs[0][1] === 'true') setGesturesEnabled(true);
       if (pairs[1][1] === 'true') setGesturesSwapped(true);
+      const b = parseInt(pairs[2][1] ?? '', 10);
+      if (!isNaN(b)) setBrightnessState(b);
     }).catch(() => {});
   }, []);
 
@@ -41,6 +47,13 @@ export default function SettingsScreen() {
   function toggleSwap(val: boolean) {
     setGesturesSwapped(val);
     AsyncStorage.setItem(GESTURE_SWAP_KEY, val ? 'true' : 'false').catch(() => {});
+  }
+
+  function handleBrightnessChange(val: number) {
+    const v = Math.round(val);
+    setBrightnessState(v);
+    AsyncStorage.setItem(BRIGHTNESS_KEY, String(v)).catch(() => {});
+    if (connected) core.setBrightness(v).catch(() => {});
   }
 
   function handleConnectPress() {
@@ -132,6 +145,31 @@ export default function SettingsScreen() {
             )}
           </>
         )}
+
+        {/* ── Display ───────────────────────────────────────── */}
+        <Text style={s.section}>Display</Text>
+
+        <View style={s.sliderCard}>
+          <View style={s.sliderHeader}>
+            <Text style={s.label}>Brightness</Text>
+            <Text style={s.sliderValue}>{Math.round((brightness / 42) * 100)}%</Text>
+          </View>
+          <Slider
+            style={s.slider}
+            minimumValue={0}
+            maximumValue={42}
+            value={brightness}
+            step={1}
+            onValueChange={handleBrightnessChange}
+            minimumTrackTintColor="#333"
+            maximumTrackTintColor="#555"
+            thumbTintColor="#fff"
+            disabled={!connected}
+          />
+          {!connected && (
+            <Text style={s.sliderDisabledHint}>Connect glasses to adjust brightness</Text>
+          )}
+        </View>
 
         {/* ── Head Gestures ──────────────────────────────────── */}
         <Text style={s.section}>Head Gestures</Text>
@@ -242,4 +280,9 @@ const s = StyleSheet.create({
   logsScroll:       { maxHeight: 300, backgroundColor: '#111', borderRadius: 8, marginTop: 8, marginBottom: 4 },
   logsContent:      { padding: 10 },
   logLine:          { color: '#4ade80', fontSize: 10, fontFamily: 'monospace', lineHeight: 16 },
+  sliderCard:       { backgroundColor: '#141414', borderRadius: 16, padding: 20, marginBottom: 4 },
+  sliderHeader:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  sliderValue:      { color: '#fff', fontSize: 13, fontWeight: '600' },
+  slider:           { width: '100%', height: 40, marginTop: 4 },
+  sliderDisabledHint: { color: '#444', fontSize: 11, marginTop: -4 },
 });

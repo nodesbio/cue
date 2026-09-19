@@ -156,6 +156,9 @@ export default function TeleprompterScreen() {
     }
 
     // ── Head gestures ─────────────────────────────────────────────────────
+    // Guard first — setting is OFF means neither head_down nor head_up acts.
+    if (!gesturesEnabledRef.current) return;
+
     if (isDown) {
       if (manualPauseRef.current) return; // UI pause overrides gestures
       if (!engineRef.current?.isRewinding()) engineRef.current?.startRewind();
@@ -164,7 +167,6 @@ export default function TeleprompterScreen() {
 
     // ── head_up → advance one line (or resume if playing) ────────────────
     engineRef.current?.stopRewind();
-    if (!gesturesEnabledRef.current) return;
     if (manualPauseRef.current) return;
     // Only resume play if already playing — never auto-start from idle/paused
     if (engineRef.current?.getSnapshot().state === 'playing') return;
@@ -268,13 +270,6 @@ export default function TeleprompterScreen() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
-
-  const handleBrightnessChange = useCallback((value: number) => {
-    const level = Math.round(value);
-    setBrightnessState(level);
-    core.setBrightness(level).catch(() => {});
-    AsyncStorage.setItem(BRIGHTNESS_KEY, String(level)).catch(() => {});
-  }, [core]);
 
   const handleLoop = useCallback(() => {
     const next = !loop;
@@ -438,7 +433,48 @@ export default function TeleprompterScreen() {
           </Text>
         </Animated.View>
 
-        {!hudFullscreen && <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+        {!hudFullscreen && <ScrollView style={s.scrollView} contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+
+          {/* ── Script Editor ─────────────────────────────────────────── */}
+          <View style={s.scriptSection}>
+            <View style={s.scriptHeader}>
+              <Text style={s.sectionTitle}>Script</Text>
+              <View style={s.scriptHeaderActions}>
+                <Pressable onPress={handlePickFile}>
+                  <Text style={s.editToggle}>📄 File</Text>
+                </Pressable>
+                <Pressable onPress={() => setEditMode(e => !e)}>
+                  <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Paste'}</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {editMode ? (
+              <>
+                <TextInput
+                  style={s.scriptInput}
+                  multiline
+                  autoFocus
+                  value={scriptText}
+                  onChangeText={setScriptText}
+                  placeholder="Paste or type your script here…"
+                  placeholderTextColor="#444"
+                  textAlignVertical="top"
+                />
+                <Pressable
+                  style={[s.loadBtn, !scriptText.trim() && s.ctrlDisabled]}
+                  onPress={handleLoad}
+                  disabled={!scriptText.trim()}
+                >
+                  <Text style={s.loadBtnText}>Load Script →</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Text style={s.scriptPreview} numberOfLines={4}>
+                {scriptText || '(using default script — tap Edit to load your own)'}
+              </Text>
+            )}
+          </View>
 
           {/* ── Progress ─────────────────────────────────────────────── */}
           {hasScript && (
@@ -505,31 +541,6 @@ export default function TeleprompterScreen() {
             </View>
           </View>
 
-          {/* ── Brightness Slider (only when glasses connected) ─────── */}
-          {connected && (
-            <View style={s.speedCard}>
-              <View style={s.speedHeader}>
-                <Text style={s.speedLabel}>Brightness</Text>
-                <Text style={s.speedValue}>{Math.round((brightness / 42) * 100)}%</Text>
-              </View>
-              <Slider
-                style={s.speedSlider}
-                minimumValue={0}
-                maximumValue={42}
-                value={brightness}
-                step={1}
-                onValueChange={handleBrightnessChange}
-                minimumTrackTintColor="#333"
-                maximumTrackTintColor="#fff"
-                thumbTintColor="#fff"
-              />
-              <View style={s.speedEndLabels}>
-                <Text style={s.speedEndLabel}>Dim</Text>
-                <Text style={s.speedEndLabel}>Bright</Text>
-              </View>
-            </View>
-          )}
-
           {/* ── Loop Toggle ──────────────────────────────────────────── */}
           <Pressable style={s.loopRow} onPress={handleLoop}>
             <View style={[s.toggle, loop && s.toggleOn]}>
@@ -537,47 +548,6 @@ export default function TeleprompterScreen() {
             </View>
             <Text style={s.loopLabel}>Repeat automatically</Text>
           </Pressable>
-
-          {/* ── Script Editor ─────────────────────────────────────────── */}
-          <View style={s.scriptSection}>
-            <View style={s.scriptHeader}>
-              <Text style={s.sectionTitle}>Script</Text>
-              <View style={s.scriptHeaderActions}>
-                <Pressable onPress={handlePickFile}>
-                  <Text style={s.editToggle}>📄 File</Text>
-                </Pressable>
-                <Pressable onPress={() => setEditMode(e => !e)}>
-                  <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Paste'}</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {editMode ? (
-              <>
-                <TextInput
-                  style={s.scriptInput}
-                  multiline
-                  autoFocus
-                  value={scriptText}
-                  onChangeText={setScriptText}
-                  placeholder="Paste or type your script here…"
-                  placeholderTextColor="#444"
-                  textAlignVertical="top"
-                />
-                <Pressable
-                  style={[s.loadBtn, !scriptText.trim() && s.ctrlDisabled]}
-                  onPress={handleLoad}
-                  disabled={!scriptText.trim()}
-                >
-                  <Text style={s.loadBtnText}>Load Script →</Text>
-                </Pressable>
-              </>
-            ) : (
-              <Text style={s.scriptPreview} numberOfLines={4}>
-                {scriptText || '(using default script — tap Edit to load your own)'}
-              </Text>
-            )}
-          </View>
 
         </ScrollView>}
       </SafeAreaView>
@@ -590,6 +560,7 @@ export default function TeleprompterScreen() {
 const s = StyleSheet.create({
   root:             { flex: 1, backgroundColor: '#0a0a0a', overflow: 'hidden' },
   headerBlock:      { paddingHorizontal: 20 },
+  scrollView:       { flex: 1 },
   scroll:           { paddingHorizontal: 20, paddingBottom: 40 },
 
   title:            { color: '#fff', fontSize: 28, fontWeight: '700', marginTop: 20 },
