@@ -13,6 +13,7 @@
  */
 
 import { wrapScript, formatFrame, DEFAULT_SCRIPT, WINDOW_SIZE } from './lineWrapper';
+export { WINDOW_SIZE } from './lineWrapper';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

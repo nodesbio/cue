@@ -32,6 +32,7 @@ import {
   SPEED_FAST,
   SPEED_TURBO,
   SPEED_STEP,
+  WINDOW_SIZE,
 } from '@/lib/teleprompter/TeleprompterEngine';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -222,17 +223,10 @@ export default function TeleprompterScreen() {
   const hudPageRef = useRef(HUD_CENTER_PAGE);
   const [hudActivePage, setHudActivePage] = useState(HUD_CENTER_PAGE);
 
-  // When topIndex changes, snap back to the centre page silently.
-  useEffect(() => {
-    if (!hudListRef.current) return;
-    hudListRef.current.scrollToIndex({ index: HUD_CENTER_PAGE, animated: false });
-    hudPageRef.current = HUD_CENTER_PAGE;
-    setHudActivePage(HUD_CENTER_PAGE);
-  }, [snap?.topIndex]);
-
   const renderHudPage = useCallback(({ item }: { item: { key: string; offset: number } }) => {
     const engine = engineRef.current;
-    const targetIndex = (snap?.topIndex ?? 0) + item.offset * 4; // WINDOW_SIZE = 4
+    const topIndex = snap?.topIndex ?? 0;
+    const targetIndex = topIndex + item.offset * WINDOW_SIZE;
     const frameStr = engine ? engine.getFrameAt(Math.max(0, targetIndex)) : '';
     const lines = frameStr.split('\n');
     const isCurrent = item.offset === 0;
@@ -296,6 +290,7 @@ export default function TeleprompterScreen() {
             data={hudPages}
             renderItem={renderHudPage}
             keyExtractor={item => item.key}
+            extraData={snap?.topIndex}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
@@ -310,8 +305,8 @@ export default function TeleprompterScreen() {
               hudPageRef.current = page;
               setHudActivePage(page);
             }}
-            style={{ width: HUD_PAGE_WIDTH }}
-            contentContainerStyle={{ paddingHorizontal: 0 }}
+            style={{ width: windowWidth }}
+            contentContainerStyle={{ paddingHorizontal: 24 }}
           />
           {/* Page dots — track live page */}
           <View style={s.hudDots}>
@@ -454,7 +449,7 @@ const s = StyleSheet.create({
   subtitle:         { color: '#555', fontSize: 13, marginTop: 4, marginBottom: 16 },
 
   // HUD preview (swipeable, lifted outside ScrollView)
-  hudOuter:         { paddingLeft: 20, marginBottom: 20 },
+  hudOuter:         { marginBottom: 20 },
   hudPage:          { backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20,
                        borderWidth: 1, borderColor: '#1a3a1a', height: 260, marginRight: 12 },
   hudPageDim:       { opacity: 0.4 },
