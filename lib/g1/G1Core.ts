@@ -34,7 +34,8 @@ export type StatusHandler = (status: G1Status) => void;
 
 const HEARTBEAT_INTERVAL_MS = 8_000;
 const SCAN_TIMEOUT_MS = 12_000;
-const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000];
+// Faster cap — 30 s is too long during a live session. Keeps retrying at 10 s.
+const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 10000];
 
 function uint8ToBase64(data: Uint8Array): string {
   let binary = '';
@@ -172,6 +173,26 @@ export class G1Core {
     })();
 
     return this._connectingPromise;
+  }
+
+  /**
+   * Immediately attempt to reconnect any dropped lens without waiting for the
+   * next backoff tick. Resets the backoff counter so the next auto-attempt also
+   * starts from the short end. Safe to call when already fully connected.
+   */
+  async reconnectDropped(): Promise<void> {
+    if (this.destroyed) return;
+    for (const side of ['L', 'R'] as Side[]) {
+      if (this.status[side === 'L' ? 'left' : 'right'].connected) continue;
+      const dev = this.devices[side];
+      if (!dev) continue;
+      this.reconnectAttempts[side] = 0; // reset backoff
+      this._lensConnectQueue = this._lensConnectQueue.then(async () => {
+        if (this.destroyed) return;
+        try { await this._connectLens(side, dev); }
+        catch { this._scheduleReconnect(side); }
+      });
+    }
   }
 
   async disconnect(): Promise<void> {

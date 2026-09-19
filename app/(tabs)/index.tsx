@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
+  Animated,
   Keyboard,
   PanResponder,
   Pressable,
@@ -69,6 +70,10 @@ export default function TeleprompterScreen() {
   const [loop, setLoop] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  // 0 = split view (HUD + controls), 1 = HUD-only fullscreen
+  const [hudPage, setHudPage] = useState(0);
+  const hudSlide = useRef(new Animated.Value(0)).current;
   const gesturesEnabledRef = useRef(false);
   const gesturesSwappedRef = useRef(false);
 
@@ -96,6 +101,10 @@ export default function TeleprompterScreen() {
   //   head_up (after down<NOD_WINDOW_MS) → stop rewind + toggle pause
   //   head_up (no prior down, or down timed out) → play / stopRewind / advance
   //
+  // Media remote (G1 tap events — works regardless of gesturesEnabled):
+  //   single_tap → next line
+  //   double_tap → prev line
+  //
   // Dedup: hardware fires each event 2-3x in a burst; suppress repeats within DEDUP_MS.
   const NOD_WINDOW_MS = 600;
   const DEDUP_MS = 300;
@@ -105,17 +114,30 @@ export default function TeleprompterScreen() {
   useG1Event((event) => {
     if (event.side !== 'R') return;
 
-    const isUp   = event.name === 'head_up';
-    const isDown = event.name === 'head_down';
-    if (!isUp && !isDown) return;
+    const isUp     = event.name === 'head_up';
+    const isDown   = event.name === 'head_down';
+    const isTap    = event.name === 'single_tap';
+    const isDblTap = event.name === 'double_tap';
+
+    if (!isUp && !isDown && !isTap && !isDblTap) return;
 
     // ── Dedup ────────────────────────────────────────────────────────────
     const now = Date.now();
     if (event.name === dedupRef.current.name && now < dedupRef.current.until) return;
     dedupRef.current = { name: event.name, until: now + DEDUP_MS };
 
-    const swapped = gesturesSwappedRef.current;
+    // ── Media remote ─────────────────────────────────────────────────────
+    // Tap events work independently of gesturesEnabled — the remote is always live.
+    if (isTap) {
+      engineRef.current?.next();
+      return;
+    }
+    if (isDblTap) {
+      engineRef.current?.prev();
+      return;
+    }
 
+    // ── Head gestures ─────────────────────────────────────────────────────
     if (isDown) {
       if (manualPauseRef.current) return; // UI pause overrides gestures
       if (!engineRef.current?.isRewinding()) engineRef.current?.startRewind();
@@ -214,19 +236,44 @@ export default function TeleprompterScreen() {
     engineRef.current?.setLoop(next);
   }, [loop]);
 
-  // ── G1 Display scrub panel ────────────────────────────────────────────────
-  // Vertical drag: up → next line, down → prev line.
-  // Threshold: 18 px per line step so casual touches don't fire.
-  const SCRUB_STEP_PX = 18;
+  // ── Reconnect handler ─────────────────────────────────────────────────────
+  const handleReconnect = useCallback(async () => {
+    setReconnecting(true);
+    try { await core.reconnectDropped(); } catch {}
+    // Show spinner for at least 1 s so the tap feels responsive
+    setTimeout(() => setReconnecting(false), 1000);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── HUD combined gesture handler ─────────────────────────────────────────
+  // One PanResponder handles both axes to avoid responder contention:
+  //   · Horizontal (|dx| > |dy|, |dx| > 50)  → page switch (fullscreen ↔ split)
+  //   · Vertical   (|dy| > |dx|)              → scrub (18 px per line step)
+  const SCRUB_STEP_PX   = 18;
+  const HUD_SWIPE_THRESHOLD = 50;
   const scrubAccumRef = useRef(0);
+  // true while the gesture is classified as horizontal
+  const isHorizRef = useRef<boolean | null>(null);
 
   const scrubPan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => { scrubAccumRef.current = 0; },
+      onMoveShouldSetPanResponder:  () => true,
+      onPanResponderGrant: () => {
+        scrubAccumRef.current = 0;
+        isHorizRef.current = null;
+      },
       onPanResponderMove: (_, gs) => {
-        // dy is negative when dragging up (forward in script)
+        // Classify on first meaningful movement
+        if (isHorizRef.current === null && (Math.abs(gs.dx) > 6 || Math.abs(gs.dy) > 6)) {
+          isHorizRef.current = Math.abs(gs.dx) > Math.abs(gs.dy);
+        }
+
+        if (isHorizRef.current) {
+          hudSlide.setValue(gs.dx);
+          return;
+        }
+
+        // Vertical scrub
         const steps = Math.trunc(-gs.dy / SCRUB_STEP_PX);
         const delta = steps - scrubAccumRef.current;
         if (delta === 0) return;
@@ -237,7 +284,21 @@ export default function TeleprompterScreen() {
           for (let i = 0; i < -delta; i++) engineRef.current?.prev();
         }
       },
-      onPanResponderRelease: () => { scrubAccumRef.current = 0; },
+      onPanResponderRelease: (_, gs) => {
+        scrubAccumRef.current = 0;
+        if (isHorizRef.current) {
+          if (gs.dx < -HUD_SWIPE_THRESHOLD) {
+            Animated.spring(hudSlide, { toValue: 0, useNativeDriver: true }).start();
+            setHudPage(1);
+          } else if (gs.dx > HUD_SWIPE_THRESHOLD) {
+            Animated.spring(hudSlide, { toValue: 0, useNativeDriver: true }).start();
+            setHudPage(0);
+          } else {
+            Animated.spring(hudSlide, { toValue: 0, useNativeDriver: true }).start();
+          }
+        }
+        isHorizRef.current = null;
+      },
     }),
   ).current;
 
@@ -257,20 +318,40 @@ export default function TeleprompterScreen() {
         {/* ── Header ─────────────────────────────────────────────────── */}
         <View style={s.headerBlock}>
           <Text style={s.title}>Teleprompter</Text>
-          <Text style={[s.subtitle,
-            connected ? { color: '#4ade80' } :
-            partiallyConnected ? { color: '#f59e0b' } : {}]}>
-            {connected
-              ? '● Connected'
-              : partiallyConnected
-              ? '◑ Half-connected — forget & re-pair in iOS Settings'
-              : '○ Not connected — controls still work'}
+          <Text style={[s.subtitle, connected ? { color: '#4ade80' } : {}]}>
+            {connected ? '● Connected' : '○ Not connected — controls still work'}
           </Text>
         </View>
 
-        {/* ── G1 Display panel — drag up/down to scrub ───────────────── */}
-        <View style={s.hudOuter} {...scrubPan.panHandlers}>
-          <Text style={s.hudLabel}>G1 DISPLAY</Text>
+        {/* ── Half-connected reconnect banner ────────────────────────── */}
+        {partiallyConnected && (
+          <View style={s.reconnectBanner}>
+            <Text style={s.reconnectText}>◑ One lens dropped</Text>
+            <Pressable
+              style={[s.reconnectBtn, reconnecting && s.ctrlDisabled]}
+              onPress={handleReconnect}
+              disabled={reconnecting}
+            >
+              <Text style={s.reconnectBtnText}>
+                {reconnecting ? 'Reconnecting…' : 'Reconnect'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── G1 Display panel — swipe left/right to change view ─────── */}
+        {/* Combines horizontal swipe (page change) + vertical scrub      */}
+        <Animated.View
+          style={[s.hudOuter, hudPage === 1 && s.hudOuterFullscreen,
+            { transform: [{ translateX: hudSlide }] }]}
+          {...scrubPan.panHandlers}
+        >
+          <View style={s.hudLabelRow}>
+            <Text style={s.hudLabel}>G1 DISPLAY</Text>
+            <Text style={s.hudPageDots}>
+              {hudPage === 0 ? '● ○' : '○ ●'}
+            </Text>
+          </View>
           {hudLines.map((line, i) => (
             <Text
               key={i}
@@ -284,8 +365,8 @@ export default function TeleprompterScreen() {
               {line || ' '}
             </Text>
           ))}
-          <Text style={s.hudHint}>↕ drag to scrub</Text>
-        </View>
+          <Text style={s.hudHint}>↕ scrub  ·  ← → fullscreen</Text>
+        </Animated.View>
 
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
@@ -419,14 +500,30 @@ const s = StyleSheet.create({
   title:            { color: '#fff', fontSize: 28, fontWeight: '700', marginTop: 20 },
   subtitle:         { color: '#555', fontSize: 13, marginTop: 4, marginBottom: 16 },
 
-  // G1 Display panel
+  // ── Reconnect banner ──────────────────────────────────────────────────────
+  reconnectBanner:  { marginHorizontal: 20, marginBottom: 8, padding: 12,
+                       backgroundColor: '#1a1200', borderRadius: 12,
+                       borderWidth: 1, borderColor: '#3a2c00',
+                       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reconnectText:    { color: '#f59e0b', fontSize: 13, fontWeight: '600' },
+  reconnectBtn:     { backgroundColor: '#f59e0b', borderRadius: 8,
+                       paddingVertical: 6, paddingHorizontal: 14 },
+  reconnectBtnText: { color: '#000', fontSize: 13, fontWeight: '700' },
+
+  // ── G1 Display panel ──────────────────────────────────────────────────────
   hudOuter:         { marginHorizontal: 20, marginBottom: 20,
                        backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20,
                        borderWidth: 1, borderColor: '#1a3a1a' },
-  hudLabel:         { color: '#2d6a2d', fontSize: 10, fontWeight: '700', letterSpacing: 2,
-                       marginBottom: 14 },
-  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 18, lineHeight: 32 },
-  hudStatus:        { color: '#4ade80', fontWeight: '600', fontSize: 14, lineHeight: 24 },
+  // Fullscreen HUD mode — takes up as much vertical space as possible
+  hudOuterFullscreen: { marginHorizontal: 0, borderRadius: 0, flex: 1,
+                         borderWidth: 0, paddingHorizontal: 28, paddingVertical: 32 },
+  hudLabelRow:      { flexDirection: 'row', justifyContent: 'space-between',
+                       alignItems: 'center', marginBottom: 14 },
+  hudLabel:         { color: '#2d6a2d', fontSize: 10, fontWeight: '700', letterSpacing: 2 },
+  hudPageDots:      { color: '#2d6a2d', fontSize: 11 },
+  // Larger font for the display lines
+  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 22, lineHeight: 40 },
+  hudStatus:        { color: '#4ade80', fontWeight: '600', fontSize: 15, lineHeight: 26 },
   hudActive:        { color: '#86efac', backgroundColor: '#0f2a0f', borderRadius: 4,
                        paddingHorizontal: 4 },
   hudHint:          { color: '#1a3a1a', fontSize: 11, textAlign: 'center', marginTop: 12 },

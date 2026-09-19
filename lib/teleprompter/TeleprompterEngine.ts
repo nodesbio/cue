@@ -120,11 +120,12 @@ export class TeleprompterEngine {
     else this.play();
   }
 
-  /** Computed gesture hint: ↑ = playing forward, ↓ = rewinding, · = paused/idle/ended. */
-  private _gestureHint(): '↑' | '↓' | '·' {
-    if (this.rewindTimer !== null) return '↓';
-    if (this.state === 'playing' && !this.timerSuspended) return '↑';
-    return '·';
+  /** Direction arrow shown next to battery on status line 1.
+   *  ▲ = scrolling forward, ▼ = rewinding, '' = idle/paused. */
+  private _dirArrow(): '▲' | '▼' | '' {
+    if (this.rewindTimer !== null) return '▼';
+    if (this.state === 'playing' && !this.timerSuspended) return '▲';
+    return '';
   }
 
   /** Update battery levels — reflected in the status bar on next frame. */
@@ -330,9 +331,10 @@ export class TeleprompterEngine {
     const tot = this.lines.length;
     const batL = this.leftBat != null ? `L${this.leftBat}%` : '';
     const batR = this.rightBat != null ? `R${this.rightBat}%` : '';
-    const bat = [batL, batR].filter(Boolean).join(' ');
+    const arrow = this._dirArrow();
+    const bat = [batL, batR, arrow].filter(Boolean).join(' ');
     const middle = bat ? ` ${bat}` : '';
-    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot} ${this._gestureHint()}`;
+    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot}`;
   }
 
   private _buildFrame(): string {
