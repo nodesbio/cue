@@ -7,8 +7,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  FlatList,
   Keyboard,
+  PanResponder,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -17,7 +17,6 @@ import {
   TextInput,
   TouchableWithoutFeedback,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -32,7 +31,6 @@ import {
   SPEED_FAST,
   SPEED_TURBO,
   SPEED_STEP,
-  WINDOW_SIZE,
 } from '@/lib/teleprompter/TeleprompterEngine';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -124,11 +122,13 @@ export default function TeleprompterScreen() {
       return;
     }
 
-    // ── head_up → play/resume unless manually paused via UI ───────────────
+    // ── head_up → advance one line (or resume if playing) ────────────────
     engineRef.current?.stopRewind();
     if (!gesturesEnabledRef.current) return;
     if (manualPauseRef.current) return;
-    engineRef.current?.play();
+    // Only resume play if already playing — never auto-start from idle/paused
+    if (engineRef.current?.getSnapshot().state === 'playing') return;
+    engineRef.current?.next();
   });
 
   // Initialise engine once per module lifetime.
@@ -214,43 +214,32 @@ export default function TeleprompterScreen() {
     engineRef.current?.setLoop(next);
   }, [loop]);
 
-  // ── HUD swipe refs — must be declared before any early return ─────────────
-  const { width: windowWidth } = useWindowDimensions();
-  const HUD_CENTER_PAGE = 1;
-  // Leave 48px peek on each side so adjacent pages are partially visible
-  const HUD_PAGE_WIDTH = windowWidth - 48;
-  const hudListRef = useRef<FlatList>(null);
-  const hudPageRef = useRef(HUD_CENTER_PAGE);
-  const [hudActivePage, setHudActivePage] = useState(HUD_CENTER_PAGE);
+  // ── G1 Display scrub panel ────────────────────────────────────────────────
+  // Vertical drag: up → next line, down → prev line.
+  // Threshold: 18 px per line step so casual touches don't fire.
+  const SCRUB_STEP_PX = 18;
+  const scrubAccumRef = useRef(0);
 
-  const renderHudPage = useCallback(({ item }: { item: { key: string; offset: number } }) => {
-    const engine = engineRef.current;
-    const topIndex = snap?.topIndex ?? 0;
-    const targetIndex = topIndex + item.offset * WINDOW_SIZE;
-    const frameStr = engine ? engine.getFrameAt(Math.max(0, targetIndex)) : '';
-    const lines = frameStr.split('\n');
-    const isCurrent = item.offset === 0;
-    return (
-      <View style={[s.hudPage, { width: HUD_PAGE_WIDTH }, !isCurrent && s.hudPageDim]}>
-        <Text style={[s.hudLabel, isCurrent && s.hudLabelActive]}>
-          {item.offset === -1 ? '← PREV' : item.offset === 1 ? 'NEXT →' : 'G1 DISPLAY'}
-        </Text>
-        {lines.map((line, i) => (
-          <Text
-            key={i}
-            style={[
-              s.hudLine,
-              i === 0 && s.hudStatus,
-              isCurrent && i === 3 && s.hudActive,
-            ]}
-            numberOfLines={1}
-          >
-            {line || ' '}
-          </Text>
-        ))}
-      </View>
-    );
-  }, [snap?.topIndex, HUD_PAGE_WIDTH]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scrubPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { scrubAccumRef.current = 0; },
+      onPanResponderMove: (_, gs) => {
+        // dy is negative when dragging up (forward in script)
+        const steps = Math.trunc(-gs.dy / SCRUB_STEP_PX);
+        const delta = steps - scrubAccumRef.current;
+        if (delta === 0) return;
+        scrubAccumRef.current = steps;
+        if (delta > 0) {
+          for (let i = 0; i < delta; i++) engineRef.current?.next();
+        } else {
+          for (let i = 0; i < -delta; i++) engineRef.current?.prev();
+        }
+      },
+      onPanResponderRelease: () => { scrubAccumRef.current = 0; },
+    }),
+  ).current;
 
   if (!snap) return null;
 
@@ -258,18 +247,14 @@ export default function TeleprompterScreen() {
   const ended   = snap.state === 'ended';
   const hasScript = snap.totalLines > 0;
 
-  // 3-page swipeable HUD data
-  const hudPages = [
-    { key: 'prev',    offset: -1 },
-    { key: 'current', offset:  0 },
-    { key: 'next',    offset: +1 },
-  ];
+  // Render the current G1 frame as lines
+  const hudLines = (engineRef.current?.getFrameAt(snap.topIndex) ?? '').split('\n');
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <SafeAreaView style={s.root}>
 
-        {/* ── Header (outside ScrollView so it stays fixed above HUD) ── */}
+        {/* ── Header ─────────────────────────────────────────────────── */}
         <View style={s.headerBlock}>
           <Text style={s.title}>Teleprompter</Text>
           <Text style={[s.subtitle,
@@ -283,37 +268,23 @@ export default function TeleprompterScreen() {
           </Text>
         </View>
 
-        {/* ── HUD Preview (swipeable, outside ScrollView to avoid gesture conflict) ── */}
-        <View style={s.hudOuter}>
-          <FlatList
-            ref={hudListRef}
-            data={hudPages}
-            renderItem={renderHudPage}
-            keyExtractor={item => item.key}
-            extraData={snap?.topIndex}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            initialScrollIndex={HUD_CENTER_PAGE}
-            getItemLayout={(_, index) => ({
-              length: HUD_PAGE_WIDTH,
-              offset: HUD_PAGE_WIDTH * index,
-              index,
-            })}
-            onMomentumScrollEnd={e => {
-              const page = Math.round(e.nativeEvent.contentOffset.x / HUD_PAGE_WIDTH);
-              hudPageRef.current = page;
-              setHudActivePage(page);
-            }}
-            style={{ width: windowWidth }}
-            contentContainerStyle={{ paddingHorizontal: 24 }}
-          />
-          {/* Page dots — track live page */}
-          <View style={s.hudDots}>
-            {hudPages.map((p, i) => (
-              <View key={p.key} style={[s.hudDot, i === hudActivePage && s.hudDotActive]} />
-            ))}
-          </View>
+        {/* ── G1 Display panel — drag up/down to scrub ───────────────── */}
+        <View style={s.hudOuter} {...scrubPan.panHandlers}>
+          <Text style={s.hudLabel}>G1 DISPLAY</Text>
+          {hudLines.map((line, i) => (
+            <Text
+              key={i}
+              style={[
+                s.hudLine,
+                i === 0 && s.hudStatus,
+                i === hudLines.length - 1 && s.hudActive,
+              ]}
+              numberOfLines={1}
+            >
+              {line || ' '}
+            </Text>
+          ))}
+          <Text style={s.hudHint}>↕ drag to scrub</Text>
         </View>
 
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
@@ -448,21 +419,17 @@ const s = StyleSheet.create({
   title:            { color: '#fff', fontSize: 28, fontWeight: '700', marginTop: 20 },
   subtitle:         { color: '#555', fontSize: 13, marginTop: 4, marginBottom: 16 },
 
-  // HUD preview (swipeable, lifted outside ScrollView)
-  hudOuter:         { marginBottom: 20 },
-  hudPage:          { backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20,
-                       borderWidth: 1, borderColor: '#1a3a1a', height: 260, marginRight: 12 },
-  hudPageDim:       { opacity: 0.4 },
-  hudLabel:         { color: '#1a4a1a', fontSize: 10, fontWeight: '700', letterSpacing: 2,
+  // G1 Display panel
+  hudOuter:         { marginHorizontal: 20, marginBottom: 20,
+                       backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20,
+                       borderWidth: 1, borderColor: '#1a3a1a' },
+  hudLabel:         { color: '#2d6a2d', fontSize: 10, fontWeight: '700', letterSpacing: 2,
                        marginBottom: 14 },
-  hudLabelActive:   { color: '#2d6a2d' },
   hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 18, lineHeight: 32 },
   hudStatus:        { color: '#4ade80', fontWeight: '600', fontSize: 14, lineHeight: 24 },
   hudActive:        { color: '#86efac', backgroundColor: '#0f2a0f', borderRadius: 4,
                        paddingHorizontal: 4 },
-  hudDots:          { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 10 },
-  hudDot:           { width: 5, height: 5, borderRadius: 3, backgroundColor: '#1a3a1a' },
-  hudDotActive:     { backgroundColor: '#22c55e', width: 16 },
+  hudHint:          { color: '#1a3a1a', fontSize: 11, textAlign: 'center', marginTop: 12 },
 
   // Progress
   progressRow:      { marginBottom: 20, gap: 8 },
