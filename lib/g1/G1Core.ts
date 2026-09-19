@@ -67,14 +67,17 @@ export class G1Core {
     firmwareVersion: null,
   };
 
-  private onEvent?: EventHandler;
+  private eventHandlers = new Set<EventHandler>();
   private onStatusChange?: StatusHandler;
 
   constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler }) {
     this.manager = new BleManager();
-    this.onEvent = opts?.onEvent;
+    if (opts?.onEvent) this.eventHandlers.add(opts.onEvent);
     this.onStatusChange = opts?.onStatusChange;
   }
+
+  addEventHandler(h: EventHandler): void    { this.eventHandlers.add(h); }
+  removeEventHandler(h: EventHandler): void { this.eventHandlers.delete(h); }
 
   // ── Public API ────────────────────────────────────────────────────────────
 
@@ -446,7 +449,7 @@ export class G1Core {
 
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
-      if (event) this.onEvent?.(event);
+      if (event) this.eventHandlers.forEach(h => h(event));
       return;
     }
 

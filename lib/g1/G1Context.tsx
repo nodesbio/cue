@@ -9,7 +9,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { G1Core, G1Status } from './G1Core';
+import { G1Core, G1Status, EventHandler } from './G1Core';
 
 export const PAIRED_SERIAL_KEY = 'g1_paired_serial';
 
@@ -83,4 +83,21 @@ export function useG1(): G1ContextValue {
   const ctx = useContext(G1Context);
   if (!ctx) throw new Error('useG1 must be used inside <G1Provider>');
   return ctx;
+}
+
+/**
+ * Subscribe to raw G1 hardware events (head_up, head_down, etc.).
+ * Handler is registered/deregistered automatically with the component lifecycle.
+ * Does NOT cause any re-renders — purely side-effectful.
+ */
+export function useG1Event(handler: EventHandler): void {
+  const { core } = useG1();
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler; // always call latest closure, no re-subscribe needed
+
+  useEffect(() => {
+    const h: EventHandler = (e) => handlerRef.current(e);
+    core.addEventHandler(h);
+    return () => core.removeEventHandler(h);
+  }, [core]);
 }

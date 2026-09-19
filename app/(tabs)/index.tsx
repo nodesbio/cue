@@ -19,7 +19,8 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { useG1 } from '@/lib/g1/G1Context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useG1, useG1Event } from '@/lib/g1/G1Context';
 import {
   TeleprompterEngine,
   EngineSnapshot,
@@ -51,6 +52,32 @@ export default function TeleprompterScreen() {
   const [scriptText, setScriptText] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [loop, setLoop] = useState(false);
+  const [gesturesEnabled, setGesturesEnabled] = useState(false);
+  const gestureDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gestureCooldownRef = useRef(false);
+
+  // Load gesture preference
+  useEffect(() => {
+    AsyncStorage.getItem('gesture_nav_enabled').then(v => {
+      if (v === 'true') setGesturesEnabled(true);
+    }).catch(() => {});
+  }, []);
+
+  // Head gesture navigation — opt-in, playing-only, 700ms debounce
+  useG1Event((event) => {
+    if (!gesturesEnabled) return;
+    if (snap?.state !== 'playing') return;
+    if (gestureCooldownRef.current) return;
+    if (event.name === 'head_up') {
+      engineRef.current?.next();
+      gestureCooldownRef.current = true;
+      gestureDebounceRef.current = setTimeout(() => { gestureCooldownRef.current = false; }, 700);
+    } else if (event.name === 'head_down') {
+      engineRef.current?.prev();
+      gestureCooldownRef.current = true;
+      gestureDebounceRef.current = setTimeout(() => { gestureCooldownRef.current = false; }, 700);
+    }
+  });
 
   // Initialise engine once
   useEffect(() => {
