@@ -1,13 +1,10 @@
 /**
  * files.tsx — Script library tab.
  *
- * • Sorted by explicit index order — last-opened always floats to top.
- * • Long-press drag handle (≡) to reorder.
- * • Swipe left to reveal Edit | Delete actions.
- * • Edit opens a full-screen modal with editable name + body text.
- * • Long-press name to rename inline.
- * • Tap row to load into the teleprompter engine.
- * • + Import picks a .txt file from the device.
+ * Swipe architecture: the Animated.View slides LEFT, exposing the empty
+ * space behind it. The action buttons are rendered AFTER (on top of) the
+ * slider in the z-stack, absolutely pinned to the right edge, and only
+ * receive touches when the row is in the revealed state (pointerEvents).
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -24,6 +21,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
   type LayoutChangeEvent,
 } from 'react-native';
@@ -45,7 +43,7 @@ import { type TeleprompterEngine } from '@/lib/teleprompter/TeleprompterEngine';
 
 const ROW_HEIGHT       = 76;
 const SWIPE_THRESHOLD  = 60;
-const ACTION_WIDTH     = 160; // total swipe reveal (2 × 80 px buttons)
+const ACTION_WIDTH     = 160; // 2 × 80 px buttons
 const DRAG_ACTIVATE_MS = 250;
 
 // ── EditModal ────────────────────────────────────────────────────────────────
@@ -62,31 +60,19 @@ function EditModal({
   const [name, setName] = useState(entry.name);
   const [text, setText] = useState(entry.text);
 
-  function handleSave() {
-    const trimName = name.trim() || 'Untitled';
-    const trimText = text; // preserve exact whitespace
-    onSave(entry.id, trimName, trimText);
-  }
-
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={m.root}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          {/* Header */}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={m.header}>
             <Pressable onPress={onClose} style={m.headerBtn}>
               <Text style={m.cancelTxt}>Cancel</Text>
             </Pressable>
             <Text style={m.headerTitle} numberOfLines={1}>Edit Script</Text>
-            <Pressable onPress={handleSave} style={m.headerBtn}>
+            <Pressable onPress={() => onSave(entry.id, name.trim() || 'Untitled', text)} style={m.headerBtn}>
               <Text style={m.saveTxt}>Save</Text>
             </Pressable>
           </View>
-
-          {/* Name field */}
           <View style={m.nameWrap}>
             <Text style={m.label}>NAME</Text>
             <TextInput
@@ -99,8 +85,6 @@ function EditModal({
               selectTextOnFocus
             />
           </View>
-
-          {/* Body */}
           <Text style={[m.label, { paddingHorizontal: 20, paddingTop: 12 }]}>SCRIPT</Text>
           <TextInput
             style={m.bodyInput}
@@ -109,6 +93,63 @@ function EditModal({
             multiline
             textAlignVertical="top"
             placeholder="Script text…"
+            placeholderTextColor="#444"
+            autoCorrect={false}
+            autoCapitalize="sentences"
+            scrollEnabled
+          />
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── NewModal ─────────────────────────────────────────────────────────────────
+
+function NewModal({
+  onSave,
+  onClose,
+}: {
+  onSave: (name: string, text: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [text, setText] = useState('');
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={m.root}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={m.header}>
+            <Pressable onPress={onClose} style={m.headerBtn}>
+              <Text style={m.cancelTxt}>Cancel</Text>
+            </Pressable>
+            <Text style={m.headerTitle}>New Script</Text>
+            <Pressable onPress={() => onSave(name.trim() || 'Untitled', text)} style={m.headerBtn}>
+              <Text style={m.saveTxt}>Save</Text>
+            </Pressable>
+          </View>
+          <View style={m.nameWrap}>
+            <Text style={m.label}>NAME</Text>
+            <TextInput
+              style={m.nameInput}
+              value={name}
+              onChangeText={setName}
+              placeholder="Script name…"
+              placeholderTextColor="#444"
+              returnKeyType="next"
+              autoFocus
+              selectTextOnFocus
+            />
+          </View>
+          <Text style={[m.label, { paddingHorizontal: 20, paddingTop: 12 }]}>SCRIPT</Text>
+          <TextInput
+            style={m.bodyInput}
+            value={text}
+            onChangeText={setText}
+            multiline
+            textAlignVertical="top"
+            placeholder="Type your script here…"
             placeholderTextColor="#444"
             autoCorrect={false}
             autoCapitalize="sentences"
@@ -133,8 +174,10 @@ interface RowProps {
 }
 
 function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
-  const tx       = useRef(new Animated.Value(0)).current;
-  const revealed = useRef(false);
+  const tx        = useRef(new Animated.Value(0)).current;
+  const revealed  = useRef(false);
+  // Track revealed as state too so pointerEvents re-renders correctly
+  const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameVal,  setNameVal]  = useState(entry.name);
 
@@ -154,24 +197,24 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
   function snapBack() {
     Animated.spring(tx, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
     revealed.current = false;
+    setOpen(false);
   }
 
   function snapOpen() {
     Animated.spring(tx, { toValue: -ACTION_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
     revealed.current = true;
+    setOpen(true);
   }
 
-  // PanResponder only claims the gesture when the user moves horizontally —
-  // vertical/tap events fall through to the backing Pressable buttons.
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_evt, gs) =>
+      onMoveShouldSetPanResponder: (_e, gs) =>
         Math.abs(gs.dx) > 6 && Math.abs(gs.dx) > Math.abs(gs.dy),
-      onPanResponderMove: (_evt, gs) => {
+      onPanResponderMove: (_e, gs) => {
         const base = revealed.current ? -ACTION_WIDTH : 0;
         tx.setValue(Math.min(0, Math.max(-ACTION_WIDTH, base + gs.dx)));
       },
-      onPanResponderRelease: (_evt, gs) => {
+      onPanResponderRelease: (_e, gs) => {
         if (!revealed.current && gs.dx < -SWIPE_THRESHOLD)        snapOpen();
         else if (revealed.current && gs.dx > SWIPE_THRESHOLD / 2) snapBack();
         else if (revealed.current)                                 snapOpen();
@@ -189,29 +232,13 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
   const preview = entry.text.slice(0, 90).replace(/\n/g, ' ');
 
   return (
-    <View style={r.rowWrap}>
-      {/* Action backing — Edit + Delete */}
-      <View style={r.actionBg}>
-        <Pressable
-          style={r.editBtn}
-          onPress={() => { snapBack(); onEdit(entry); }}
-        >
-          <Text style={r.editTxt}>Edit</Text>
-        </Pressable>
-        <Pressable
-          style={r.deleteBtn}
-          onPress={() => { snapBack(); onDelete(entry.id); }}
-        >
-          <Text style={r.deleteTxt}>Delete</Text>
-        </Pressable>
-      </View>
+    <View style={[r.rowWrap, { height: ROW_HEIGHT }]}>
 
-      {/* Sliding foreground */}
+      {/* Sliding foreground — full background colour covers action area while closed */}
       <Animated.View
         style={[r.row, { transform: [{ translateX: tx }] }]}
         {...pan.panHandlers}
       >
-        {/* Drag handle */}
         <Pressable
           style={r.dragHandle}
           delayLongPress={DRAG_ACTIVATE_MS}
@@ -220,7 +247,6 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
           <Text style={r.dragIcon}>≡</Text>
         </Pressable>
 
-        {/* Content */}
         <Pressable
           style={r.rowContent}
           onPress={() => {
@@ -250,6 +276,29 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
           <Text style={r.preview} numberOfLines={1}>{preview}</Text>
         </Pressable>
       </Animated.View>
+
+      {/* Action buttons — rendered ON TOP of the slider, pinned to right.
+          pointerEvents='none' when closed so row taps pass through normally. */}
+      <View
+        style={r.actionBg}
+        pointerEvents={open ? 'box-none' : 'none'}
+      >
+        <TouchableOpacity
+          style={r.editBtn}
+          activeOpacity={0.7}
+          onPress={() => { snapBack(); onEdit(entry); }}
+        >
+          <Text style={r.editTxt}>Edit</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={r.deleteBtn}
+          activeOpacity={0.7}
+          onPress={() => { snapBack(); onDelete(entry.id); }}
+        >
+          <Text style={r.deleteTxt}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+
     </View>
   );
 }
@@ -257,12 +306,12 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
 // ── FilesScreen ──────────────────────────────────────────────────────────────
 
 export default function FilesScreen() {
-  const [scripts,   setScripts]   = useState<ScriptEntry[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [loadedId,  setLoadedId]  = useState<string | null>(null);
-  const [editEntry, setEditEntry] = useState<ScriptEntry | null>(null);
+  const [scripts,    setScripts]    = useState<ScriptEntry[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [loadedId,   setLoadedId]   = useState<string | null>(null);
+  const [editEntry,  setEditEntry]  = useState<ScriptEntry | null>(null);
+  const [showNew,    setShowNew]    = useState(false);
 
-  // ── Drag state ──────────────────────────────────────────────────────────
   const dragId       = useRef<string | null>(null);
   const dragFromIdx  = useRef(0);
   const dragToIdx    = useRef(0);
@@ -301,7 +350,14 @@ export default function FilesScreen() {
     });
   }
 
-  // ── Edit / save ─────────────────────────────────────────────────────────
+  // ── New ─────────────────────────────────────────────────────────────────
+  async function handleNewSave(name: string, text: string) {
+    const entry = await saveScript(name, text);
+    setList([entry, ...scriptsRef.current]);
+    setShowNew(false);
+  }
+
+  // ── Edit ────────────────────────────────────────────────────────────────
   async function handleEditSave(id: string, name: string, text: string) {
     const updated = await updateScript(id, { name, text });
     if (!updated) return;
@@ -338,16 +394,15 @@ export default function FilesScreen() {
     ]);
   }
 
-  // ── Rename (inline) ─────────────────────────────────────────────────────
+  // ── Rename ──────────────────────────────────────────────────────────────
   async function handleRename(id: string, name: string) {
     await updateScript(id, { name });
     setList(scriptsRef.current.map(s => s.id === id ? { ...s, name } : s));
   }
 
-  // ── Drag-to-reorder ──────────────────────────────────────────────────────
+  // ── Drag ────────────────────────────────────────────────────────────────
   function handleDragStart(id: string, pageY: number) {
-    const list = scriptsRef.current;
-    const idx  = list.findIndex(s => s.id === id);
+    const idx = scriptsRef.current.findIndex(s => s.id === id);
     if (idx === -1) return;
     dragId.current      = id;
     dragFromIdx.current = idx;
@@ -361,13 +416,9 @@ export default function FilesScreen() {
     onStartShouldSetResponder: () => true,
     onMoveShouldSetResponder:  () => true,
     onResponderMove: (e: any) => {
-      const py   = e.nativeEvent.pageY;
-      const relY = py - listTopY.current;
+      const relY = e.nativeEvent.pageY - listTopY.current;
       dragGhostY.setValue(relY - ROW_HEIGHT / 2);
-      const idx  = Math.max(0, Math.min(
-        scriptsRef.current.length - 1,
-        Math.floor(relY / ROW_HEIGHT),
-      ));
+      const idx = Math.max(0, Math.min(scriptsRef.current.length - 1, Math.floor(relY / ROW_HEIGHT)));
       dragToIdx.current = idx;
       setDragOverIdx(idx);
     },
@@ -390,20 +441,23 @@ export default function FilesScreen() {
 
   return (
     <SafeAreaView style={s.root}>
-      {/* Edit modal */}
       {editEntry && (
-        <EditModal
-          entry={editEntry}
-          onSave={handleEditSave}
-          onClose={() => setEditEntry(null)}
-        />
+        <EditModal entry={editEntry} onSave={handleEditSave} onClose={() => setEditEntry(null)} />
+      )}
+      {showNew && (
+        <NewModal onSave={handleNewSave} onClose={() => setShowNew(false)} />
       )}
 
       <View style={s.header}>
         <Text style={s.title}>Scripts</Text>
-        <Pressable style={s.importBtn} onPress={handleImport}>
-          <Text style={s.importTxt}>+ Import</Text>
-        </Pressable>
+        <View style={s.headerActions}>
+          <Pressable style={s.headerBtn} onPress={() => setShowNew(true)}>
+            <Text style={s.headerBtnTxt}>+ New</Text>
+          </Pressable>
+          <Pressable style={s.headerBtn} onPress={handleImport}>
+            <Text style={s.headerBtnTxt}>+ Import</Text>
+          </Pressable>
+        </View>
       </View>
 
       {loading ? (
@@ -413,7 +467,7 @@ export default function FilesScreen() {
           <Text style={s.emptyIcon}>📄</Text>
           <Text style={s.emptyHeading}>No saved scripts</Text>
           <Text style={s.emptySub}>
-            Import a .txt file or save the current script from the Teleprompter tab.
+            Create a new script, import a .txt file, or save from the Teleprompter tab.
           </Text>
         </View>
       ) : (
@@ -423,11 +477,7 @@ export default function FilesScreen() {
             e.target.measure((_x, _y, _w, _h, _px, py) => { listTopY.current = py; });
           }}
         >
-          <ScrollView
-            style={s.list}
-            contentContainerStyle={s.listContent}
-            scrollEnabled={!dragging}
-          >
+          <ScrollView style={s.list} contentContainerStyle={s.listContent} scrollEnabled={!dragging}>
             {scripts.map((entry, idx) => (
               <View key={entry.id}>
                 {dragging && dragOverIdx === idx && dragFromIdx.current !== idx && (
@@ -451,7 +501,6 @@ export default function FilesScreen() {
             )}
           </ScrollView>
 
-          {/* Drag overlay */}
           {dragging && (
             <View style={StyleSheet.absoluteFill} {...overlayHandlers}>
               {draggedEntry && (
@@ -481,8 +530,9 @@ const s = StyleSheet.create({
   header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
   title:         { color: '#fff', fontSize: 28, fontWeight: '700' },
-  importBtn:     { backgroundColor: '#1a1a1a', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 16 },
-  importTxt:     { color: '#fff', fontSize: 14, fontWeight: '600' },
+  headerActions: { flexDirection: 'row', gap: 8 },
+  headerBtn:     { backgroundColor: '#1a1a1a', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14 },
+  headerBtnTxt:  { color: '#fff', fontSize: 14, fontWeight: '600' },
   empty:         { color: '#555', textAlign: 'center', marginTop: 60 },
   emptyState:    { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   emptyIcon:     { fontSize: 48, marginBottom: 16 },
@@ -505,17 +555,13 @@ const s = StyleSheet.create({
 
 const r = StyleSheet.create({
   rowWrap:      { overflow: 'hidden', borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  actionBg:     { position: 'absolute', right: 0, top: 0, bottom: 0, width: ACTION_WIDTH,
-                  flexDirection: 'row' },
-  editBtn:      { width: 80, backgroundColor: '#1d4ed8', justifyContent: 'center', alignItems: 'center' },
-  editTxt:      { color: '#fff', fontSize: 13, fontWeight: '600' },
-  deleteBtn:    { width: 80, backgroundColor: '#7f1d1d', justifyContent: 'center', alignItems: 'center' },
-  deleteTxt:    { color: '#fff', fontSize: 13, fontWeight: '600' },
-  row:          { backgroundColor: '#0a0a0a', flexDirection: 'row', alignItems: 'center' },
+  // Slider — full-width, background colour covers action area while closed
+  row:          { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+                  backgroundColor: '#0a0a0a', flexDirection: 'row', alignItems: 'center',
+                  zIndex: 1 },
   dragHandle:   { paddingHorizontal: 14, paddingVertical: 20, justifyContent: 'center', alignItems: 'center' },
   dragIcon:     { color: '#444', fontSize: 20 },
-  rowContent:   { flex: 1, paddingRight: 20, paddingVertical: 14, minHeight: ROW_HEIGHT,
-                  justifyContent: 'center' },
+  rowContent:   { flex: 1, paddingRight: 20, paddingVertical: 14, justifyContent: 'center' },
   nameRow:      { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
   namePressable:{ flex: 1 },
   name:         { color: '#fff', fontSize: 15, fontWeight: '600' },
@@ -524,6 +570,13 @@ const r = StyleSheet.create({
   preview:      { color: '#444', fontSize: 12 },
   renameInput:  { color: '#fff', fontSize: 15, fontWeight: '600', borderBottomWidth: 1,
                   borderBottomColor: '#555', paddingVertical: 2, flex: 1 },
+  // Action buttons — sit on top of the slider (zIndex: 2), pinned to right
+  actionBg:     { position: 'absolute', right: 0, top: 0, bottom: 0, width: ACTION_WIDTH,
+                  flexDirection: 'row', zIndex: 2 },
+  editBtn:      { width: 80, backgroundColor: '#1d4ed8', justifyContent: 'center', alignItems: 'center' },
+  editTxt:      { color: '#fff', fontSize: 13, fontWeight: '600' },
+  deleteBtn:    { width: 80, backgroundColor: '#7f1d1d', justifyContent: 'center', alignItems: 'center' },
+  deleteTxt:    { color: '#fff', fontSize: 13, fontWeight: '600' },
 });
 
 const m = StyleSheet.create({
