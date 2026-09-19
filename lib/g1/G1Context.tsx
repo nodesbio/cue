@@ -11,6 +11,54 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { G1Core, G1Status, EventHandler } from './G1Core';
 
+// Detect whether the native BLE module is available (absent in Expo Go).
+function isBleAvailable(): boolean {
+  try {
+    // react-native-ble-plx registers its native module as 'BlePlx'
+    // (RCT_EXPORT_MODULE on the BlePlx class — see node_modules/react-native-ble-plx/
+    // ios/BlePlx.m and src/BleModule.js: `NativeModules.BlePlx`).
+    // If the native layer is missing (Expo Go), this is null/undefined.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { NativeModules } = require('react-native');
+    return !!NativeModules.BlePlx;
+  } catch {
+    return false;
+  }
+}
+
+/** Minimal no-op stub used when BLE native module is unavailable (e.g. Expo Go). */
+function makeStubCore(): G1Core {
+  return {
+    status: {
+      left:  { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
+      right: { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
+      firmwareVersion: null,
+    },
+    // Connection
+    connect:              async () => {},
+    disconnect:           async () => {},
+    destroy:              () => {},
+    // Status / events
+    addEventHandler:      () => {},
+    removeEventHandler:   () => {},
+    setStatusCallback:    () => {},
+    // Sending
+    sendText:             async () => {},
+    sendBmp:              async () => {},
+    setBrightness:        async () => {},
+    requestBattery:       async () => {},
+    exitToDashboard:      async () => {},
+    // Scanning
+    scanPairs:            async () => ({}),
+    scanDebug:            async () => ([]),
+    startStreamingScan:   async () => {},
+    stopStreamingScan:    () => {},
+    // Computed props
+    get isConnected()          { return false; },
+    get isPartiallyConnected() { return false; },
+  } as unknown as G1Core;
+}
+
 export const PAIRED_SERIAL_KEY = 'g1_paired_serial';
 
 interface G1ContextValue {
@@ -31,7 +79,14 @@ interface G1ContextValue {
 const G1Context = createContext<G1ContextValue | null>(null);
 
 // Survive Fast Refresh — keep the live BLE connection across hot reloads.
-declare const global: { __g1Core?: G1Core };
+declare const global: { __g1Core?: G1Core; __g1CoreVersion?: number };
+
+// Bump this when the stub API changes. Forces old frozen instances to be replaced.
+const STUB_VERSION = 4;
+if (global.__g1CoreVersion !== STUB_VERSION) {
+  global.__g1Core = undefined;
+  global.__g1CoreVersion = STUB_VERSION;
+}
 
 // Stable ref that G1Core's callback writes into — avoids stale-closure problem
 // where the Core is constructed before useState returns setStatus.
@@ -39,9 +94,14 @@ const statusCallbackRef: { current: ((s: G1Status) => void) | null } = { current
 
 export function G1Provider({ children }: { children: React.ReactNode }) {
   if (!global.__g1Core) {
-    global.__g1Core = new G1Core({
-      onStatusChange: (s) => statusCallbackRef.current?.({ ...s }),
-    });
+    if (isBleAvailable()) {
+      global.__g1Core = new G1Core({
+        onStatusChange: (s) => statusCallbackRef.current?.({ ...s }),
+      });
+    } else {
+      console.warn('[G1Context] BLE native module unavailable (Expo Go?) — using stub.');
+      global.__g1Core = makeStubCore();
+    }
   }
 
   // Seed React state directly from the live core — handles Fast Refresh where

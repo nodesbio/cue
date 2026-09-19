@@ -5,14 +5,14 @@
  * Tap a complete pair to connect; incomplete pairs show which lens is missing.
  */
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useG1 } from '@/lib/g1/G1Context';
 import { Device } from 'react-native-ble-plx';
 
 type PairEntry = {
   serial: string;
-  firmware: string;
+  firmware?: string;
   L?: Device;
   R?: Device;
 };
@@ -24,43 +24,30 @@ export default function PairingScanScreen() {
 
   useEffect(() => {
     startScan();
-    return () => {
-      (core as any).manager.stopDeviceScan();
-    };
+    return () => { core.stopStreamingScan(); };
   }, []);
 
   async function startScan() {
     setPairs({});
     try {
-      await (core as any)._ensureBleReady();
-      (core as any).manager.startDeviceScan(
-        null,
-        { allowDuplicates: true },
-        (_err: any, device: Device | null) => {
-          if (!device?.name?.includes('G1')) return;
-          const parsed = (core as any)._parseManufacturerData(device);
-          if (!parsed) return;
-          const { side, serial, firmware } = parsed;
-          setPairs(prev => {
-            const entry = prev[serial] ?? { serial, firmware };
-            return { ...prev, [serial]: { ...entry, [side]: device } };
-          });
-        },
-      );
+      await core.startStreamingScan(incoming => {
+        // incoming keys are serial strings; values have optional L, R, firmware
+        setPairs(incoming as Record<string, PairEntry>);
+      });
     } catch (e) {
       console.warn('[scan]', e);
     }
   }
 
   function rescan() {
-    (core as any).manager.stopDeviceScan();
+    core.stopStreamingScan();
     startScan();
   }
 
   function selectPair(serial: string) {
     const entry = pairs[serial];
     if (!entry?.L || !entry?.R) return;
-    (core as any).manager.stopDeviceScan();
+    core.stopStreamingScan();
     router.push({ pathname: '/pairing/connecting', params: { serial } });
   }
 

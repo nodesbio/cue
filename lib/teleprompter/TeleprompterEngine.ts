@@ -245,6 +245,18 @@ export class TeleprompterEngine {
     };
   }
 
+  // ── Frame rendering ───────────────────────────────────────────────────────
+
+  /**
+   * Build a display frame for any arbitrary topIndex (not just the current one).
+   * Used by the phone UI to render prev/next pages in the swipeable HUD preview.
+   * Clamps topIndex to [0, lines.length - 1].
+   */
+  getFrameAt(topIndex: number): string {
+    const clamped = Math.max(0, Math.min(topIndex, Math.max(0, this.lines.length - 1)));
+    return formatFrame(this._buildStatusBar(), this.lines, clamped);
+  }
+
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
   /** Re-wire callbacks after React remounts so closures stay fresh. */

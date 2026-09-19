@@ -86,6 +86,36 @@ export class G1Core {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
+  /**
+   * Start a continuous BLE scan for G1 pairs, calling `onUpdate` each time a
+   * new lens is discovered. Call `stopStreamingScan()` to stop.
+   * Safe to call when BLE is not yet ready — waits internally.
+   */
+  async startStreamingScan(
+    onUpdate: (pairs: Record<string, Partial<Record<Side, Device>> & { firmware?: string }>) => void,
+  ): Promise<void> {
+    const pairs: Record<string, Partial<Record<Side, Device>> & { firmware?: string }> = {};
+    await this._ensureBleReady();
+    this.manager.startDeviceScan(
+      null,
+      { allowDuplicates: true },
+      (_err, device) => {
+        if (!device?.name?.includes('G1')) return;
+        const parsed = this._parseManufacturerData(device);
+        if (!parsed) return;
+        const { side, serial, firmware } = parsed;
+        if (!pairs[serial]) pairs[serial] = { serial, firmware };
+        pairs[serial][side] = device;
+        onUpdate({ ...pairs });
+      },
+    );
+  }
+
+  /** Stop a streaming scan started with `startStreamingScan`. */
+  stopStreamingScan(): void {
+    this.manager.stopDeviceScan();
+  }
+
   /** Scan and return all discovered pairs (channel → {L,R} device). */
   async scanPairs(durationMs = 8000): Promise<Record<string, Partial<Record<Side, Device>>>> {
     await this._ensureBleReady();

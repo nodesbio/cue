@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
+  FlatList,
   Keyboard,
   Pressable,
   SafeAreaView,
@@ -16,6 +17,7 @@ import {
   TextInput,
   TouchableWithoutFeedback,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -211,21 +213,70 @@ export default function TeleprompterScreen() {
     engineRef.current?.setLoop(next);
   }, [loop]);
 
+  // ── HUD swipe refs — must be declared before any early return ─────────────
+  const { width: windowWidth } = useWindowDimensions();
+  const HUD_CENTER_PAGE = 1;
+  // Leave 48px peek on each side so adjacent pages are partially visible
+  const HUD_PAGE_WIDTH = windowWidth - 48;
+  const hudListRef = useRef<FlatList>(null);
+  const hudPageRef = useRef(HUD_CENTER_PAGE);
+  const [hudActivePage, setHudActivePage] = useState(HUD_CENTER_PAGE);
+
+  // When topIndex changes, snap back to the centre page silently.
+  useEffect(() => {
+    if (!hudListRef.current) return;
+    hudListRef.current.scrollToIndex({ index: HUD_CENTER_PAGE, animated: false });
+    hudPageRef.current = HUD_CENTER_PAGE;
+    setHudActivePage(HUD_CENTER_PAGE);
+  }, [snap?.topIndex]);
+
+  const renderHudPage = useCallback(({ item }: { item: { key: string; offset: number } }) => {
+    const engine = engineRef.current;
+    const targetIndex = (snap?.topIndex ?? 0) + item.offset * 4; // WINDOW_SIZE = 4
+    const frameStr = engine ? engine.getFrameAt(Math.max(0, targetIndex)) : '';
+    const lines = frameStr.split('\n');
+    const isCurrent = item.offset === 0;
+    return (
+      <View style={[s.hudPage, { width: HUD_PAGE_WIDTH }, !isCurrent && s.hudPageDim]}>
+        <Text style={[s.hudLabel, isCurrent && s.hudLabelActive]}>
+          {item.offset === -1 ? '← PREV' : item.offset === 1 ? 'NEXT →' : 'G1 DISPLAY'}
+        </Text>
+        {lines.map((line, i) => (
+          <Text
+            key={i}
+            style={[
+              s.hudLine,
+              i === 0 && s.hudStatus,
+              isCurrent && i === 3 && s.hudActive,
+            ]}
+            numberOfLines={1}
+          >
+            {line || ' '}
+          </Text>
+        ))}
+      </View>
+    );
+  }, [snap?.topIndex, HUD_PAGE_WIDTH]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!snap) return null;
 
   const playing = snap.state === 'playing';
   const ended   = snap.state === 'ended';
   const hasScript = snap.totalLines > 0;
 
-  // Phone-side preview: show the current 5-line frame
-  const frameLines = snap.frame.split('\n');
+  // 3-page swipeable HUD data
+  const hudPages = [
+    { key: 'prev',    offset: -1 },
+    { key: 'current', offset:  0 },
+    { key: 'next',    offset: +1 },
+  ];
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <SafeAreaView style={s.root}>
-        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
-          {/* ── Header ───────────────────────────────────────────────── */}
+        {/* ── Header (outside ScrollView so it stays fixed above HUD) ── */}
+        <View style={s.headerBlock}>
           <Text style={s.title}>Teleprompter</Text>
           <Text style={[s.subtitle,
             connected ? { color: '#4ade80' } :
@@ -236,24 +287,41 @@ export default function TeleprompterScreen() {
               ? '◑ Half-connected — forget & re-pair in iOS Settings'
               : '○ Not connected — controls still work'}
           </Text>
+        </View>
 
-          {/* ── HUD Preview ──────────────────────────────────────────── */}
-          <View style={s.hudCard}>
-            <Text style={s.hudLabel}>G1 DISPLAY</Text>
-            {frameLines.map((line, i) => (
-              <Text
-                key={i}
-                style={[
-                  s.hudLine,
-                  i === 0 && s.hudStatus,
-                  i === 3 && s.hudActive, // line 4 = reading anchor
-                ]}
-                numberOfLines={1}
-              >
-                {line || ' '}
-              </Text>
+        {/* ── HUD Preview (swipeable, outside ScrollView to avoid gesture conflict) ── */}
+        <View style={s.hudOuter}>
+          <FlatList
+            ref={hudListRef}
+            data={hudPages}
+            renderItem={renderHudPage}
+            keyExtractor={item => item.key}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            initialScrollIndex={HUD_CENTER_PAGE}
+            getItemLayout={(_, index) => ({
+              length: HUD_PAGE_WIDTH,
+              offset: HUD_PAGE_WIDTH * index,
+              index,
+            })}
+            onMomentumScrollEnd={e => {
+              const page = Math.round(e.nativeEvent.contentOffset.x / HUD_PAGE_WIDTH);
+              hudPageRef.current = page;
+              setHudActivePage(page);
+            }}
+            style={{ width: HUD_PAGE_WIDTH }}
+            contentContainerStyle={{ paddingHorizontal: 0 }}
+          />
+          {/* Page dots — track live page */}
+          <View style={s.hudDots}>
+            {hudPages.map((p, i) => (
+              <View key={p.key} style={[s.hudDot, i === hudActivePage && s.hudDotActive]} />
             ))}
           </View>
+        </View>
+
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
           {/* ── Progress ─────────────────────────────────────────────── */}
           {hasScript && (
@@ -379,20 +447,27 @@ export default function TeleprompterScreen() {
 
 const s = StyleSheet.create({
   root:             { flex: 1, backgroundColor: '#0a0a0a' },
+  headerBlock:      { paddingHorizontal: 20 },
   scroll:           { paddingHorizontal: 20, paddingBottom: 40 },
 
   title:            { color: '#fff', fontSize: 28, fontWeight: '700', marginTop: 20 },
-  subtitle:         { color: '#555', fontSize: 13, marginTop: 4, marginBottom: 24 },
+  subtitle:         { color: '#555', fontSize: 13, marginTop: 4, marginBottom: 16 },
 
-  // HUD preview
-  hudCard:          { backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20, marginBottom: 20,
-                       borderWidth: 1, borderColor: '#1a3a1a' },
+  // HUD preview (swipeable, lifted outside ScrollView)
+  hudOuter:         { paddingLeft: 20, marginBottom: 20 },
+  hudPage:          { backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20,
+                       borderWidth: 1, borderColor: '#1a3a1a', height: 260, marginRight: 12 },
+  hudPageDim:       { opacity: 0.4 },
   hudLabel:         { color: '#1a4a1a', fontSize: 10, fontWeight: '700', letterSpacing: 2,
-                       marginBottom: 12 },
-  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 13, lineHeight: 22 },
-  hudStatus:        { color: '#4ade80', fontWeight: '600' },
+                       marginBottom: 14 },
+  hudLabelActive:   { color: '#2d6a2d' },
+  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 18, lineHeight: 32 },
+  hudStatus:        { color: '#4ade80', fontWeight: '600', fontSize: 14, lineHeight: 24 },
   hudActive:        { color: '#86efac', backgroundColor: '#0f2a0f', borderRadius: 4,
                        paddingHorizontal: 4 },
+  hudDots:          { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 10 },
+  hudDot:           { width: 5, height: 5, borderRadius: 3, backgroundColor: '#1a3a1a' },
+  hudDotActive:     { backgroundColor: '#22c55e', width: 16 },
 
   // Progress
   progressRow:      { marginBottom: 20, gap: 8 },
