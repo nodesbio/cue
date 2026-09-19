@@ -1,0 +1,88 @@
+diff --git a/node_modules/expo-modules-jsi/apple/.generated/module.modulemap b/node_modules/expo-modules-jsi/apple/.generated/module.modulemap
+new file mode 100644
+index 0000000..0eec4b8
+--- /dev/null
++++ b/node_modules/expo-modules-jsi/apple/.generated/module.modulemap
+@@ -0,0 +1,7 @@
++module jsi {
++  umbrella header "/Users/johnmuirhead-gould/repos/cue/ios/Pods/Headers/Public/React-jsi/jsi/jsi.h"
++  header "/Users/johnmuirhead-gould/repos/cue/ios/Pods/Headers/Public/React-jsi/jsi/instrumentation.h"
++
++  export *
++  module * { export * }
++}
+diff --git a/node_modules/expo-modules-jsi/apple/Package.swift b/node_modules/expo-modules-jsi/apple/Package.swift
+index 77b0525..ba7c810 100644
+--- a/node_modules/expo-modules-jsi/apple/Package.swift
++++ b/node_modules/expo-modules-jsi/apple/Package.swift
+@@ -150,7 +150,7 @@ let package = Package(
+       path: "Benchmarks",
+     ),
+   ] + testFrameworks.binaryTargets,
+-  swiftLanguageModes: [.v6],
++  swiftLanguageModes: [.v5],
+   cxxLanguageStandard: .cxx20
+ )
+ 
+diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
+index 6115e87..957527c 100644
+--- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
++++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI-Cxx/include/RuntimeScheduler.h
+@@ -50,7 +50,7 @@ public:
+    `scheduleTask` dispatches through `fn`, which the host implements against
+    the real react::RuntimeScheduler.
+    */
+-  SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
++  RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
+       : nativeScheduler(scheduler), scheduleFn(fn) {}
+ 
+   /**
+@@ -58,7 +58,7 @@ public:
+    caller's thread — intended for standalone runtimes (e.g. tests) that have
+    no React scheduler.
+    */
+-  SWIFT_RETURNS_RETAINED RuntimeScheduler() {}
++  RuntimeScheduler() {}
+ 
+   RuntimeScheduler(const RuntimeScheduler &) = delete;
+ 
+diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+index 3d796ee..16d4bd7 100644
+--- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
++++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
+@@ -311,7 +311,8 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
+     let nativeConstructorKey = "__native_constructor__"
+ 
+     // Validate that the name is a valid JS identifier to prevent code injection via eval.
+-    if name.wholeMatch(of: /^[a-zA-Z_$][a-zA-Z0-9_$]*$/) == nil {
++    let identifierPattern = try! NSRegularExpression(pattern: "^[a-zA-Z_$][a-zA-Z0-9_$]*$")
++    if identifierPattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) == nil {
+       throw InvalidIdentifierError(identifier: name)
+     }
+ 
+diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
+index 434c379..fc34edd 100644
+--- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
++++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
+@@ -43,7 +43,7 @@ public struct JavaScriptPromise: JavaScriptType, ~Copyable {
+     }
+   }
+ 
+-  private let longLivedState = LongLivedState()
++  nonisolated(unsafe) private let longLivedState = LongLivedState()
+ 
+   /// Dropping the wrapper means no native code can settle or read this promise anymore, so release
+   /// its long-lived state. The values can only be touched on the JS thread while the runtime is
+diff --git a/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh b/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
+index 4c50653..9d42f2a 100755
+--- a/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
++++ b/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
+@@ -237,6 +237,8 @@ build_slice() {
+     DEBUG_INFORMATION_FORMAT=dwarf-with-dsym \
+     COMPILER_INDEX_STORE_ENABLE=NO \
+     SWIFT_COMPILATION_MODE=wholemodule \
++    SWIFT_VERSION=5 \
++    SWIFT_STRICT_CONCURRENCY=minimal \
+     CLANG_ENABLE_CODE_COVERAGE=NO \
+     CLANG_COVERAGE_MAPPING=NO \
+   )
