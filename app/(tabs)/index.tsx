@@ -249,6 +249,33 @@ export default function TeleprompterScreen() {
     engineRef.current?.setSpeed(value);
   }, []);
 
+  // Brightness: 0–42 (glasses protocol max). Persisted in AsyncStorage so it
+  // survives restarts; sent to hardware whenever glasses are connected.
+  const BRIGHTNESS_KEY = 'g1_brightness';
+  const BRIGHTNESS_DEFAULT = 21; // mid-range
+  const [brightness, setBrightnessState] = useState(BRIGHTNESS_DEFAULT);
+
+  useEffect(() => {
+    AsyncStorage.getItem(BRIGHTNESS_KEY).then(v => {
+      if (v !== null) setBrightnessState(Number(v));
+    }).catch(() => {});
+  }, []);
+
+  // Re-send stored brightness whenever the glasses connect (or reconnect).
+  useEffect(() => {
+    if (connected) {
+      core.setBrightness(brightness).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
+
+  const handleBrightnessChange = useCallback((value: number) => {
+    const level = Math.round(value);
+    setBrightnessState(level);
+    core.setBrightness(level).catch(() => {});
+    AsyncStorage.setItem(BRIGHTNESS_KEY, String(level)).catch(() => {});
+  }, [core]);
+
   const handleLoop = useCallback(() => {
     const next = !loop;
     setLoop(next);
@@ -477,6 +504,31 @@ export default function TeleprompterScreen() {
               <Text style={s.speedEndLabel}>Fast</Text>
             </View>
           </View>
+
+          {/* ── Brightness Slider (only when glasses connected) ─────── */}
+          {connected && (
+            <View style={s.speedCard}>
+              <View style={s.speedHeader}>
+                <Text style={s.speedLabel}>Brightness</Text>
+                <Text style={s.speedValue}>{Math.round((brightness / 42) * 100)}%</Text>
+              </View>
+              <Slider
+                style={s.speedSlider}
+                minimumValue={0}
+                maximumValue={42}
+                value={brightness}
+                step={1}
+                onValueChange={handleBrightnessChange}
+                minimumTrackTintColor="#333"
+                maximumTrackTintColor="#fff"
+                thumbTintColor="#fff"
+              />
+              <View style={s.speedEndLabels}>
+                <Text style={s.speedEndLabel}>Dim</Text>
+                <Text style={s.speedEndLabel}>Bright</Text>
+              </View>
+            </View>
+          )}
 
           {/* ── Loop Toggle ──────────────────────────────────────────── */}
           <Pressable style={s.loopRow} onPress={handleLoop}>
