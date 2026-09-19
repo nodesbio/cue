@@ -60,6 +60,10 @@ export class G1Core {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts: Partial<Record<Side, number>> = { L: 0, R: 0 };
   private destroyed = false;
+  /** Mutex: if a connect/scan is already in flight, callers share the same promise. */
+  private _connectingPromise: Promise<void> | null = null;
+  /** Serialise all _connectLens calls so L and R never race on iOS BLE. */
+  private _lensConnectQueue: Promise<void> = Promise.resolve();
 
   public status: G1Status = {
     left:  { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
@@ -78,6 +82,7 @@ export class G1Core {
 
   addEventHandler(h: EventHandler): void    { this.eventHandlers.add(h); }
   removeEventHandler(h: EventHandler): void { this.eventHandlers.delete(h); }
+  setStatusCallback(cb: StatusHandler): void { this.onStatusChange = cb; }
 
   // ── Public API ────────────────────────────────────────────────────────────
 
@@ -107,11 +112,32 @@ export class G1Core {
   }
 
   async connect(channel?: string): Promise<void> {
-    await this._ensureBleReady();
-    await this._scan(channel);
+    // If already connected, nothing to do.
+    if (this.isConnected) return;
+
+    // If a connection attempt is already in flight, share it instead of
+    // starting a second scan (which would cancel the first and throw
+    // "Operation was cancelled").
+    if (this._connectingPromise) {
+      return this._connectingPromise;
+    }
+
+    this._connectingPromise = (async () => {
+      try {
+        await this._ensureBleReady();
+        const resumed = await this._resumeAlreadyConnected(channel);
+        if (!resumed) await this._scan(channel);
+      } finally {
+        this._connectingPromise = null;
+      }
+    })();
+
+    return this._connectingPromise;
   }
 
   async disconnect(): Promise<void> {
+    this._connectingPromise = null;
+    this._lensConnectQueue = Promise.resolve();
     this._stopHeartbeat();
     for (const side of ['L', 'R'] as Side[]) {
       this.rxSubs[side]?.remove();
@@ -248,6 +274,37 @@ export class G1Core {
         found.push(entry);
       });
     });
+  }
+
+  /**
+   * Fast-path: if iOS already has both lenses connected at the OS level,
+   * skip scanning and go straight to _connectLens (service discovery + handshake).
+   * Returns true if both lenses were resumed, false if we need to scan.
+   */
+  private async _resumeAlreadyConnected(channel?: string): Promise<boolean> {
+    try {
+      const connected = await this.manager.connectedDevices([P.UART_SVC]);
+      const found: Partial<Record<Side, Device>> = {};
+      for (const device of connected) {
+        const side = this._parseSide(device);
+        if (!side) continue;
+        if (channel) {
+          const ch = this._parseChannel(device);
+          if (ch !== channel) continue;
+        }
+        found[side] = device;
+      }
+      if (found.L && found.R) {
+        console.log('[G1] Both lenses already connected — skipping scan');
+        await this._connectLens('L', found.L);
+        await this._connectLens('R', found.R);
+        this._startHeartbeat();
+        return true;
+      }
+    } catch (e: any) {
+      console.warn('[G1] _resumeAlreadyConnected failed:', e?.message ?? e);
+    }
+    return false;
   }
 
   private async _scan(channel?: string): Promise<void> {
@@ -412,11 +469,15 @@ export class G1Core {
       if (this.destroyed) return;
       const dev = this.devices[side];
       if (!dev) return;
-      try {
-        await this._connectLens(side, dev);
-      } catch {
-        this._scheduleReconnect(side);
-      }
+      // Enqueue so L and R reconnects never race — iOS BLE cancels concurrent connects.
+      this._lensConnectQueue = this._lensConnectQueue.then(async () => {
+        if (this.destroyed) return;
+        try {
+          await this._connectLens(side, dev);
+        } catch {
+          this._scheduleReconnect(side);
+        }
+      });
     }, delay);
   }
 
@@ -446,6 +507,7 @@ export class G1Core {
     if (!data.length) return;
 
     const op = data[0];
+    console.log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
 
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);

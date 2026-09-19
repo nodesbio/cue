@@ -11,6 +11,7 @@ import { useG1 } from '@/lib/g1/G1Context';
 const TIPS = [
   'Make sure both lenses are removed from the case and on your face.',
   'Keep your phone within 1–2 feet while connecting.',
+  'If iOS asks "Pair?" or "Allow Notifications?" — tap Pair and Allow. This is normal.',
   'If connection stalls, place lenses back in the case, close it, wait 5s, then reopen.',
   'The G1 app must be closed — it holds an exclusive BLE connection.',
   'Fold the left arm before placing lenses back in the case.',
@@ -19,7 +20,7 @@ const TIPS = [
 
 export default function PairingConnectingScreen() {
   const router = useRouter();
-  const { serial } = useLocalSearchParams<{ serial: string }>();
+  const { serial, returnTo } = useLocalSearchParams<{ serial: string; returnTo?: string }>();
   const { connect, core } = useG1();
   const [tipIndex, setTipIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,11 @@ export default function PairingConnectingScreen() {
         useNativeDriver: false,
       }).start();
       setTimeout(() => {
-        router.replace({ pathname: '/pairing/success', params: { serial } });
+        if (returnTo) {
+          router.replace(returnTo as any);
+        } else {
+          router.replace({ pathname: '/pairing/success', params: { serial } });
+        }
       }, 500);
     } catch (e: any) {
       progressAnim.stopAnimation();

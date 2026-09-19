@@ -237,6 +237,34 @@ describe('handleGesture', () => {
     expect(engine.getSnapshot().topIndex).toBe(1);
   });
 
+  it('head_down suspends auto-scroll timer', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    engine.next();
+    engine.handleGesture('head_down');
+    const snap = engine.getSnapshot();
+    // Still "playing" logically, but timer is suspended
+    expect(snap.state).toBe('playing');
+    expect(snap.timerSuspended).toBe(true);
+    // Timer should not advance while suspended
+    jest.advanceTimersByTime(SPEED_NORMAL * 1000 * 5);
+    expect(engine.getSnapshot().topIndex).toBe(0);
+  });
+
+  it('head_up after head_down resumes auto-scroll', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    engine.next();
+    engine.handleGesture('head_down'); // suspend
+    engine.handleGesture('head_up');   // resume + advance
+    const snap = engine.getSnapshot();
+    expect(snap.timerSuspended).toBe(false);
+    expect(snap.topIndex).toBe(1);
+    // Timer should now be running again
+    jest.advanceTimersByTime(SPEED_NORMAL * 1000);
+    expect(engine.getSnapshot().topIndex).toBe(2);
+  });
+
   it('gestures ignored when paused', () => {
     const { engine } = makeEngine();
     engine.play();

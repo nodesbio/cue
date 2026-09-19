@@ -12,7 +12,7 @@
  * This keeps it fully testable and decoupled from G1Core.
  */
 
-import { wrapScript, formatFrame, DEFAULT_SCRIPT } from './lineWrapper';
+import { wrapScript, formatFrame, DEFAULT_SCRIPT, WINDOW_SIZE } from './lineWrapper';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,8 @@ export interface EngineSnapshot {
   totalLines: number;
   secondsPerLine: number;
   loop: boolean;
+  /** True when state=playing but auto-scroll is suspended after a prev() — resumes on next next(). */
+  timerSuspended: boolean;
   /** The 5-line string currently on the glasses (or ready to send). */
   frame: string;
 }
@@ -44,7 +46,7 @@ export interface TeleprompterEngineOptions {
 // ── Speed presets (seconds / line) ────────────────────────────────────────
 
 export const SPEED_SLOW   = 4.5;
-export const SPEED_NORMAL = 3.5; // default
+export const SPEED_NORMAL = 2.75; // default — midpoint of TURBO..SLOW range
 export const SPEED_FAST   = 2.5;
 export const SPEED_TURBO  = 1.0; // max speed (fastest)
 export const SPEED_STEP   = 0.25; // step per +/− press
@@ -62,9 +64,11 @@ export class TeleprompterEngine {
   private secondsPerLine: number;
   private loop: boolean;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private rewindTimer: ReturnType<typeof setInterval> | null = null;
   private loopRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private leftBat: number | null = null;
   private rightBat: number | null = null;
+  // gestureHint is computed from live state — no timer needed.
 
   private onFrame: TeleprompterEngineOptions['onFrame'];
   private onStateChange: TeleprompterEngineOptions['onStateChange'];
@@ -85,7 +89,7 @@ export class TeleprompterEngine {
     this.lines = wrapScript(script);
     this.topIndex = 0;
     this.state = 'idle';
-    this._emit();
+    this._emit('loadScript');
   }
 
   // ── Playback controls ─────────────────────────────────────────────────────
@@ -97,8 +101,9 @@ export class TeleprompterEngine {
       this.topIndex = 0;
     }
     this.state = 'playing';
-    this._emit();
+    this._emit('play');
     if (this.secondsPerLine === Infinity) return; // manual mode — no timer
+    if (this.timer) { clearInterval(this.timer); this.timer = null; } // guard: never double-start
     this._startTimer();
   }
 
@@ -106,12 +111,19 @@ export class TeleprompterEngine {
     if (this.state !== 'playing') return;
     this._clearTimers();
     this.state = 'paused';
-    this._emit();
+    this._emit('pause');
   }
 
   toggle(): void {
     if (this.state === 'playing') this.pause();
     else this.play();
+  }
+
+  /** Computed gesture hint: ↑ = playing forward, ↓ = rewinding, · = paused/idle/ended. */
+  private _gestureHint(): '↑' | '↓' | '·' {
+    if (this.rewindTimer !== null) return '↓';
+    if (this.state === 'playing' && !this.timerSuspended) return '↑';
+    return '·';
   }
 
   /** Update battery levels — reflected in the status bar on next frame. */
@@ -129,22 +141,57 @@ export class TeleprompterEngine {
     }
   }
 
-  /** Go back one line. Resets the timer if playing. */
+  /** Go back one line. Pauses the auto-scroll timer — resumes on next next() call. */
   prev(): void {
     this._clearTimers();
     if (this.topIndex > 0) this.topIndex--;
-    this.state = this.state === 'ended' ? 'paused' : this.state;
-    this._emit();
-    if (this.state === 'playing' && this.secondsPerLine !== Infinity) {
-      this._startTimer();
-    }
+    // If we were playing, stay logically "playing" but suspend the timer.
+    // The user is recovering — don't race them. next() will restart the clock.
+    if (this.state === 'ended') this.state = 'paused';
+    this._emit('prev');
+    // Intentionally no _startTimer() here.
+  }
+
+  /**
+   * Pause and step back one line immediately; hold head_down keeps stepping at REWIND_INTERVAL_MS.
+   * Leaves state as 'paused' so the line is sticky — call play() to resume forward scroll.
+   */
+  static readonly REWIND_INTERVAL_MS = 300;
+  startRewind(): void {
+    if (this.rewindTimer) return; // already rewinding
+    if (this.lines.length === 0) return;
+    // Pause and suspend forward timer
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.state === 'playing') { this.state = 'paused'; }
+    // Step back immediately, then repeat at fixed fast rate while held
+    if (this.topIndex > 0) { this.topIndex--; this._emit('rewindStart'); }
+    this.rewindTimer = setInterval(() => {
+      if (!this.rewindTimer) return;
+      if (this.topIndex > 0) {
+        this.topIndex--;
+        this._emit('rewindTick');
+      } else {
+        this.stopRewind();
+      }
+    }, TeleprompterEngine.REWIND_INTERVAL_MS);
+  }
+
+  /** Returns true if a rewind interval is currently running. */
+  isRewinding(): boolean { return this.rewindTimer !== null; }
+
+  /** Stop rewinding and resume forward auto-scroll. */
+  stopRewind(): void {
+    if (this.rewindTimer) { clearInterval(this.rewindTimer); this.rewindTimer = null; }
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    // State is already 'paused' (set in startRewind) — caller decides when to play()
+    this._emit('stopRewind');
   }
 
   restart(): void {
     this._clearTimers();
     this.topIndex = 0;
     this.state = 'paused';
-    this._emit();
+    this._emit('restart');
   }
 
   // ── Speed ─────────────────────────────────────────────────────────────────
@@ -156,14 +203,14 @@ export class TeleprompterEngine {
       this._clearTimers();
       if (secondsPerLine !== Infinity) this._startTimer();
     }
-    this._emit();
+    this._emit('setSpeed');
   }
 
   // ── Loop mode ─────────────────────────────────────────────────────────────
 
   setLoop(loop: boolean): void {
     this.loop = loop;
-    this._emit();
+    this._emit('setLoop');
   }
 
   // ── Head gesture navigation ───────────────────────────────────────────────
@@ -182,6 +229,10 @@ export class TeleprompterEngine {
 
   // ── Snapshot ──────────────────────────────────────────────────────────────
 
+  get timerSuspended(): boolean {
+    return this.state === 'playing' && this.timer === null && this.secondsPerLine !== Infinity;
+  }
+
   getSnapshot(): EngineSnapshot {
     return {
       state: this.state,
@@ -189,14 +240,23 @@ export class TeleprompterEngine {
       totalLines: this.lines.length,
       secondsPerLine: this.secondsPerLine,
       loop: this.loop,
+      timerSuspended: this.timerSuspended,
       frame: this._buildFrame(),
     };
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
+  /** Re-wire callbacks after React remounts so closures stay fresh. */
+  setCallbacks(opts: Pick<TeleprompterEngineOptions, 'onFrame' | 'onStateChange'>): void {
+    this.onFrame = opts.onFrame;
+    this.onStateChange = opts.onStateChange;
+  }
+
   destroy(): void {
     this._clearTimers();
+    this.onFrame = () => {};
+    this.onStateChange = () => {};
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
@@ -209,11 +269,15 @@ export class TeleprompterEngine {
 
   private _clearTimers(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.rewindTimer) { clearInterval(this.rewindTimer); this.rewindTimer = null; }
     if (this.loopRestartTimer) { clearTimeout(this.loopRestartTimer); this.loopRestartTimer = null; }
   }
 
   /** Advance topIndex by 1. Handles end-of-script and loop logic. */
   private _advance(): void {
+    // Guard: if a rewind started between when this callback was enqueued and now,
+    // discard the stale tick to prevent the forward/rewind oscillation.
+    if (this.rewindTimer) return;
     const lastTop = Math.max(0, this.lines.length - 1);
 
     if (this.topIndex >= lastTop) {
@@ -227,19 +291,19 @@ export class TeleprompterEngine {
         this._emitLoopRestart();
         this.loopRestartTimer = setTimeout(() => {
           this.topIndex = 0;
-          this._emit();
+          this._emit('loopRestart');
           if (this.secondsPerLine !== Infinity) this._startTimer();
         }, LOOP_RESTART_DELAY_MS);
       } else {
         this.topIndex = lastTop;
         this.state = 'ended';
-        this._emit();
+        this._emit('ended');
       }
       return;
     }
 
     this.topIndex++;
-    this._emit();
+    this._emit('tick');
   }
 
   private _buildStatusBar(): string {
@@ -248,14 +312,14 @@ export class TeleprompterEngine {
     const mm = now.getMinutes().toString().padStart(2, '0');
     const ampm = hh >= 12 ? 'PM' : 'AM';
     const h12 = ((hh % 12) || 12).toString();
-    const playIcon = this.state === 'playing' ? '▶' : '⏸';
+    const playIcon = (this.state === 'playing' && !this.timerSuspended) ? '▶' : '⏸';
     const cur = this.topIndex + 1;
     const tot = this.lines.length;
     const batL = this.leftBat != null ? `L${this.leftBat}%` : '';
     const batR = this.rightBat != null ? `R${this.rightBat}%` : '';
     const bat = [batL, batR].filter(Boolean).join(' ');
     const middle = bat ? ` ${bat}` : '';
-    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot}`;
+    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot} ${this._gestureHint()}`;
   }
 
   private _buildFrame(): string {
@@ -268,7 +332,7 @@ export class TeleprompterEngine {
     return formatFrame(this._buildStatusBar(), this.lines, this.topIndex);
   }
 
-  private _emit(): void {
+  private _emit(reason = 'unknown'): void {
     const snap = this.getSnapshot();
     this.onFrame(snap.frame, this.topIndex + 1, this.lines.length);
     this.onStateChange(snap);

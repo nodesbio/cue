@@ -18,8 +18,9 @@ import {
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
 import {
   TeleprompterEngine,
@@ -40,6 +41,19 @@ function speedLabel(s: number): string {
   return 'Turbo';
 }
 
+// ── Module-level singleton ─────────────────────────────────────────────────
+// One engine instance for the lifetime of this JS module.
+// Fast Refresh replaces the module — module.hot.dispose kills the old engine's
+// timers before the new module instance starts, preventing orphaned setIntervals.
+let _engine: TeleprompterEngine | null = null;
+
+if (typeof module !== 'undefined' && (module as NodeModule & { hot?: { dispose: (cb: () => void) => void } }).hot) {
+  (module as NodeModule & { hot: { dispose: (cb: () => void) => void } }).hot.dispose(() => {
+    _engine?.destroy();
+    _engine = null;
+  });
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function TeleprompterScreen() {
@@ -53,52 +67,105 @@ export default function TeleprompterScreen() {
   const [editMode, setEditMode] = useState(false);
   const [loop, setLoop] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
-  const gestureDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const gestureCooldownRef = useRef(false);
+  const [gesturesSwapped, setGesturesSwapped] = useState(false);
+  const gesturesEnabledRef = useRef(false);
+  const gesturesSwappedRef = useRef(false);
 
-  // Load gesture preference
+  const snapRef = useRef<EngineSnapshot | null>(null);
+  const connectedRef = useRef(false);
+  const manualPauseRef = useRef(false);
+
+
+  // Keep refs in sync
+  useEffect(() => { gesturesEnabledRef.current = gesturesEnabled; }, [gesturesEnabled]);
+  useEffect(() => { gesturesSwappedRef.current = gesturesSwapped; }, [gesturesSwapped]);
+  useEffect(() => { snapRef.current = snap; }, [snap]);
+  useEffect(() => { connectedRef.current = connected; }, [connected]);
+
+  // Load gesture preferences (re-read on focus so settings changes apply immediately)
   useEffect(() => {
-    AsyncStorage.getItem('gesture_nav_enabled').then(v => {
-      if (v === 'true') setGesturesEnabled(true);
+    AsyncStorage.multiGet(['gesture_nav_enabled', 'gesture_nav_swapped']).then(pairs => {
+      if (pairs[0][1] === 'true') setGesturesEnabled(true);
+      if (pairs[1][1] === 'true') setGesturesSwapped(true);
     }).catch(() => {});
   }, []);
 
-  // Head gesture navigation — opt-in, playing-only, 700ms debounce
+  // Gesture model (runs regardless of gesturesEnabled so nod always works):
+  //   head_down              → start rewind immediately
+  //   head_up (after down<NOD_WINDOW_MS) → stop rewind + toggle pause
+  //   head_up (no prior down, or down timed out) → play / stopRewind / advance
+  //
+  // Dedup: hardware fires each event 2-3x in a burst; suppress repeats within DEDUP_MS.
+  const NOD_WINDOW_MS = 600;
+  const DEDUP_MS = 300;
+
+  const dedupRef   = useRef<{ name: string; until: number }>({ name: '', until: 0 });
+
   useG1Event((event) => {
-    if (!gesturesEnabled) return;
-    if (snap?.state !== 'playing') return;
-    if (gestureCooldownRef.current) return;
-    if (event.name === 'head_up') {
-      engineRef.current?.next();
-      gestureCooldownRef.current = true;
-      gestureDebounceRef.current = setTimeout(() => { gestureCooldownRef.current = false; }, 700);
-    } else if (event.name === 'head_down') {
-      engineRef.current?.prev();
-      gestureCooldownRef.current = true;
-      gestureDebounceRef.current = setTimeout(() => { gestureCooldownRef.current = false; }, 700);
+    if (event.side !== 'R') return;
+
+    const isUp   = event.name === 'head_up';
+    const isDown = event.name === 'head_down';
+    if (!isUp && !isDown) return;
+
+    // ── Dedup ────────────────────────────────────────────────────────────
+    const now = Date.now();
+    if (event.name === dedupRef.current.name && now < dedupRef.current.until) return;
+    dedupRef.current = { name: event.name, until: now + DEDUP_MS };
+
+    const swapped = gesturesSwappedRef.current;
+
+    if (isDown) {
+      if (manualPauseRef.current) return; // UI pause overrides gestures
+      if (!engineRef.current?.isRewinding()) engineRef.current?.startRewind();
+      return;
     }
+
+    // ── head_up → play/resume unless manually paused via UI ───────────────
+    engineRef.current?.stopRewind();
+    if (!gesturesEnabledRef.current) return;
+    if (manualPauseRef.current) return;
+    engineRef.current?.play();
   });
 
-  // Initialise engine once
+  // Initialise engine once per module lifetime.
+  // StrictMode double-mounts reuse the same _engine; destroy() is NOT called on
+  // unmount so the singleton survives the StrictMode cleanup/remount cycle.
+  // Fast Refresh tears down the old module (and its _engine) via module.hot.dispose
+  // before this runs, so there is never more than one live engine at a time.
   useEffect(() => {
-    const engine = new TeleprompterEngine({
+    if (!_engine) {
+      _engine = new TeleprompterEngine({ onFrame: () => {}, onStateChange: () => {} });
+    }
+    engineRef.current = _engine;
+
+    // Re-wire every mount so closures (core, setSnap, connectedRef) are always
+    // from the live component instance, not a stale StrictMode/Fast-Refresh copy.
+    _engine.setCallbacks({
       onFrame: (frame, curLine, totalLines) => {
-        if (connected) {
-          core.sendText(frame, curLine, totalLines).catch(() => {});
+        const preview = frame.replace(/\n/g, '↵').slice(0, 60);
+        if (connectedRef.current) {
+          core.sendText(frame, curLine, totalLines).catch((e) =>
+          );
         }
       },
-      onStateChange: (s) => setSnap({ ...s }),
+      onStateChange: (s) => {
+        setSnap({ ...s });
+      },
     });
-    engineRef.current = engine;
-    setSnap(engine.getSnapshot());
 
-    return () => engine.destroy();
+    setSnap(_engine.getSnapshot());
+    // No cleanup: singleton must outlive StrictMode unmount.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-send on reconnect (glasses may have restarted)
   useEffect(() => {
-    if (connected && snap) {
-      core.sendText(snap.frame, snap.topIndex + 1, snap.totalLines).catch(() => {});
+    if (!connected) return;
+    const s = snapRef.current;
+    if (s) {
+      const preview = s.frame.replace(/\n/g, '↵').slice(0, 60);
+      core.sendText(s.frame, s.topIndex + 1, s.totalLines).catch((e) =>
+      );
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,17 +196,17 @@ export default function TeleprompterScreen() {
     setEditMode(false);
   }, []);
 
-  const handleToggle = useCallback(() => engineRef.current?.toggle(), []);
+  const handleToggle = useCallback(() => {
+    const isPlaying = engineRef.current?.getSnapshot().state === 'playing';
+    manualPauseRef.current = isPlaying;
+    engineRef.current?.toggle();
+  }, []);
   const handleNext   = useCallback(() => engineRef.current?.next(),   []);
   const handlePrev   = useCallback(() => engineRef.current?.prev(),   []);
 
-  const handleSpeedDec = useCallback(() => {
-    const cur = engineRef.current?.getSnapshot().secondsPerLine ?? SPEED_NORMAL;
-    engineRef.current?.setSpeed(Math.min(SPEED_SLOW, cur + SPEED_STEP));
-  }, []);
-  const handleSpeedInc = useCallback(() => {
-    const cur = engineRef.current?.getSnapshot().secondsPerLine ?? SPEED_NORMAL;
-    engineRef.current?.setSpeed(Math.max(SPEED_TURBO, cur - SPEED_STEP));
+  // Slider value = secondsPerLine (higher = slower). Min=SPEED_TURBO, Max=SPEED_SLOW.
+  const handleSpeedChange = useCallback((value: number) => {
+    engineRef.current?.setSpeed(value);
   }, []);
 
   const handleLoop = useCallback(() => {
@@ -240,13 +307,20 @@ export default function TeleprompterScreen() {
               <Text style={s.speedLabel}>Speed</Text>
               <Text style={s.speedValue}>{speedLabel(snap.secondsPerLine)}</Text>
             </View>
-            <View style={s.speedButtons}>
-              <Pressable style={s.speedBtn} onPress={handleSpeedDec}>
-                <Text style={s.speedBtnText}>−</Text>
-              </Pressable>
-              <Pressable style={s.speedBtn} onPress={handleSpeedInc}>
-                <Text style={s.speedBtnText}>+</Text>
-              </Pressable>
+            <Slider
+              style={s.speedSlider}
+              minimumValue={-SPEED_SLOW}
+              maximumValue={-SPEED_TURBO}
+              value={-snap.secondsPerLine}
+              step={SPEED_STEP}
+              onValueChange={(v) => handleSpeedChange(-v)}
+              minimumTrackTintColor="#333"
+              maximumTrackTintColor="#fff"
+              thumbTintColor="#fff"
+            />
+            <View style={s.speedEndLabels}>
+              <Text style={s.speedEndLabel}>Slow</Text>
+              <Text style={s.speedEndLabel}>Fast</Text>
             </View>
           </View>
 
@@ -348,9 +422,9 @@ const s = StyleSheet.create({
   speedHeader:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   speedLabel:       { color: '#888', fontSize: 13 },
   speedValue:       { color: '#fff', fontSize: 13, fontWeight: '600' },
-  speedButtons:     { flexDirection: 'row', gap: 12, marginTop: 8 },
-  speedBtn:         { flex: 1, backgroundColor: '#1e1e1e', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  speedBtnText:     { color: '#fff', fontSize: 28, lineHeight: 32 },
+  speedSlider:      { width: '100%', height: 40, marginTop: 4 },
+  speedEndLabels:   { flexDirection: 'row', justifyContent: 'space-between', marginTop: -4 },
+  speedEndLabel:    { color: '#555', fontSize: 11 },
 
   // Loop toggle
   loopRow:          { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 28 },

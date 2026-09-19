@@ -30,11 +30,35 @@ interface G1ContextValue {
 
 const G1Context = createContext<G1ContextValue | null>(null);
 
+// Survive Fast Refresh — keep the live BLE connection across hot reloads.
+declare const global: { __g1Core?: G1Core };
+
+// Stable ref that G1Core's callback writes into — avoids stale-closure problem
+// where the Core is constructed before useState returns setStatus.
+const statusCallbackRef: { current: ((s: G1Status) => void) | null } = { current: null };
+
 export function G1Provider({ children }: { children: React.ReactNode }) {
-  const coreRef = useRef<G1Core>(
-    new G1Core({ onStatusChange: (s) => setStatus({ ...s }) }),
-  );
-  const [status, setStatus] = useState<G1Status | null>(null);
+  if (!global.__g1Core) {
+    global.__g1Core = new G1Core({
+      onStatusChange: (s) => statusCallbackRef.current?.({ ...s }),
+    });
+  }
+
+  // Seed React state directly from the live core — handles Fast Refresh where
+  // __g1Core already exists with txReady=true and connect() returns immediately
+  // without calling onStatusChange (so the callback-only path misses it).
+  const [status, setStatus] = useState<G1Status | null>(() => {
+    const s = global.__g1Core!.status;
+    console.log(`[G1Context] seed L=connected:${s.left.connected} txReady:${s.left.txReady} R=connected:${s.right.connected} txReady:${s.right.txReady}`);
+    return { ...s };
+  });
+
+  // Wire the module-level ref to the current setStatus — always up to date.
+  statusCallbackRef.current = (s) => setStatus(s);
+  // Also keep the core's own slot current (used by pairing flow that bypasses context).
+  global.__g1Core.setStatusCallback((s) => setStatus({ ...s }));
+
+  const coreRef = useRef<G1Core>(global.__g1Core);
   const [pairedSerial, setPairedSerial] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,7 +73,8 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     }).catch(() => {});
 
     return () => {
-      coreRef.current.destroy();
+      // Don't destroy on Fast Refresh unmount — the global instance stays alive.
+      // destroy() is intentionally never called so the BLE connection survives reloads.
     };
   }, []);
 
@@ -67,7 +92,9 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   }
 
   const core = coreRef.current;
-  const isConnected = !!(status?.left.txReady && status?.right.txReady);
+  // "Connected" = at least one lens is TX-ready (the other may be mid-reconnect).
+  // "Both ready" = both txReady (used for full-feature sends).
+  const isConnected = !!(status?.left.txReady || status?.right.txReady);
   const isPartiallyConnected = !isConnected && !!(
     (status?.left.connected || status?.right.connected)
   );
