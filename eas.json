@@ -8,7 +8,8 @@
     },
     "preview": {
       "distribution": "internal",
-      "ios": { "buildConfiguration": "Release" }
+      "ios": { "buildConfiguration": "Release" },
+      "autoIncrement": true
     },
     "production": {
       "ios": { "buildConfiguration": "Release" },
