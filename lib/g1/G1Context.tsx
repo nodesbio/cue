@@ -67,9 +67,13 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   }
 
   const core = coreRef.current;
+  const isConnected = !!(status?.left.txReady && status?.right.txReady);
+  const isPartiallyConnected = !isConnected && !!(
+    (status?.left.connected || status?.right.connected)
+  );
 
   return (
-    <G1Context.Provider value={{ core, status, isConnected: core.isConnected, isPartiallyConnected: core.isPartiallyConnected, connect, disconnect, pairedSerial }}>
+    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, connect, disconnect, pairedSerial }}>
       {children}
     </G1Context.Provider>
   );
