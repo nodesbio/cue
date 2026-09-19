@@ -100,6 +100,16 @@ npm test
 
 ---
 
+## Acknowledgements
+
+The G1 BLE protocol is not publicly documented. This project would not exist without the reverse-engineering work of:
+
+- **[MentraOS](https://mentra.glass)** — open-source OS for AR glasses; their G1 integration work was an early reference for the Nordic UART radio protocol and packet structure.
+- **[JohnRThomas/even_realities_decomp](https://github.com/JohnRThomas/even_realities_decomp)** — ongoing firmware decompilation of the G1, currently >87% labeled. The packet formats and characteristic UUIDs used in `lib/g1/packets.ts` were informed by this work.
+- **[LabbeSimon/G1_Extended](https://github.com/LabbeSimon/G1_Extended)** — open-source Android client that reverse-engineered the BLE protocol independently and documents the dual Nordic UART radio setup (one per temple), HUD layout flags, and hardware event stream.
+
+---
+
 ## License
 
 MIT © [Nodes Bio, Inc.](https://nodes.bio)
