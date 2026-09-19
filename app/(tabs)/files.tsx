@@ -16,6 +16,7 @@ import {
   Animated,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   SafeAreaView,
@@ -134,7 +135,6 @@ interface RowProps {
 function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
   const tx       = useRef(new Animated.Value(0)).current;
   const revealed = useRef(false);
-  const startX   = useRef(0);
   const [renaming, setRenaming] = useState(false);
   const [nameVal,  setNameVal]  = useState(entry.name);
 
@@ -160,6 +160,28 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
     Animated.spring(tx, { toValue: -ACTION_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
     revealed.current = true;
   }
+
+  // PanResponder only claims the gesture when the user moves horizontally —
+  // vertical/tap events fall through to the backing Pressable buttons.
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gs) =>
+        Math.abs(gs.dx) > 6 && Math.abs(gs.dx) > Math.abs(gs.dy),
+      onPanResponderMove: (_evt, gs) => {
+        const base = revealed.current ? -ACTION_WIDTH : 0;
+        tx.setValue(Math.min(0, Math.max(-ACTION_WIDTH, base + gs.dx)));
+      },
+      onPanResponderRelease: (_evt, gs) => {
+        if (!revealed.current && gs.dx < -SWIPE_THRESHOLD)        snapOpen();
+        else if (revealed.current && gs.dx > SWIPE_THRESHOLD / 2) snapBack();
+        else if (revealed.current)                                 snapOpen();
+        else                                                        snapBack();
+      },
+      onPanResponderTerminate: () => {
+        if (revealed.current) snapOpen(); else snapBack();
+      },
+    }),
+  ).current;
 
   const openedLabel = entry.openedAt
     ? `Opened ${new Date(entry.openedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
@@ -187,20 +209,7 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
       {/* Sliding foreground */}
       <Animated.View
         style={[r.row, { transform: [{ translateX: tx }] }]}
-        onStartShouldSetResponder={() => true}
-        onResponderGrant={e  => { startX.current = e.nativeEvent.pageX; }}
-        onResponderMove={e   => {
-          const dx   = e.nativeEvent.pageX - startX.current;
-          const base = revealed.current ? -ACTION_WIDTH : 0;
-          tx.setValue(Math.min(0, Math.max(-ACTION_WIDTH, base + dx)));
-        }}
-        onResponderRelease={e => {
-          const dx = e.nativeEvent.pageX - startX.current;
-          if (!revealed.current && dx < -SWIPE_THRESHOLD)        snapOpen();
-          else if (revealed.current && dx > SWIPE_THRESHOLD / 2) snapBack();
-          else if (revealed.current)                              snapOpen();
-          else                                                    snapBack();
-        }}
+        {...pan.panHandlers}
       >
         {/* Drag handle */}
         <Pressable
