@@ -13,7 +13,8 @@
     },
     "production": {
       "ios": { "buildConfiguration": "Release" },
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "autoIncrement": true
     }
   },
   "submit": {
