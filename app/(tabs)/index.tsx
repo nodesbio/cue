@@ -17,7 +17,6 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import Slider from '@react-native-community/slider';
 import { useG1 } from '@/lib/g1/G1Context';
 import {
   TeleprompterEngine,
@@ -25,6 +24,7 @@ import {
   SPEED_SLOW,
   SPEED_NORMAL,
   SPEED_FAST,
+  SPEED_STEP,
 } from '@/lib/teleprompter/TeleprompterEngine';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -82,9 +82,13 @@ export default function TeleprompterScreen() {
   const handleNext   = useCallback(() => engineRef.current?.next(),   []);
   const handlePrev   = useCallback(() => engineRef.current?.prev(),   []);
 
-  const handleSpeed = useCallback((val: number) => {
-    // Slider goes left=slow (4.5) to right=fast (2.5) — invert
-    engineRef.current?.setSpeed(val);
+  const handleSpeedDec = useCallback(() => {
+    const cur = engineRef.current?.getSnapshot().secondsPerLine ?? SPEED_NORMAL;
+    engineRef.current?.setSpeed(Math.min(SPEED_SLOW, cur + SPEED_STEP));
+  }, []);
+  const handleSpeedInc = useCallback(() => {
+    const cur = engineRef.current?.getSnapshot().secondsPerLine ?? SPEED_NORMAL;
+    engineRef.current?.setSpeed(Math.max(SPEED_FAST, cur - SPEED_STEP));
   }, []);
 
   const handleLoop = useCallback(() => {
@@ -185,22 +189,13 @@ export default function TeleprompterScreen() {
               <Text style={s.speedLabel}>Speed</Text>
               <Text style={s.speedValue}>{speedLabel(snap.secondsPerLine)}</Text>
             </View>
-            <Slider
-              style={s.slider}
-              minimumValue={SPEED_FAST}    // 2.5s  (right = fast)
-              maximumValue={SPEED_SLOW}    // 4.5s  (left  = slow)
-              value={snap.secondsPerLine === Infinity ? SPEED_NORMAL : snap.secondsPerLine}
-              onValueChange={handleSpeed}
-              minimumTrackTintColor="#ffffff"
-              maximumTrackTintColor="#333"
-              thumbTintColor="#ffffff"
-              // Invert so left = slow, right = fast (feels natural)
-              inverted
-            />
-            <View style={s.speedTicks}>
-              <Text style={s.speedTick}>Slow</Text>
-              <Text style={s.speedTick}>Normal</Text>
-              <Text style={s.speedTick}>Fast</Text>
+            <View style={s.speedButtons}>
+              <Pressable style={s.speedBtn} onPress={handleSpeedDec}>
+                <Text style={s.speedBtnText}>−</Text>
+              </Pressable>
+              <Pressable style={s.speedBtn} onPress={handleSpeedInc}>
+                <Text style={s.speedBtnText}>+</Text>
+              </Pressable>
             </View>
           </View>
 
@@ -297,9 +292,9 @@ const s = StyleSheet.create({
   speedHeader:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   speedLabel:       { color: '#888', fontSize: 13 },
   speedValue:       { color: '#fff', fontSize: 13, fontWeight: '600' },
-  slider:           { width: '100%', height: 40 },
-  speedTicks:       { flexDirection: 'row', justifyContent: 'space-between' },
-  speedTick:        { color: '#333', fontSize: 11 },
+  speedButtons:     { flexDirection: 'row', gap: 12, marginTop: 8 },
+  speedBtn:         { flex: 1, backgroundColor: '#1e1e1e', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+  speedBtnText:     { color: '#fff', fontSize: 28, lineHeight: 32 },
 
   // Loop toggle
   loopRow:          { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 28 },
