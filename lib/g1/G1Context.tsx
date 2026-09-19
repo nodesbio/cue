@@ -87,6 +87,9 @@ export function useLogs(): string[] {
   return _logBuffer;
 }
 
+export const BRIGHTNESS_KEY     = 'g1_brightness';
+export const BRIGHTNESS_DEFAULT = 21; // mid-range (0–42)
+
 interface G1ContextValue {
   /** The shared core — use for sendText, sendBmp, etc. */
   core: G1Core;
@@ -100,6 +103,9 @@ interface G1ContextValue {
   disconnect: () => Promise<void>;
   /** The last successfully paired serial, if any. */
   pairedSerial: string | null;
+  /** Display brightness (0–42). Persisted + pushed to hardware automatically. */
+  brightness: number;
+  setBrightness: (level: number) => Promise<void>;
 }
 
 const G1Context = createContext<G1ContextValue | null>(null);
@@ -152,11 +158,20 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
 
   const coreRef = useRef<G1Core>(global.__g1Core);
   const [pairedSerial, setPairedSerial] = useState<string | null>(null);
+  const [brightness, setBrightnessState] = useState<number>(BRIGHTNESS_DEFAULT);
 
   useEffect(() => {
     // Start SmartRemote listener once on mount.
     smartRemoteManager.start();
     return () => smartRemoteManager.stop();
+  }, []);
+
+  useEffect(() => {
+    // Load persisted brightness on mount.
+    AsyncStorage.getItem(BRIGHTNESS_KEY).then(v => {
+      const b = parseInt(v ?? '', 10);
+      if (!isNaN(b)) setBrightnessState(b);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -177,6 +192,24 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
       // destroy() is intentionally never called so the BLE connection survives reloads.
     };
   }, []);
+
+  // Re-push stored brightness whenever glasses become connected/reconnect.
+  const isConnectedForEffect = !!(status?.left.txReady || status?.right.txReady);
+  useEffect(() => {
+    if (isConnectedForEffect) {
+      coreRef.current.setBrightness(brightness).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnectedForEffect]);
+
+  async function setBrightness(level: number): Promise<void> {
+    const v = Math.max(0, Math.min(42, Math.round(level)));
+    setBrightnessState(v);
+    await AsyncStorage.setItem(BRIGHTNESS_KEY, String(v)).catch(() => {});
+    if (isConnectedForEffect) {
+      await coreRef.current.setBrightness(v).catch(() => {});
+    }
+  }
 
   async function connect(serial: string) {
     await coreRef.current.connect(serial);
@@ -200,7 +233,7 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, connect, disconnect, pairedSerial }}>
+    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, connect, disconnect, pairedSerial, brightness, setBrightness }}>
       {children}
     </G1Context.Provider>
   );

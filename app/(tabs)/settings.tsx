@@ -7,16 +7,13 @@ import { useG1, useG1Event, useLogs, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Contex
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
-export const BRIGHTNESS_KEY   = 'g1_brightness';
-const BRIGHTNESS_DEFAULT      = 21;
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { core, status, isConnected: connected, disconnect, pairedSerial } = useG1();
+  const { core, status, isConnected: connected, disconnect, pairedSerial, brightness, setBrightness } = useG1();
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
-  const [brightness, setBrightnessState]      = useState(BRIGHTNESS_DEFAULT);
   const [lastEvent, setLastEvent]             = useState<string | null>(null);
   const [debugDevices, setDebugDevices]       = useState<string[]>([]);
   const [scanning, setScanning]               = useState(false);
@@ -24,11 +21,9 @@ export default function SettingsScreen() {
   const logs = useLogs();
 
   useEffect(() => {
-    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY, BRIGHTNESS_KEY]).then(pairs => {
+    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY]).then(pairs => {
       if (pairs[0][1] === 'true') setGesturesEnabled(true);
       if (pairs[1][1] === 'true') setGesturesSwapped(true);
-      const b = parseInt(pairs[2][1] ?? '', 10);
-      if (!isNaN(b)) setBrightnessState(b);
     }).catch(() => {});
   }, []);
 
@@ -47,13 +42,6 @@ export default function SettingsScreen() {
   function toggleSwap(val: boolean) {
     setGesturesSwapped(val);
     AsyncStorage.setItem(GESTURE_SWAP_KEY, val ? 'true' : 'false').catch(() => {});
-  }
-
-  function handleBrightnessChange(val: number) {
-    const v = Math.round(val);
-    setBrightnessState(v);
-    AsyncStorage.setItem(BRIGHTNESS_KEY, String(v)).catch(() => {});
-    if (connected) core.setBrightness(v).catch(() => {});
   }
 
   function handleConnectPress() {
@@ -160,7 +148,7 @@ export default function SettingsScreen() {
             maximumValue={42}
             value={brightness}
             step={1}
-            onValueChange={handleBrightnessChange}
+            onValueChange={(v) => setBrightness(v)}
             minimumTrackTintColor="#333"
             maximumTrackTintColor="#555"
             thumbTintColor="#fff"

@@ -251,26 +251,6 @@ export default function TeleprompterScreen() {
     engineRef.current?.setSpeed(value);
   }, []);
 
-  // Brightness: 0–42 (glasses protocol max). Persisted in AsyncStorage so it
-  // survives restarts; sent to hardware whenever glasses are connected.
-  const BRIGHTNESS_KEY = 'g1_brightness';
-  const BRIGHTNESS_DEFAULT = 21; // mid-range
-  const [brightness, setBrightnessState] = useState(BRIGHTNESS_DEFAULT);
-
-  useEffect(() => {
-    AsyncStorage.getItem(BRIGHTNESS_KEY).then(v => {
-      if (v !== null) setBrightnessState(Number(v));
-    }).catch(() => {});
-  }, []);
-
-  // Re-send stored brightness whenever the glasses connect (or reconnect).
-  useEffect(() => {
-    if (connected) {
-      core.setBrightness(brightness).catch(() => {});
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected]);
-
   const handleLoop = useCallback(() => {
     const next = !loop;
     setLoop(next);
