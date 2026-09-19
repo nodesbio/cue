@@ -21,70 +21,91 @@ index 6115e87..957527c 100644
    RuntimeScheduler(const RuntimeScheduler &) = delete;
  
 diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-index 3d796ee..0a72bef 100644
+index 3d796ee..474aea6 100644
 --- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
 +++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/JavaScriptRuntime.swift
-@@ -185,11 +185,11 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
+@@ -185,12 +185,12 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
        resultPtr: UnsafeMutablePointer<facebook.jsi.Value>
      ) -> Bool {
        let propertyName = String(cString: propertyName)
 -      nonisolated(unsafe) let resultPtr = resultPtr
++      let resultPtrBox = UnsafeSendableBox(resultPtr)
  
        return withGuaranteedContext(context) { (context: HostObjectContext, runtime) in
          return JavaScriptActor.assumeIsolated {
            return forwardingSwiftErrorsToJS(runtime: runtime) {
-+            nonisolated(unsafe) let resultPtr = resultPtr
-             try context.get(propertyName).writeJSIValue(to: resultPtr)
+-            try context.get(propertyName).writeJSIValue(to: resultPtr)
++            try context.get(propertyName).writeJSIValue(to: resultPtrBox.value)
            }
          }
-@@ -311,7 +311,8 @@ open class JavaScriptRuntime: Equatable, Identifiable, @unchecked Sendable {
-     let nativeConstructorKey = "__native_constructor__"
- 
-     // Validate that the name is a valid JS identifier to prevent code injection via eval.
--    if name.wholeMatch(of: /^[a-zA-Z_$][a-zA-Z0-9_$]*$/) == nil {
-+    let identifierPattern = try! NSRegularExpression(pattern: "^[a-zA-Z_$][a-zA-Z0-9_$]*$")
-+    if identifierPattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) == nil {
-       throw InvalidIdentifierError(identifier: name)
-     }
- 
-@@ -774,15 +775,14 @@ private func createFunctionClosure(
+       }
+@@ -774,19 +774,19 @@ private func createFunctionClosure(
      // synchronous call, so the `nonisolated(unsafe)` capture is sound. This removes a per-call class
      // allocation + retain/release + dealloc that profiling showed dominating the no-op `@JS` host-call
      // floor.
 -    nonisolated(unsafe) let thisPtr = thisPtr
 -    nonisolated(unsafe) let argumentsPtr = argumentsPtr
 -    nonisolated(unsafe) let resultPtr = resultPtr
--
++    let thisPtrBox = UnsafeSendableBox(thisPtr)
++    let argumentsPtrBox = UnsafeSendableBox(argumentsPtr)
++    let resultPtrBox = UnsafeSendableBox(resultPtr)
+ 
      // See `withGuaranteedContext` for why neither the context nor the runtime is retained here, and
      // why the result is written to the caller's slot instead of being returned.
      return withGuaranteedContext(context) { (context: HostFunctionContext, runtime) in
        return JavaScriptActor.assumeIsolated {
          return forwardingSwiftErrorsToJS(runtime: runtime) {
-+          nonisolated(unsafe) let thisPtr = thisPtr
-+          nonisolated(unsafe) let argumentsPtr = argumentsPtr
-+          nonisolated(unsafe) let resultPtr = resultPtr
-           let this = UnsafeMutablePointer(mutating: thisPtr).move()
-           let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
+-          let this = UnsafeMutablePointer(mutating: thisPtr).move()
+-          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
++          let this = UnsafeMutablePointer(mutating: thisPtrBox.value).move()
++          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtrBox.value, count: argumentsCount)
            let thisValue = JavaScriptValue(runtime, this)
-@@ -817,15 +817,14 @@ private func createFunctionClosure(
+-          try context.call(thisValue, consume arguments).writeJSIValue(to: resultPtr)
++          try context.call(thisValue, consume arguments).writeJSIValue(to: resultPtrBox.value)
+         }
+       }
+     }
+@@ -817,18 +817,18 @@ private func createFunctionClosure(
      // handed in as a borrowed `JavaScriptUnownedValue` pointing straight at the C++-owned `this` slot:
      // it is not moved out and no owning `JavaScriptValue` is allocated, so the closure avoids the
      // per-call `weak`-runtime form/destroy and heap object that the owning `this` pays.
 -    nonisolated(unsafe) let thisPtr = thisPtr
 -    nonisolated(unsafe) let argumentsPtr = argumentsPtr
 -    nonisolated(unsafe) let resultPtr = resultPtr
--
++    let thisPtrBox = UnsafeSendableBox(thisPtr)
++    let argumentsPtrBox = UnsafeSendableBox(argumentsPtr)
++    let resultPtrBox = UnsafeSendableBox(resultPtr)
+ 
      // See `withGuaranteedContext` for why neither the context nor the runtime is retained here, and
      // why the result is written to the caller's slot instead of being returned.
      return withGuaranteedContext(context) { (context: UnownedThisHostFunctionContext, runtime) in
        return JavaScriptActor.assumeIsolated {
          return forwardingSwiftErrorsToJS(runtime: runtime) {
-+          nonisolated(unsafe) let thisPtr = thisPtr
-+          nonisolated(unsafe) let argumentsPtr = argumentsPtr
-+          nonisolated(unsafe) let resultPtr = resultPtr
-           let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
-           let thisValue = JavaScriptUnownedValue(runtime.pointee, thisPtr)
-           try context.call(thisValue, consume arguments).writeJSIValue(to: resultPtr)
+-          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
+-          let thisValue = JavaScriptUnownedValue(runtime.pointee, thisPtr)
+-          try context.call(thisValue, consume arguments).writeJSIValue(to: resultPtr)
++          let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtrBox.value, count: argumentsCount)
++          let thisValue = JavaScriptUnownedValue(runtime.pointee, thisPtrBox.value)
++          try context.call(thisValue, consume arguments).writeJSIValue(to: resultPtrBox.value)
+         }
+       }
+     }
+@@ -855,3 +855,15 @@ extension JavaScriptRuntime {
+     }
+   }
+ }
++
++/// Wraps a raw JSI pointer so it can cross into a `JavaScriptActor.assumeIsolated` closure without
++/// tripping Swift 6.2's region-based isolation checking ('sending X risks causing data races').
++/// Sound for the same reason the previous `nonisolated(unsafe)` rebindings were: the pointers are
++/// call-scoped inputs owned by the synchronous C++ caller, `assumeIsolated` runs its operation
++/// synchronously on the current thread, and nothing outlives the call.
++private struct UnsafeSendableBox<T>: @unchecked Sendable {
++  let value: T
++  init(_ value: T) {
++    self.value = value
++  }
++}
 diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
 index 434c379..cbf1b77 100644
 --- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
