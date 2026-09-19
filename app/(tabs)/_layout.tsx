@@ -33,6 +33,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="files"
+        options={{
+          title: 'Scripts',
+          tabBarIcon: ({ focused }) => <TabIcon label="📄" active={focused} />,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',

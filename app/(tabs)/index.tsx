@@ -25,6 +25,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
+import { saveScript } from '@/lib/scripts/ScriptStore';
 import {
   TeleprompterEngine,
   EngineSnapshot,
@@ -198,6 +199,9 @@ export default function TeleprompterScreen() {
     });
 
     setSnap(_engine.getSnapshot());
+    // Expose engine globally so the Files tab can load scripts without a
+    // circular import on the singleton.
+    (global as any).__cueEngine = _engine;
     // No cleanup: singleton must outlive StrictMode unmount.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -223,6 +227,12 @@ export default function TeleprompterScreen() {
     engineRef.current?.loadScript(scriptText);
     setEditMode(false);
     Keyboard.dismiss();
+  }, [scriptText]);
+
+  const handleSave = useCallback(async () => {
+    if (!scriptText.trim()) return;
+    const name = `Script ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    await saveScript(name, scriptText).catch(() => {});
   }, [scriptText]);
 
   const handlePickFile = useCallback(async () => {
@@ -423,6 +433,11 @@ export default function TeleprompterScreen() {
                 <Pressable onPress={handlePickFile}>
                   <Text style={s.editToggle}>📄 File</Text>
                 </Pressable>
+                {scriptText.trim().length > 0 && (
+                  <Pressable onPress={handleSave}>
+                    <Text style={s.editToggle}>💾 Save</Text>
+                  </Pressable>
+                )}
                 <Pressable onPress={() => setEditMode(e => !e)}>
                   <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Paste'}</Text>
                 </Pressable>
