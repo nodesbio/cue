@@ -176,8 +176,6 @@ interface RowProps {
 function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
   const tx        = useRef(new Animated.Value(0)).current;
   const revealed  = useRef(false);
-  // Track revealed as state too so pointerEvents re-renders correctly
-  const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameVal,  setNameVal]  = useState(entry.name);
 
@@ -197,13 +195,11 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
   function snapBack() {
     Animated.spring(tx, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
     revealed.current = false;
-    setOpen(false);
   }
 
   function snapOpen() {
     Animated.spring(tx, { toValue: -ACTION_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
     revealed.current = true;
-    setOpen(true);
   }
 
   const pan = useRef(
@@ -232,73 +228,61 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
   const preview = entry.text.slice(0, 90).replace(/\n/g, ' ');
 
   return (
-    <View style={[r.rowWrap, { height: ROW_HEIGHT }]}>
-
-      {/* Sliding foreground — full background colour covers action area while closed */}
+    // clip to row height; no overflow:hidden so touches aren't eaten
+    <View style={{ height: ROW_HEIGHT, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' }}>
+      {/* Outer flex row: foreground fills width + ACTION_WIDTH extra, then translate left on swipe */}
       <Animated.View
-        style={[r.row, { transform: [{ translateX: tx }] }]}
+        style={[r.slideTrack, { transform: [{ translateX: tx }] }]}
         {...pan.panHandlers}
       >
-        <Pressable
-          style={r.dragHandle}
-          delayLongPress={DRAG_ACTIVATE_MS}
-          onLongPress={e => onDragStart(entry.id, e.nativeEvent.pageY)}
-        >
-          <Text style={r.dragIcon}>≡</Text>
-        </Pressable>
+        {/* Foreground card — solid bg so it covers buttons while closed */}
+        <View style={r.row}>
+          <Pressable
+            style={r.dragHandle}
+            delayLongPress={DRAG_ACTIVATE_MS}
+            onLongPress={e => onDragStart(entry.id, e.nativeEvent.pageY)}
+          >
+            <Text style={r.dragIcon}>≡</Text>
+          </Pressable>
 
-        <Pressable
-          style={r.rowContent}
-          onPress={() => {
-            if (revealed.current) { snapBack(); return; }
-            onLoad(entry);
-          }}
-        >
-          <View style={r.nameRow}>
-            {renaming ? (
-              <TextInput
-                style={r.renameInput}
-                value={nameVal}
-                onChangeText={setNameVal}
-                onBlur={commitRename}
-                onSubmitEditing={commitRename}
-                autoFocus
-                selectTextOnFocus
-              />
-            ) : (
-              <Pressable onLongPress={() => setRenaming(true)} style={r.namePressable}>
-                <Text style={r.name} numberOfLines={1}>{entry.name}</Text>
-              </Pressable>
-            )}
-            {isLoaded && <Text style={r.loadedBadge}>● loaded</Text>}
-          </View>
-          <Text style={r.meta}>{openedLabel} · {entry.text.length.toLocaleString()} chars</Text>
-          <Text style={r.preview} numberOfLines={1}>{preview}</Text>
-        </Pressable>
-      </Animated.View>
+          <Pressable
+            style={r.rowContent}
+            onPress={() => {
+              if (revealed.current) { snapBack(); return; }
+              onLoad(entry);
+            }}
+          >
+            <View style={r.nameRow}>
+              {renaming ? (
+                <TextInput
+                  style={r.renameInput}
+                  value={nameVal}
+                  onChangeText={setNameVal}
+                  onBlur={commitRename}
+                  onSubmitEditing={commitRename}
+                  autoFocus
+                  selectTextOnFocus
+                />
+              ) : (
+                <Pressable onLongPress={() => setRenaming(true)} style={r.namePressable}>
+                  <Text style={r.name} numberOfLines={1}>{entry.name}</Text>
+                </Pressable>
+              )}
+              {isLoaded && <Text style={r.loadedBadge}>● loaded</Text>}
+            </View>
+            <Text style={r.meta}>{openedLabel} · {entry.text.length.toLocaleString()} chars</Text>
+            <Text style={r.preview} numberOfLines={1}>{preview}</Text>
+          </Pressable>
+        </View>
 
-      {/* Action buttons — rendered ON TOP of the slider, pinned to right.
-          pointerEvents='none' when closed so row taps pass through normally. */}
-      <View
-        style={r.actionBg}
-        pointerEvents={open ? 'box-none' : 'none'}
-      >
-        <TouchableOpacity
-          style={r.editBtn}
-          activeOpacity={0.7}
-          onPress={() => { snapBack(); onEdit(entry); }}
-        >
+        {/* Action buttons sit inline to the RIGHT of the foreground card */}
+        <TouchableOpacity style={r.editBtn} activeOpacity={0.7} onPress={() => { snapBack(); onEdit(entry); }}>
           <Text style={r.editTxt}>Edit</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={r.deleteBtn}
-          activeOpacity={0.7}
-          onPress={() => { snapBack(); onDelete(entry.id); }}
-        >
+        <TouchableOpacity style={r.deleteBtn} activeOpacity={0.7} onPress={() => { snapBack(); onDelete(entry.id); }}>
           <Text style={r.deleteTxt}>Delete</Text>
         </TouchableOpacity>
-      </View>
-
+      </Animated.View>
     </View>
   );
 }
@@ -554,11 +538,11 @@ const s = StyleSheet.create({
 });
 
 const r = StyleSheet.create({
-  rowWrap:      { overflow: 'hidden', borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  // Slider — full-width, background colour covers action area while closed
-  row:          { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
-                  backgroundColor: '#0a0a0a', flexDirection: 'row', alignItems: 'center',
-                  zIndex: 1 },
+  // Animated track: flex row wider than the screen by ACTION_WIDTH,
+  // starts translated 0 (buttons hidden off-right), slides to -ACTION_WIDTH to reveal
+  slideTrack:   { flexDirection: 'row', width: '100%', flex: 1 },
+  // Foreground card fills the screen width, solid bg hides buttons behind it
+  row:          { flex: 1, backgroundColor: '#0a0a0a', flexDirection: 'row', alignItems: 'center' },
   dragHandle:   { paddingHorizontal: 14, paddingVertical: 20, justifyContent: 'center', alignItems: 'center' },
   dragIcon:     { color: '#444', fontSize: 20 },
   rowContent:   { flex: 1, paddingRight: 20, paddingVertical: 14, justifyContent: 'center' },
@@ -570,12 +554,12 @@ const r = StyleSheet.create({
   preview:      { color: '#444', fontSize: 12 },
   renameInput:  { color: '#fff', fontSize: 15, fontWeight: '600', borderBottomWidth: 1,
                   borderBottomColor: '#555', paddingVertical: 2, flex: 1 },
-  // Action buttons — sit on top of the slider (zIndex: 2), pinned to right
-  actionBg:     { position: 'absolute', right: 0, top: 0, bottom: 0, width: ACTION_WIDTH,
-                  flexDirection: 'row', zIndex: 2 },
-  editBtn:      { width: 80, backgroundColor: '#1d4ed8', justifyContent: 'center', alignItems: 'center' },
+  // Buttons sit inline after the foreground card in the flex row
+  editBtn:      { width: 80, height: ROW_HEIGHT, backgroundColor: '#1d4ed8',
+                  justifyContent: 'center', alignItems: 'center' },
   editTxt:      { color: '#fff', fontSize: 13, fontWeight: '600' },
-  deleteBtn:    { width: 80, backgroundColor: '#7f1d1d', justifyContent: 'center', alignItems: 'center' },
+  deleteBtn:    { width: 80, height: ROW_HEIGHT, backgroundColor: '#7f1d1d',
+                  justifyContent: 'center', alignItems: 'center' },
   deleteTxt:    { color: '#fff', fontSize: 13, fontWeight: '600' },
 });
 
