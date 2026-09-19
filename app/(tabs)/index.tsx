@@ -143,10 +143,8 @@ export default function TeleprompterScreen() {
     // from the live component instance, not a stale StrictMode/Fast-Refresh copy.
     _engine.setCallbacks({
       onFrame: (frame, curLine, totalLines) => {
-        const preview = frame.replace(/\n/g, '↵').slice(0, 60);
         if (connectedRef.current) {
-          core.sendText(frame, curLine, totalLines).catch((e) =>
-          );
+          core.sendText(frame, curLine, totalLines).catch(() => undefined);
         }
       },
       onStateChange: (s) => {
@@ -163,9 +161,7 @@ export default function TeleprompterScreen() {
     if (!connected) return;
     const s = snapRef.current;
     if (s) {
-      const preview = s.frame.replace(/\n/g, '↵').slice(0, 60);
-      core.sendText(s.frame, s.topIndex + 1, s.totalLines).catch((e) =>
-      );
+      core.sendText(s.frame, s.topIndex + 1, s.totalLines).catch(() => undefined);
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
