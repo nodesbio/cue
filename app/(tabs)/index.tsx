@@ -17,6 +17,7 @@ import {
   Text,
   TextInput,
   TouchableWithoutFeedback,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
@@ -60,6 +61,9 @@ if (typeof module !== 'undefined' && (module as NodeModule & { hot?: { dispose: 
 
 export default function TeleprompterScreen() {
   const { core, status, isConnected: connected, isPartiallyConnected: partiallyConnected } = useG1();
+  const { width: screenWidth } = useWindowDimensions();
+  const screenWidthRef = useRef(screenWidth);
+  useEffect(() => { screenWidthRef.current = screenWidth; }, [screenWidth]);
 
   // Engine lives in a ref — stable across renders, no remounting
   const engineRef = useRef<TeleprompterEngine | null>(null);
@@ -73,6 +77,9 @@ export default function TeleprompterScreen() {
   const [reconnecting, setReconnecting] = useState(false);
   // 0 = split view (HUD + controls), 1 = HUD-only fullscreen
   const [hudPage, setHudPage] = useState(0);
+  // true while the panel is fullscreen OR animating toward fullscreen
+  // (leads hudPage so the flex:1 style applies before the panel lands)
+  const [hudFullscreen, setHudFullscreen] = useState(false);
   const hudSlide = useRef(new Animated.Value(0)).current;
   const gesturesEnabledRef = useRef(false);
   const gesturesSwappedRef = useRef(false);
@@ -288,12 +295,31 @@ export default function TeleprompterScreen() {
         scrubAccumRef.current = 0;
         if (isHorizRef.current) {
           if (gs.dx < -HUD_SWIPE_THRESHOLD) {
-            Animated.spring(hudSlide, { toValue: 0, useNativeDriver: true }).start();
-            setHudPage(1);
+            // Swipe left → go to page 1 (fullscreen)
+            // Apply fullscreen layout BEFORE animating so flex:1 is active during slide
+            setHudFullscreen(true);
+            Animated.timing(hudSlide, {
+              toValue: -screenWidthRef.current,
+              duration: 220,
+              useNativeDriver: true,
+            }).start(() => {
+              hudSlide.setValue(0);
+              setHudPage(1);
+            });
           } else if (gs.dx > HUD_SWIPE_THRESHOLD) {
-            Animated.spring(hudSlide, { toValue: 0, useNativeDriver: true }).start();
-            setHudPage(0);
+            // Swipe right → go to page 0 (split)
+            // Keep fullscreen layout until after panel slides away
+            Animated.timing(hudSlide, {
+              toValue: screenWidthRef.current,
+              duration: 220,
+              useNativeDriver: true,
+            }).start(() => {
+              hudSlide.setValue(0);
+              setHudPage(0);
+              setHudFullscreen(false);
+            });
           } else {
+            // Snap back (didn't pass threshold)
             Animated.spring(hudSlide, { toValue: 0, useNativeDriver: true }).start();
           }
         }
@@ -315,16 +341,18 @@ export default function TeleprompterScreen() {
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <SafeAreaView style={s.root}>
 
-        {/* ── Header ─────────────────────────────────────────────────── */}
+        {/* ── Header — hidden in fullscreen mode ─────────────────────── */}
+        {!hudFullscreen && (
         <View style={s.headerBlock}>
           <Text style={s.title}>Teleprompter</Text>
           <Text style={[s.subtitle, connected ? { color: '#4ade80' } : {}]}>
             {connected ? '● Connected' : '○ Not connected — controls still work'}
           </Text>
         </View>
+        )}
 
         {/* ── Half-connected reconnect banner ────────────────────────── */}
-        {partiallyConnected && (
+        {partiallyConnected && !hudFullscreen && (
           <View style={s.reconnectBanner}>
             <Text style={s.reconnectText}>◑ One lens dropped</Text>
             <Pressable
@@ -342,14 +370,14 @@ export default function TeleprompterScreen() {
         {/* ── G1 Display panel — swipe left/right to change view ─────── */}
         {/* Combines horizontal swipe (page change) + vertical scrub      */}
         <Animated.View
-          style={[s.hudOuter, hudPage === 1 && s.hudOuterFullscreen,
+          style={[s.hudOuter, hudFullscreen && s.hudOuterFullscreen,
             { transform: [{ translateX: hudSlide }] }]}
           {...scrubPan.panHandlers}
         >
           <View style={s.hudLabelRow}>
             <Text style={s.hudLabel}>G1 DISPLAY</Text>
             <Text style={s.hudPageDots}>
-              {hudPage === 0 ? '● ○' : '○ ●'}
+              {hudFullscreen ? '○ ●' : '● ○'}
             </Text>
           </View>
           {hudLines.map((line, i) => (
@@ -365,10 +393,12 @@ export default function TeleprompterScreen() {
               {line || ' '}
             </Text>
           ))}
-          <Text style={s.hudHint}>↕ scrub  ·  ← → fullscreen</Text>
+          <Text style={s.hudHint}>
+            {hudFullscreen ? '→ swipe right to exit' : '↕ scrub  ·  ← swipe left for fullscreen'}
+          </Text>
         </Animated.View>
 
-        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
+        {!hudFullscreen && <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
 
           {/* ── Progress ─────────────────────────────────────────────── */}
           {hasScript && (
@@ -484,7 +514,7 @@ export default function TeleprompterScreen() {
             )}
           </View>
 
-        </ScrollView>
+        </ScrollView>}
       </SafeAreaView>
     </TouchableWithoutFeedback>
   );
@@ -493,7 +523,7 @@ export default function TeleprompterScreen() {
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root:             { flex: 1, backgroundColor: '#0a0a0a' },
+  root:             { flex: 1, backgroundColor: '#0a0a0a', overflow: 'hidden' },
   headerBlock:      { paddingHorizontal: 20 },
   scroll:           { paddingHorizontal: 20, paddingBottom: 40 },
 
@@ -511,22 +541,24 @@ const s = StyleSheet.create({
   reconnectBtnText: { color: '#000', fontSize: 13, fontWeight: '700' },
 
   // ── G1 Display panel ──────────────────────────────────────────────────────
-  hudOuter:         { marginHorizontal: 20, marginBottom: 20,
-                       backgroundColor: '#0d1a0d', borderRadius: 16, padding: 20,
-                       borderWidth: 1, borderColor: '#1a3a1a' },
+  hudOuter:         { marginHorizontal: 16, marginBottom: 20,
+                       backgroundColor: '#0d1a0d', borderRadius: 16,
+                       paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
+                       borderWidth: 1, borderColor: '#1a3a1a',
+                       minHeight: 260 },
   // Fullscreen HUD mode — takes up as much vertical space as possible
   hudOuterFullscreen: { marginHorizontal: 0, borderRadius: 0, flex: 1,
-                         borderWidth: 0, paddingHorizontal: 28, paddingVertical: 32 },
+                         borderWidth: 0, paddingHorizontal: 28, paddingTop: 36, paddingBottom: 28 },
   hudLabelRow:      { flexDirection: 'row', justifyContent: 'space-between',
-                       alignItems: 'center', marginBottom: 14 },
+                       alignItems: 'center', marginBottom: 16 },
   hudLabel:         { color: '#2d6a2d', fontSize: 10, fontWeight: '700', letterSpacing: 2 },
-  hudPageDots:      { color: '#2d6a2d', fontSize: 11 },
-  // Larger font for the display lines
-  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 22, lineHeight: 40 },
-  hudStatus:        { color: '#4ade80', fontWeight: '600', fontSize: 15, lineHeight: 26 },
+  hudPageDots:      { color: '#2d6a2d', fontSize: 13 },
+  // Display lines — sized to feel like actual glasses output
+  hudLine:          { color: '#22c55e', fontFamily: 'monospace', fontSize: 24, lineHeight: 44 },
+  hudStatus:        { color: '#4ade80', fontWeight: '600', fontSize: 16, lineHeight: 28 },
   hudActive:        { color: '#86efac', backgroundColor: '#0f2a0f', borderRadius: 4,
                        paddingHorizontal: 4 },
-  hudHint:          { color: '#1a3a1a', fontSize: 11, textAlign: 'center', marginTop: 12 },
+  hudHint:          { color: '#1a3a1a', fontSize: 11, textAlign: 'center', marginTop: 14 },
 
   // Progress
   progressRow:      { marginBottom: 20, gap: 8 },
