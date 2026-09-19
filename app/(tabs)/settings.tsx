@@ -206,6 +206,12 @@ export default function SettingsScreen() {
           </ScrollView>
         )}
 
+        {/* ── Dev Tools ─────────────────────────────────────── */}
+        <Text style={s.section}>Dev Tools</Text>
+        <Pressable style={[s.btn, s.btnSecondary]} onPress={() => router.push('/ble-debug')}>
+          <Text style={s.btnText}>SmartRemote BLE Debug</Text>
+        </Pressable>
+
         {/* ── About ──────────────────────────────────────────── */}
         <Text style={s.section}>About</Text>
         <View style={s.row}><Text style={s.label}>Version</Text><Text style={s.value}>1.0.0</Text></View>
