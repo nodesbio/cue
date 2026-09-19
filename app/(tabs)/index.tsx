@@ -386,7 +386,8 @@ export default function TeleprompterScreen() {
               style={[
                 s.hudLine,
                 i === 0 && s.hudStatus,
-                i === hudLines.length - 1 && s.hudActive,
+                i === 1 && s.hudActive,
+                hudFullscreen && i > 0 && s.hudLineFullscreen,
               ]}
               numberOfLines={1}
             >
@@ -394,7 +395,7 @@ export default function TeleprompterScreen() {
             </Text>
           ))}
           <Text style={s.hudHint}>
-            {hudFullscreen ? '→ swipe right to exit' : '↕ scrub  ·  ← swipe left for fullscreen'}
+            {hudFullscreen ? '↕ scrub  ·  → swipe right to exit' : '↕ scrub  ·  ← swipe left for fullscreen'}
           </Text>
         </Animated.View>
 
@@ -548,7 +549,9 @@ const s = StyleSheet.create({
                        minHeight: 260 },
   // Fullscreen HUD mode — takes up as much vertical space as possible
   hudOuterFullscreen: { marginHorizontal: 0, borderRadius: 0, flex: 1,
-                         borderWidth: 0, paddingHorizontal: 28, paddingTop: 36, paddingBottom: 28 },
+                         borderWidth: 0, paddingHorizontal: 28, paddingTop: 36, paddingBottom: 28,
+                         justifyContent: 'center' },
+  hudLineFullscreen:  { fontSize: 36, lineHeight: 56 },
   hudLabelRow:      { flexDirection: 'row', justifyContent: 'space-between',
                        alignItems: 'center', marginBottom: 16 },
   hudLabel:         { color: '#2d6a2d', fontSize: 10, fontWeight: '700', letterSpacing: 2 },
