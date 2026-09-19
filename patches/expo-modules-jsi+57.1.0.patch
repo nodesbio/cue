@@ -61,18 +61,26 @@ index 3d796ee..16d4bd7 100644
      }
  
 diff --git a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
-index 434c379..fc34edd 100644
+index 434c379..cbf1b77 100644
 --- a/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
 +++ b/node_modules/expo-modules-jsi/apple/Sources/ExpoModulesJSI/Runtime/Values/JavaScriptPromise.swift
-@@ -43,7 +43,7 @@ public struct JavaScriptPromise: JavaScriptType, ~Copyable {
-     }
-   }
+@@ -28,7 +28,6 @@ public struct JavaScriptPromise: JavaScriptType, ~Copyable {
+   /// The state stays registered for as long as the wrapper is alive, even after the promise settles,
+   /// so ``asValue()`` keeps returning a valid object. Settling only releases the resolve/reject
+   /// functions, which can no longer be called and are the bulk of a deferred promise's held state.
+-  @JavaScriptActor
+   private final class LongLivedState: LongLivedObject {
+     // Stored as `JavaScriptValue` (a reference type), not `JavaScriptObject`: a `Copyable` value read
+     // back through `JavaScriptRef.withValue` avoids the copy a borrowed `~Copyable` object would trap on.
+@@ -36,6 +35,8 @@ public struct JavaScriptPromise: JavaScriptType, ~Copyable {
+     let resolveFunction = JavaScriptValue.Ref()
+     let rejectFunction = JavaScriptValue.Ref()
  
--  private let longLivedState = LongLivedState()
-+  nonisolated(unsafe) private let longLivedState = LongLivedState()
- 
-   /// Dropping the wrapper means no native code can settle or read this promise anymore, so release
-   /// its long-lived state. The values can only be touched on the JS thread while the runtime is
++    nonisolated init() {}
++
+     func allowRelease() {
+       object.release()
+       resolveFunction.release()
 diff --git a/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh b/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
 index 4c50653..9d42f2a 100755
 --- a/node_modules/expo-modules-jsi/apple/scripts/build-xcframework.sh
