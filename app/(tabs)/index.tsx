@@ -17,6 +17,8 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { useG1 } from '@/lib/g1/G1Context';
 import {
   TeleprompterEngine,
@@ -24,15 +26,17 @@ import {
   SPEED_SLOW,
   SPEED_NORMAL,
   SPEED_FAST,
+  SPEED_TURBO,
   SPEED_STEP,
 } from '@/lib/teleprompter/TeleprompterEngine';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function speedLabel(s: number): string {
-  if (s >= SPEED_SLOW)   return 'Slow';
-  if (s <= SPEED_FAST)   return 'Fast';
-  return 'Normal';
+  if (s >= SPEED_SLOW)         return 'Slow';
+  if (s > SPEED_FAST)          return 'Normal';
+  if (s > SPEED_TURBO + 0.25)  return 'Fast';
+  return 'Turbo';
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -78,6 +82,18 @@ export default function TeleprompterScreen() {
     Keyboard.dismiss();
   }, [scriptText]);
 
+  const handlePickFile = useCallback(async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['text/plain', 'text/*', 'public.plain-text'],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const text = await FileSystem.readAsStringAsync(result.assets[0].uri);
+    setScriptText(text);
+    engineRef.current?.loadScript(text);
+    setEditMode(false);
+  }, []);
+
   const handleToggle = useCallback(() => engineRef.current?.toggle(), []);
   const handleNext   = useCallback(() => engineRef.current?.next(),   []);
   const handlePrev   = useCallback(() => engineRef.current?.prev(),   []);
@@ -88,7 +104,7 @@ export default function TeleprompterScreen() {
   }, []);
   const handleSpeedInc = useCallback(() => {
     const cur = engineRef.current?.getSnapshot().secondsPerLine ?? SPEED_NORMAL;
-    engineRef.current?.setSpeed(Math.max(SPEED_FAST, cur - SPEED_STEP));
+    engineRef.current?.setSpeed(Math.max(SPEED_TURBO, cur - SPEED_STEP));
   }, []);
 
   const handleLoop = useCallback(() => {
@@ -211,9 +227,14 @@ export default function TeleprompterScreen() {
           <View style={s.scriptSection}>
             <View style={s.scriptHeader}>
               <Text style={s.sectionTitle}>Script</Text>
-              <Pressable onPress={() => setEditMode(e => !e)}>
-                <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Edit'}</Text>
-              </Pressable>
+              <View style={s.scriptHeaderActions}>
+                <Pressable onPress={handlePickFile}>
+                  <Text style={s.editToggle}>📄 File</Text>
+                </Pressable>
+                <Pressable onPress={() => setEditMode(e => !e)}>
+                  <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Paste'}</Text>
+                </Pressable>
+              </View>
             </View>
 
             {editMode ? (
@@ -308,6 +329,7 @@ const s = StyleSheet.create({
   // Script editor
   scriptSection:    { gap: 12 },
   scriptHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  scriptHeaderActions: { flexDirection: 'row', gap: 16 },
   sectionTitle:     { color: '#fff', fontSize: 18, fontWeight: '600' },
   editToggle:       { color: '#22c55e', fontSize: 14 },
   scriptInput:      { backgroundColor: '#141414', borderRadius: 12, padding: 16, color: '#fff',

@@ -46,7 +46,8 @@ export interface TeleprompterEngineOptions {
 export const SPEED_SLOW   = 4.5;
 export const SPEED_NORMAL = 3.5; // default
 export const SPEED_FAST   = 2.5;
-export const SPEED_STEP   = 0.5; // step per +/− press
+export const SPEED_TURBO  = 1.0; // max speed (fastest)
+export const SPEED_STEP   = 0.25; // step per +/− press
 export const SPEED_MANUAL = Infinity;
 
 // Gap between end-of-script and loop restart (ms)

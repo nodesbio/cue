@@ -7,7 +7,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "bio.nodes.cue",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
