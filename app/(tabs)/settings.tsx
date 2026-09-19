@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { useG1, useG1Event, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
+import { useG1, useG1Event, useLogs, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
@@ -16,6 +16,8 @@ export default function SettingsScreen() {
   const [lastEvent, setLastEvent]             = useState<string | null>(null);
   const [debugDevices, setDebugDevices]       = useState<string[]>([]);
   const [scanning, setScanning]               = useState(false);
+  const [showLogs, setShowLogs]               = useState(false);
+  const logs = useLogs();
 
   useEffect(() => {
     AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY]).then(pairs => {
@@ -183,6 +185,27 @@ export default function SettingsScreen() {
           <Text key={i} style={s.debugText}>{d}</Text>
         ))}
 
+        {/* ── Raw Logs ───────────────────────────────────────── */}
+        <Pressable style={s.logsToggleRow} onPress={() => setShowLogs(v => !v)}>
+          <Text style={s.section}>Raw Logs</Text>
+          <Text style={s.logsToggleChevron}>{showLogs ? '▲' : '▼'}</Text>
+        </Pressable>
+
+        {showLogs && (
+          <ScrollView
+            style={s.logsScroll}
+            contentContainerStyle={s.logsContent}
+            nestedScrollEnabled
+          >
+            {logs.length === 0
+              ? <Text style={s.logLine}>— no logs yet —</Text>
+              : [...logs].reverse().map((line, i) => (
+                  <Text key={i} style={s.logLine} selectable>{line}</Text>
+                ))
+            }
+          </ScrollView>
+        )}
+
         {/* ── About ──────────────────────────────────────────── */}
         <Text style={s.section}>About</Text>
         <View style={s.row}><Text style={s.label}>Version</Text><Text style={s.value}>1.0.0</Text></View>
@@ -207,5 +230,10 @@ const s = StyleSheet.create({
   btnSecondary:{ backgroundColor: '#1a1a1a' },
   btnDanger:   { backgroundColor: '#2a1a1a' },
   btnText:     { fontSize: 15, fontWeight: '600', color: '#000' },
-  debugText:   { color: '#555', fontSize: 11, marginTop: 6, fontFamily: 'monospace' },
+  debugText:        { color: '#555', fontSize: 11, marginTop: 6, fontFamily: 'monospace' },
+  logsToggleRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, marginBottom: 0 },
+  logsToggleChevron:{ color: '#555', fontSize: 12 },
+  logsScroll:       { maxHeight: 300, backgroundColor: '#111', borderRadius: 8, marginTop: 8, marginBottom: 4 },
+  logsContent:      { padding: 10 },
+  logLine:          { color: '#4ade80', fontSize: 10, fontFamily: 'monospace', lineHeight: 16 },
 });

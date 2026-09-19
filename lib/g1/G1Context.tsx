@@ -61,6 +61,30 @@ function makeStubCore(): G1Core {
 
 export const PAIRED_SERIAL_KEY = 'g1_paired_serial';
 
+// ── Log buffer ─────────────────────────────────────────────────────────────
+// Module-level ring buffer: survives Fast Refresh, max 200 lines.
+const LOG_MAX = 200;
+const _logBuffer: string[] = [];
+const _logListeners = new Set<() => void>();
+
+function _addLog(line: string) {
+  const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.mmm
+  _logBuffer.push(`${ts}  ${line}`);
+  if (_logBuffer.length > LOG_MAX) _logBuffer.shift();
+  _logListeners.forEach(fn => fn());
+}
+
+/** Returns a stable snapshot of the log buffer that updates on every new line. */
+export function useLogs(): string[] {
+  const [, forceUpdate] = React.useState(0);
+  useEffect(() => {
+    const cb = () => forceUpdate(n => n + 1);
+    _logListeners.add(cb);
+    return () => { _logListeners.delete(cb); };
+  }, []);
+  return _logBuffer;
+}
+
 interface G1ContextValue {
   /** The shared core — use for sendText, sendBmp, etc. */
   core: G1Core;
@@ -97,19 +121,25 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     if (isBleAvailable()) {
       global.__g1Core = new G1Core({
         onStatusChange: (s) => statusCallbackRef.current?.({ ...s }),
+        onLog: _addLog,
       });
     } else {
+      _addLog('[G1Context] BLE native module unavailable (Expo Go?) — using stub.');
       console.warn('[G1Context] BLE native module unavailable (Expo Go?) — using stub.');
       global.__g1Core = makeStubCore();
     }
   }
+  // Keep log callback current across Fast Refresh
+  (global.__g1Core as G1Core).setLogCallback?.(_addLog);
 
   // Seed React state directly from the live core — handles Fast Refresh where
   // __g1Core already exists with txReady=true and connect() returns immediately
   // without calling onStatusChange (so the callback-only path misses it).
   const [status, setStatus] = useState<G1Status | null>(() => {
     const s = global.__g1Core!.status;
-    console.log(`[G1Context] seed L=connected:${s.left.connected} txReady:${s.left.txReady} R=connected:${s.right.connected} txReady:${s.right.txReady}`);
+    const seedMsg = `[G1Context] seed L=connected:${s.left.connected} txReady:${s.left.txReady} R=connected:${s.right.connected} txReady:${s.right.txReady}`;
+    console.log(seedMsg);
+    _addLog(seedMsg);
     return { ...s };
   });
 
@@ -128,7 +158,9 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
       setPairedSerial(serial);
       coreRef.current.connect(serial).catch((e) => {
         // Silent — dashboard will show "Connect" CTA if glasses aren't in range
-        console.log('[G1Context] auto-reconnect failed:', e?.message ?? e);
+        const msg = `[G1Context] auto-reconnect failed: ${e?.message ?? e}`;
+        console.log(msg);
+        _addLog(msg);
       });
     }).catch(() => {});
 

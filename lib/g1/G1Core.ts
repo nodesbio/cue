@@ -73,16 +73,25 @@ export class G1Core {
 
   private eventHandlers = new Set<EventHandler>();
   private onStatusChange?: StatusHandler;
+  private onLog?: (line: string) => void;
 
-  constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler }) {
+  constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler; onLog?: (line: string) => void }) {
     this.manager = new BleManager();
     if (opts?.onEvent) this.eventHandlers.add(opts.onEvent);
     this.onStatusChange = opts?.onStatusChange;
+    this.onLog = opts?.onLog;
   }
 
   addEventHandler(h: EventHandler): void    { this.eventHandlers.add(h); }
   removeEventHandler(h: EventHandler): void { this.eventHandlers.delete(h); }
   setStatusCallback(cb: StatusHandler): void { this.onStatusChange = cb; }
+  setLogCallback(cb: (line: string) => void): void { this.onLog = cb; }
+
+  private _log(...args: unknown[]): void {
+    const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+    console.log(line);
+    this.onLog?.(line);
+  }
 
   // ── Public API ────────────────────────────────────────────────────────────
 
@@ -292,11 +301,11 @@ export class G1Core {
           if (device.manufacturerData) {
             const buf = base64ToUint8(device.manufacturerData);
             const hex = Array.from(buf).map(b => b.toString(16).padStart(2,'0')).join(' ');
-            console.log(`[G1 MFR RAW] ${device.name} bytes[${buf.length}]: ${hex}`);
+            this._log(`[G1 MFR RAW] ${device.name} bytes[${buf.length}]: ${hex}`);
           }
-          console.log('[G1 DEBUG]', JSON.stringify(info, null, 2));
+          this._log('[G1 DEBUG]', JSON.stringify(info, null, 2));
         }
-        else       console.log('[BLE DEBUG]', device.name, `[${device.id}]`);
+        else       this._log('[BLE DEBUG]', device.name, `[${device.id}]`);
 
         const entry = isG1
           ? `${device.name} rssi=${device.rssi} connectable=${device.isConnectable}`
@@ -325,7 +334,7 @@ export class G1Core {
         found[side] = device;
       }
       if (found.L && found.R) {
-        console.log('[G1] Both lenses already connected — skipping scan');
+        this._log('[G1] Both lenses already connected — skipping scan');
         await this._connectLens('L', found.L);
         await this._connectLens('R', found.R);
         this._startHeartbeat();
@@ -458,7 +467,7 @@ export class G1Core {
           if (side === 'R') this.status.right.txReady = true;
         }
         if (ch.uuid.toLowerCase() === P.UART_RX) {
-          console.log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
+          this._log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
           this.rxSubs[side]?.remove();
           try {
             this.rxSubs[side] = discovered.monitorCharacteristicForService(
@@ -537,7 +546,7 @@ export class G1Core {
     if (!data.length) return;
 
     const op = data[0];
-    console.log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
+    this._log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
 
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
@@ -546,7 +555,7 @@ export class G1Core {
     }
 
     if (op === P.OP_BATTERY) {
-      console.log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
+      this._log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
       // resp[2] = battery % (confirmed from raw log). Each glass reports its own.
       const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
