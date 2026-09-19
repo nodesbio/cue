@@ -1,0 +1,43 @@
+diff --git a/node_modules/react-native-music-control/ios/MusicControlManager.m b/node_modules/react-native-music-control/ios/MusicControlManager.m
+index d49f551..90b0342 100644
+--- a/node_modules/react-native-music-control/ios/MusicControlManager.m
++++ b/node_modules/react-native-music-control/ios/MusicControlManager.m
+@@ -180,6 +180,9 @@ - (dispatch_queue_t)methodQueue
+ 
+ RCT_EXPORT_METHOD(enableBackgroundMode:(BOOL) enabled){
+     AVAudioSession *session = [AVAudioSession sharedInstance];
++    // NOTE: must be NON-mixable. Apps with MixWithOthers sessions are not
++    // eligible to become the Now Playing app and never receive
++    // MPRemoteCommandCenter events.
+     [session setCategory: AVAudioSessionCategoryPlayback error: nil];
+     [session setActive: enabled error: nil];
+ }
+diff --git a/node_modules/react-native-music-control/lib/constants.ios.js b/node_modules/react-native-music-control/lib/constants.ios.js
+index 58faa30..b646c69 100644
+--- a/node_modules/react-native-music-control/lib/constants.ios.js
++++ b/node_modules/react-native-music-control/lib/constants.ios.js
+@@ -2,7 +2,10 @@
+ Object.defineProperty(exports, "__esModule", { value: true });
+ // @ts-ignore
+ var react_native_1 = require("react-native");
+-var NativeMusicControl = react_native_1.NativeModules.MusicControlManager;
++// Guard: NativeModules.MusicControlManager is null when the native binary was
++// built without this pod, or in Expo Go. Read constants lazily so the module
++// can be required without crashing — callers must check the guard themselves.
++var NativeMusicControl = react_native_1.NativeModules.MusicControlManager || {};
+ var STATE_PLAYING = NativeMusicControl.STATE_PLAYING;
+ var STATE_PAUSED = NativeMusicControl.STATE_PAUSED;
+ var STATE_ERROR = NativeMusicControl.STATE_ERROR;
+diff --git a/node_modules/react-native-music-control/lib/index.js b/node_modules/react-native-music-control/lib/index.js
+index 4a55e3b..3a3ad87 100644
+--- a/node_modules/react-native-music-control/lib/index.js
++++ b/node_modules/react-native-music-control/lib/index.js
+@@ -15,7 +15,7 @@ var resolveAssetSource_1 = __importDefault(require("react-native/Libraries/Image
+ var constants_1 = __importDefault(require("./constants"));
+ var types_1 = require("./types");
+ Object.defineProperty(exports, "Command", { enumerable: true, get: function () { return types_1.Command; } });
+-var NativeMusicControl = react_native_1.NativeModules.MusicControlManager;
++var NativeMusicControl = react_native_1.NativeModules.MusicControlManager || {};
+ var handlers = {};
+ var listenerOfNativeMusicControl = null;
+ var IS_ANDROID = react_native_1.Platform.OS === 'android';

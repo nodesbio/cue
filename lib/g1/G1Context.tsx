@@ -10,6 +10,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { G1Core, G1Status, EventHandler } from './G1Core';
+import { smartRemoteManager } from './SmartRemoteManager';
 
 // Detect whether the native BLE module is available (absent in Expo Go).
 function isBleAvailable(): boolean {
@@ -153,6 +154,12 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   const [pairedSerial, setPairedSerial] = useState<string | null>(null);
 
   useEffect(() => {
+    // Start SmartRemote listener once on mount.
+    smartRemoteManager.start();
+    return () => smartRemoteManager.stop();
+  }, []);
+
+  useEffect(() => {
     // Auto-reconnect to the last paired serial
     AsyncStorage.getItem(PAIRED_SERIAL_KEY).then(serial => {
       if (!serial) return;
@@ -206,7 +213,7 @@ export function useG1(): G1ContextValue {
 }
 
 /**
- * Subscribe to raw G1 hardware events (head_up, head_down, etc.).
+ * Subscribe to hardware events from both the G1 glasses AND the SmartRemote.
  * Handler is registered/deregistered automatically with the component lifecycle.
  * Does NOT cause any re-renders — purely side-effectful.
  */
@@ -218,6 +225,10 @@ export function useG1Event(handler: EventHandler): void {
   useEffect(() => {
     const h: EventHandler = (e) => handlerRef.current(e);
     core.addEventHandler(h);
-    return () => core.removeEventHandler(h);
+    smartRemoteManager.addEventHandler(h);
+    return () => {
+      core.removeEventHandler(h);
+      smartRemoteManager.removeEventHandler(h);
+    };
   }, [core]);
 }
