@@ -42,7 +42,7 @@ function speedLabel(s: number): string {
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function TeleprompterScreen() {
-  const { core, isConnected: connected, isPartiallyConnected: partiallyConnected } = useG1();
+  const { core, status, isConnected: connected, isPartiallyConnected: partiallyConnected } = useG1();
 
   // Engine lives in a ref — stable across renders, no remounting
   const engineRef = useRef<TeleprompterEngine | null>(null);
@@ -74,6 +74,14 @@ export default function TeleprompterScreen() {
       core.sendText(snap.frame, snap.topIndex + 1, snap.totalLines).catch(() => {});
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep battery levels in the engine status bar
+  useEffect(() => {
+    engineRef.current?.setBattery(
+      status?.left.batteryPct ?? null,
+      status?.right.batteryPct ?? null,
+    );
+  }, [status?.left.batteryPct, status?.right.batteryPct]);
 
   const handleLoad = useCallback(() => {
     if (!scriptText.trim()) return;

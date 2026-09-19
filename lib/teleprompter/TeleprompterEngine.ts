@@ -63,6 +63,8 @@ export class TeleprompterEngine {
   private loop: boolean;
   private timer: ReturnType<typeof setInterval> | null = null;
   private loopRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  private leftBat: number | null = null;
+  private rightBat: number | null = null;
 
   private onFrame: TeleprompterEngineOptions['onFrame'];
   private onStateChange: TeleprompterEngineOptions['onStateChange'];
@@ -110,6 +112,12 @@ export class TeleprompterEngine {
   toggle(): void {
     if (this.state === 'playing') this.pause();
     else this.play();
+  }
+
+  /** Update battery levels — reflected in the status bar on next frame. */
+  setBattery(left: number | null, right: number | null): void {
+    this.leftBat = left;
+    this.rightBat = right;
   }
 
   /** Advance one line forward. Resets the timer if playing. */
@@ -243,7 +251,11 @@ export class TeleprompterEngine {
     const playIcon = this.state === 'playing' ? '▶' : '⏸';
     const cur = this.topIndex + 1;
     const tot = this.lines.length;
-    return `${h12}:${mm} ${ampm}  ${playIcon} ${cur}/${tot}`;
+    const batL = this.leftBat != null ? `L${this.leftBat}%` : '';
+    const batR = this.rightBat != null ? `R${this.rightBat}%` : '';
+    const bat = [batL, batR].filter(Boolean).join(' ');
+    const middle = bat ? ` ${bat}` : '';
+    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot}`;
   }
 
   private _buildFrame(): string {
