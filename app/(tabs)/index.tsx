@@ -190,7 +190,9 @@ export default function TeleprompterScreen() {
     _engine.setCallbacks({
       onFrame: (frame, curLine, totalLines) => {
         if (connectedRef.current) {
-          core.sendText(frame, curLine, totalLines).catch(() => undefined);
+          // _enqueue inside sendText handles errors and serialisation;
+          // void is intentional — onFrame is a sync callback.
+          void core.sendText(frame, curLine, totalLines);
         }
       },
       onStateChange: (s) => {
@@ -210,7 +212,7 @@ export default function TeleprompterScreen() {
     if (!connected) return;
     const s = snapRef.current;
     if (s) {
-      core.sendText(s.frame, s.topIndex + 1, s.totalLines).catch(() => undefined);
+      void core.sendText(s.frame, s.topIndex + 1, s.totalLines);
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 

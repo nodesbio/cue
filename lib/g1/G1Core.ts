@@ -63,8 +63,40 @@ export class G1Core {
   private destroyed = false;
   /** Mutex: if a connect/scan is already in flight, callers share the same promise. */
   private _connectingPromise: Promise<void> | null = null;
+  /**
+   * Single-slot send queue for user-visible sends (sendText, sendBmp).
+   * If a new frame arrives while a previous one is still in-flight, we
+   * discard the in-flight and send only the latest — same behaviour as the
+   * official app's "cancel stale" pattern. This prevents the queue from
+   * growing unboundedly during rapid scrolling while still ensuring every
+   * frame eventually reaches the glasses (the last one always wins).
+   *
+   * Implemented as a tail-swap: _nextSend holds the most recent pending
+   * frame; _sendQueue is the in-flight chain. Callers await _sendQueue
+   * being free then execute.
+   */
+  private _sendQueue: Promise<void> = Promise.resolve();
+  private _nextSendResolve: (() => void) | null = null;
   /** Serialise all _connectLens calls so L and R never race on iOS BLE. */
   private _lensConnectQueue: Promise<void> = Promise.resolve();
+  /**
+   * Generation counter per side. Incremented each time _connectLens runs.
+   * The onDisconnected closure captures its generation at creation time and
+   * no-ops if a newer connection has since replaced it — prevents stale
+   * disconnect handlers from corrupting a healthy reconnected session.
+   */
+  private _connGen: Record<Side, number> = { L: 0, R: 0 };
+  /**
+   * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
+   * The firmware echoes the command opcode in data[0] and puts the status in
+   * data[1] (0xC9 or 0xCB = ok). The key must include the opcode so concurrent
+   * sends on different opcodes (e.g. heartbeat and battery) don't clobber each
+   * other's resolvers. We register BEFORE the write to avoid a race on fast ACK.
+   */
+  private _pendingAck: Map<string, {
+    resolve: (ok: boolean) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }> = new Map();
 
   public status: G1Status = {
     left:  { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
@@ -224,20 +256,87 @@ export class G1Core {
     return (l.connected || r.connected) && !this.isConnected;
   }
 
-  /** Send a text string to both lenses. curLine / totalLines populate the status bar counter. */
-  async sendText(str: string, curLine = 1, totalLines = 1): Promise<void> {
-    const packet = P.text(str, this._nextSeq(), curLine, totalLines);
-    await this._sendBoth(packet);
+  /**
+   * Enqueue a user-visible send (sendText / sendBmp).
+   *
+   * Uses a "latest wins" strategy: if a send is already in-flight and a new
+   * one arrives, we don't cancel the in-flight (BLE can't abort mid-write)
+   * but we do discard any queued-but-not-yet-started work and replace it
+   * with the new task. This keeps the glasses showing the most recent frame
+   * without letting the queue grow unboundedly during rapid scrolling.
+   */
+  private _enqueue(fn: () => Promise<void>): Promise<void> {
+    const run = this._sendQueue.then(() => fn()).catch((e) => {
+      // Log real errors; swallow only disconnect noise.
+      const code = (e as BleError)?.errorCode;
+      if (code !== BleErrorCode.DeviceDisconnected && code !== BleErrorCode.OperationCancelled) {
+        this._log('[G1] send error:', e?.message ?? e);
+      }
+    });
+    this._sendQueue = run;
+    return run;
   }
 
-  /** Send a pre-rendered 1-bit BMP frame to both lenses. */
+  /**
+   * Send a text string to both lenses.
+   * curLine / totalLines populate the status bar counter (e.g. "▶ 2/14").
+   *
+   * newScreen defaults to NEW_SCREEN_MANUAL (0x30) — use
+   * NewScreen.CONTINUATION_MANUAL (0x40) for subsequent pages of the same
+   * logical sequence so the firmware doesn't clear the screen between packets.
+   */
+  async sendText(
+    str: string,
+    curLine = 1,
+    totalLines = 1,
+    newScreen: P.NewScreenValue = P.NewScreen.NEW_SCREEN_MANUAL,
+  ): Promise<void> {
+    return this._enqueue(async () => {
+      const packet = P.text(str, this._nextSeq(), curLine, totalLines, newScreen);
+      await this._sendBoth(packet);
+    });
+  }
+
+  /**
+   * Send a pre-rendered 1-bit BMP frame to both lenses.
+   *
+   * Matches EvenDemoApp's requestList behaviour (verified from source):
+   *   - L and R receive each packet IN PARALLEL (not sequential) — the
+   *     firmware handles each side independently; sequential L→R doubles
+   *     the BMP transfer time with no correctness benefit.
+   *   - Intermediate data chunks: fire-and-forget (awaitAck=false) to
+   *     keep throughput high.
+   *   - Final packet (bmpEnd): awaits ACK on both sides so callers know
+   *     the frame is committed before sending the next one.
+   *   - writeCharacteristicWithResponse on every packet still provides
+   *     OS-level flow control even without the protocol ACK wait.
+   */
   async sendBmp(frame: Uint8Array): Promise<void> {
+    return this._enqueue(async () => this._sendBmpRaw(frame));
+  }
+
+  private async _sendBmpRaw(frame: Uint8Array): Promise<void> {
     const chunks = P.bmpDataChunks(frame);
+
+    // Send all data chunks to L and R in parallel, no ACK wait
     for (const chunk of chunks) {
-      await this._sendBoth(chunk);
+      await Promise.all([
+        this._send('L', chunk, false),
+        this._send('R', chunk, false),
+      ]);
     }
-    await this._sendBoth(P.bmpCrc(frame));
-    await this._sendBoth(P.bmpEnd());
+
+    // CRC packet — parallel, no ACK
+    await Promise.all([
+      this._send('L', P.bmpCrc(frame), false),
+      this._send('R', P.bmpCrc(frame), false),
+    ]);
+
+    // End packet — parallel, AWAIT ACK on both sides
+    await Promise.all([
+      this._send('L', P.bmpEnd(), true),
+      this._send('R', P.bmpEnd(), true),
+    ]);
   }
 
   async setBrightness(level: number, auto = false): Promise<void> {
@@ -510,8 +609,16 @@ export class G1Core {
     // Request battery level after connect
     setTimeout(() => this._send(side, P.batteryRequest()), 500);
 
-    // Watch for disconnection
-    discovered.onDisconnected(() => this._onDisconnected(side));
+    // Watch for disconnection.
+    // Capture the generation counter at registration time. If _connectLens
+    // runs again (reconnect) before this fires, the generation increments and
+    // this stale handler becomes a no-op — preventing it from corrupting the
+    // new healthy connection.
+    const gen = ++this._connGen[side];
+    discovered.onDisconnected(() => {
+      if (this._connGen[side] !== gen) return; // stale — a newer connection replaced this one
+      this._onDisconnected(side);
+    });
   }
 
   private _onDisconnected(side: Side): void {
@@ -569,6 +676,20 @@ export class G1Core {
     const op = data[0];
     this._log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
 
+    // ── Protocol-level ACK ────────────────────────────────────────────────
+    // The firmware echoes the command opcode in data[0] and puts the result
+    // in data[1]: 0xC9 or 0xCB = ok, anything else = nack.
+    // Look up the pending waiter by side+opcode key (e.g. "L4e").
+    const ackKey = `${side}${op.toString(16).padStart(2, '0')}`;
+    const pending = this._pendingAck.get(ackKey);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this._pendingAck.delete(ackKey);
+      const status = data[1];
+      pending.resolve(status === P.R_STATUS_OK || status === P.R_STATUS_OK2);
+      return;
+    }
+
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
       if (event) this.eventHandlers.forEach(h => h(event));
@@ -588,28 +709,84 @@ export class G1Core {
 
   // ── Send ──────────────────────────────────────────────────────────────────
 
-  private async _send(side: Side, data: Uint8Array): Promise<void> {
+  /**
+   * Write one packet to one lens and (optionally) await the protocol-level ACK.
+   *
+   * ACK protocol (verified against official EvenDemoApp source):
+   *   - Firmware echoes the command opcode in data[0]
+   *   - Status is in data[1]: 0xC9 or 0xCB = ok, anything else = nack
+   *   - Resolver is keyed by "<side><opcode_hex>" (e.g. "L4e") so concurrent
+   *     sends on different opcodes don't clobber each other
+   *   - We register the resolver BEFORE the write to avoid a race on fast ACK
+   *
+   * Uses writeCharacteristicWithResponse so iOS BLE won't silently drop
+   * packets when the TX queue is full.
+   *
+   * Timeout: 2 s per packet. On timeout or NACK we log a warning but do not
+   * throw — the caller's sequence continues. This matches the official app.
+   */
+  private async _send(side: Side, data: Uint8Array, awaitAck = true): Promise<void> {
     const ch = this.txChars[side];
     const dev = this.devices[side];
     if (!ch || !dev) return;
+
+    const opHex = data[0].toString(16).padStart(2, '0');
+    const ackKey = `${side}${opHex}`;
     const b64 = uint8ToBase64(data);
+
+    // Register ACK waiter BEFORE the write to prevent the fast-ACK race.
+    let ackPromise: Promise<boolean> | null = null;
+    if (awaitAck) {
+      // If a previous send on this same opcode timed out without being cleaned
+      // up, evict it now rather than letting two resolvers compete.
+      const stale = this._pendingAck.get(ackKey);
+      if (stale) {
+        clearTimeout(stale.timer);
+        this._pendingAck.delete(ackKey);
+        this._log(`[G1] _send [${side}] evicted stale ACK waiter op=0x${opHex}`);
+      }
+      ackPromise = new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          this._pendingAck.delete(ackKey);
+          this._log(`[G1] _send [${side}] ACK timeout op=0x${opHex}`);
+          resolve(false);
+        }, 2000);
+        this._pendingAck.set(ackKey, { resolve, timer });
+      });
+    }
+
     try {
-      // writeWithoutResponse is fastest for streaming
-      await dev.writeCharacteristicWithoutResponseForService(
+      await dev.writeCharacteristicWithResponseForService(
         P.UART_SVC, P.UART_TX, b64,
       );
     } catch (e: any) {
-      // Suppress disconnect-during-write noise — onDisconnected handles reconnect
+      // Clean up the ACK waiter we registered above.
+      if (awaitAck) {
+        const waiter = this._pendingAck.get(ackKey);
+        if (waiter) { clearTimeout(waiter.timer); this._pendingAck.delete(ackKey); }
+      }
       const code = (e as BleError)?.errorCode;
       if (code === BleErrorCode.DeviceDisconnected || code === BleErrorCode.OperationCancelled) return;
       console.warn(
         `[G1] _send [${side}] write failed code=${code ?? '?'} reason=${(e as BleError)?.reason ?? '—'}:`,
         e?.message ?? e,
       );
+      return;
+    }
+
+    if (!awaitAck || !ackPromise) return;
+
+    const ok = await ackPromise;
+    if (!ok) {
+      this._log(`[G1] _send [${side}] NACK op=0x${opHex}`);
     }
   }
 
-  /** Send to left first, then right (per protocol ACK order). */
+  /**
+   * Send to LEFT, await ACK, then send to RIGHT.
+   * This is the mandatory order required by the G1 firmware — sending both
+   * in parallel (Promise.all) results in dropped or corrupted frames.
+   */
   private async _sendBoth(data: Uint8Array): Promise<void> {
     await this._send('L', data);
     await this._send('R', data);

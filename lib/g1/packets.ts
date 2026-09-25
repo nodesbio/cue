@@ -10,8 +10,11 @@ export const UART_TX  = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // write → gla
 export const UART_RX  = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // notify ← glasses
 
 // ── Generic response bytes ─────────────────────────────────────────────────
-export const R_OK   = 0xC9;
-export const R_FAIL = 0xCA;
+// Response status bytes — appear at data[1] in firmware ACK packets.
+// data[0] echoes back the command opcode (e.g. 0x4E for text, 0x15 for BMP).
+// 0xC9 and 0xCB both indicate success; anything else is a NACK.
+export const R_STATUS_OK  = 0xC9;
+export const R_STATUS_OK2 = 0xCB; // also success — used in BMP/list responses
 export const R_CONT = 0xCB;
 
 // ── Opcodes ────────────────────────────────────────────────────────────────
@@ -38,8 +41,31 @@ export const BMP_BYTES  = (BMP_WIDTH * BMP_HEIGHT) / 8; // 9792
 export const BMP_ADDR   = new Uint8Array([0x00, 0x1c, 0x00, 0x00]);
 export const BMP_CHUNK  = 194;
 
-// Text Show newscreen byte
-const NEWSCREEN_TEXT_SHOW = 0x71;
+/**
+ * newScreen byte — bitmask: type | status.
+ *
+ * Type nibble (high):
+ *   0x10 = new screen (clear display, start fresh)
+ *   0x20 = continuation (append / scroll)
+ *
+ * Status nibble (low) — scroll mode:
+ *   0x00 = manual (user taps to advance)
+ *   0x01 = auto-scroll
+ *
+ * Canonical values from Even Realities official source (evenai.dart / text_service.dart):
+ *   0x30 = new screen + manual   ← first packet of any sequence
+ *   0x40 = continuation + manual ← subsequent packets in same sequence
+ *   0x50 = continuation + auto
+ *   0x60 = ??? (used in reply flow)
+ *   0x70 = new screen + ??? (text_service.dart simple show)
+ */
+export const NewScreen = {
+  NEW_SCREEN_MANUAL:    0x30,  // start of a new display sequence, manual scroll
+  CONTINUATION_MANUAL:  0x40,  // next page of same sequence, manual scroll
+  CONTINUATION_AUTO:    0x50,  // next page, auto-scroll
+  NEW_SCREEN_AUTO:      0x70,  // new screen, auto (simple text show)
+} as const;
+export type NewScreenValue = typeof NewScreen[keyof typeof NewScreen];
 
 // ── Event name map ─────────────────────────────────────────────────────────
 export const EVENT_NAMES: Record<number, string> = {
@@ -108,14 +134,24 @@ export function exitToDashboard(): Uint8Array {
 
 /**
  * Single-packet text display (≤191 UTF-8 bytes).
- * Header: [4E, seq, total=1, cur=0, 71, 00, 00, cur_page, max_page] + text
+ * Header: [4E, seq, total=1, cur=0, newScreen, 00, 00, cur_page, max_page] + text
  *
  * curPage / maxPage are used by the status bar to show e.g. "▶ 14/56".
  * For the teleprompter, pass the current line index and total line count.
+ *
+ * newScreen: use NewScreen.NEW_SCREEN_MANUAL (0x30) for the first packet of
+ * a sequence, NewScreen.CONTINUATION_MANUAL (0x40) for subsequent ones.
+ * Defaults to NEW_SCREEN_MANUAL for simple one-shot text display.
  */
-export function text(str: string, seq: number, curPage = 1, maxPage = 1): Uint8Array {
+export function text(
+  str: string,
+  seq: number,
+  curPage = 1,
+  maxPage = 1,
+  newScreen: NewScreenValue = NewScreen.NEW_SCREEN_MANUAL,
+): Uint8Array {
   const encoded = new TextEncoder().encode(str).slice(0, 191);
-  const header = u8(OP_TEXT, seq & 0xff, 1, 0, NEWSCREEN_TEXT_SHOW, 0x00, 0x00, curPage & 0xff, maxPage & 0xff);
+  const header = u8(OP_TEXT, seq & 0xff, 1, 0, newScreen, 0x00, 0x00, curPage & 0xff, maxPage & 0xff);
   return concat(header, encoded);
 }
 
