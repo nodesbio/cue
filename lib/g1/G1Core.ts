@@ -86,6 +86,8 @@ export class G1Core {
    * disconnect handlers from corrupting a healthy reconnected session.
    */
   private _connGen: Record<Side, number> = { L: 0, R: 0 };
+  /** Pending reconnect timeout handles — cancelled on disconnect/destroy. */
+  private _reconnectTimers: Partial<Record<Side, ReturnType<typeof setTimeout>>> = {};
   /**
    * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
    * The firmware echoes the command opcode in data[0] and puts the status in
@@ -134,9 +136,9 @@ export class G1Core {
    * Safe to call when BLE is not yet ready — waits internally.
    */
   async startStreamingScan(
-    onUpdate: (pairs: Record<string, Partial<Record<Side, Device>> & { firmware?: string }>) => void,
+    onUpdate: (pairs: Record<string, Partial<Record<Side, Device>> & { serial?: string; firmware?: string }>) => void,
   ): Promise<void> {
-    const pairs: Record<string, Partial<Record<Side, Device>> & { firmware?: string }> = {};
+    const pairs: Record<string, Partial<Record<Side, Device>> & { serial?: string; firmware?: string }> = {};
     await this._ensureBleReady();
     this.manager.startDeviceScan(
       null,
@@ -231,6 +233,8 @@ export class G1Core {
     this._connectingPromise = null;
     this._lensConnectQueue = Promise.resolve();
     this._stopHeartbeat();
+    clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
+    clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
     for (const side of ['L', 'R'] as Side[]) {
       this.rxSubs[side]?.remove();
       this.rxSubs[side] = undefined;
@@ -340,8 +344,7 @@ export class G1Core {
   }
 
   async setBrightness(level: number, auto = false): Promise<void> {
-    // Brightness only needs to go to right lens per protocol
-    await this._send('R', P.brightness(level, auto));
+    await this._sendBoth(P.brightness(level, auto));
   }
 
   async requestBattery(): Promise<void> {
@@ -355,6 +358,8 @@ export class G1Core {
   destroy(): void {
     this.destroyed = true;
     this._stopHeartbeat();
+    clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
+    clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
     this.rxSubs.L?.remove();
     this.rxSubs.R?.remove();
     this.manager.destroy();
@@ -367,23 +372,30 @@ export class G1Core {
     // We just need to wait for the manager to reach PoweredOn state (up to 5s).
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      // sub may be assigned AFTER the callback fires if BLE is already PoweredOn
+      // (emitCurrentValue=true fires synchronously). Use a holder so the closure
+      // always has a reference regardless of assignment order.
+      const holder: { sub?: { remove(): void } } = {};
       const t = setTimeout(() => {
         if (settled) return;
         settled = true;
-        sub.remove();
+        holder.sub?.remove();
         reject(new Error('Bluetooth not powered on — check device settings'));
       }, 5000);
-      const sub = this.manager.onStateChange((state) => {
+      holder.sub = this.manager.onStateChange((state) => {
         if (state === State.PoweredOn && !settled) {
           settled = true;
           clearTimeout(t);
-          sub.remove();
+          holder.sub?.remove();
           resolve();
         }
       }, true);
     });
   }
 
+  // FIXME: stopDeviceScan() is global on the shared BleManager — calling scanPairs/
+  // startStreamingScan while connect() is scanning will cancel the pairing scan.
+  // Callers must ensure connect() is not in flight before calling these methods.
   /** Scan all BLE devices and return rich debug info per device. */
   async scanDebug(durationMs = 8000): Promise<string[]> {
     await this._ensureBleReady();
@@ -455,10 +467,28 @@ export class G1Core {
       }
       if (found.L && found.R) {
         this._log('[G1] Both lenses already connected — skipping scan');
-        await this._connectLens('L', found.L);
-        await this._connectLens('R', found.R);
-        this._startHeartbeat();
-        return true;
+        try {
+          // Must go through _lensConnectQueue — same serialisation guarantee
+          // as all other _connectLens calls, in case a prior reconnect attempt
+          // left something queued.
+          await new Promise<void>((resolve, reject) => {
+            this._lensConnectQueue = this._lensConnectQueue
+              .then(() => this._connectLens('L', found.L!))
+              .then(() => this._connectLens('R', found.R!))
+              .then(resolve, reject);
+          });
+          this._startHeartbeat();
+          return true;
+        } catch (e: any) {
+          // Partial resume — tear down whatever connected so scan starts clean.
+          this._log(`[G1] _resumeAlreadyConnected partial failure: ${e?.message ?? e} — falling through to scan`);
+          for (const s of ['L', 'R'] as Side[]) {
+            this.rxSubs[s]?.remove(); this.rxSubs[s] = undefined;
+            this.txChars[s] = undefined;
+            this._setConnected(s, false);
+          }
+          return false;
+        }
       }
     } catch (e: any) {
       console.warn('[G1] _resumeAlreadyConnected failed:', e?.message ?? e);
@@ -496,6 +526,7 @@ export class G1Core {
           found[side] = device;
 
           if (found.L && found.R) {
+            // Both lenses found — connect immediately.
             clearTimeout(timeout);
             this.manager.stopDeviceScan();
             done(async () => {
@@ -508,6 +539,24 @@ export class G1Core {
                 reject(e);
               }
             });
+          } else {
+            // One lens found — give the other a short window to advertise before
+            // resolving with one. Reconnect loop handles the missing side.
+            setTimeout(() => {
+              const sides = (['L', 'R'] as Side[]).filter(s => found[s]);
+              if (sides.length === 0 || settled) return;
+              clearTimeout(timeout);
+              this.manager.stopDeviceScan();
+              done(async () => {
+                try {
+                  for (const s of sides) await this._connectLens(s, found[s]!);
+                  this._startHeartbeat();
+                  resolve();
+                } catch (e) {
+                  reject(e);
+                }
+              });
+            }, 1500);
           }
         },
       );
@@ -526,17 +575,31 @@ export class G1Core {
     if (device.manufacturerData) {
       try {
         const buf = base64ToUint8(device.manufacturerData);
-        const side: Side = buf[0] === 0x02 ? 'L' : 'R';
+        // Side byte: 0x01 = R, 0x02 = L (confirmed from EvenBridge source).
+        // Log unknown values so we can diagnose without silently masking them.
+        let side: Side;
+        if (buf[0] === 0x02) side = 'L';
+        else if (buf[0] === 0x01) side = 'R';
+        else {
+          this._log(`[G1] _parseManufacturerData: unknown side byte 0x${buf[0].toString(16).padStart(2,'0')} for "${device.name}" — falling through to name parse`);
+          // Fall through to name-based parsing below rather than guessing.
+          throw new Error('unknown side byte');
+        }
         const firmware = String.fromCharCode(...buf.slice(2, 8)).replace(/\0/g, '');
         const serial   = String.fromCharCode(...buf.slice(8, 15)).replace(/\0/g, '');
         if (serial.length > 0) return { side, serial, firmware };
       } catch {}
     }
-    // Fallback: parse from name
+    // Fallback: parse from name.
+    // Channel segment may contain letters as well as digits (e.g. "5L" in "G1_5L_L_810D29"),
+    // so use [A-Za-z0-9]+ rather than \d+.
     const name = device.name ?? '';
-    const m = name.match(/G1_(\d+)_([LR])_([0-9A-Fa-f]+)/);
+    const m = name.match(/G1_([A-Za-z0-9]+)_([LR])_([0-9A-Fa-f]+)/);
     if (m) {
-      return { side: m[2] as Side, serial: `name-ch${m[1]}`, firmware: 'unknown' };
+      // Strip any trailing side letter from the channel token so "5L" and "5" both
+      // normalise to "5" — keeping L and R in the same logical pair.
+      const ch = m[1].replace(/[LR]$/i, '');
+      return { side: m[2] as Side, serial: `name-ch${ch}`, firmware: 'unknown' };
     }
     return null;
   }
@@ -545,9 +608,9 @@ export class G1Core {
   private _parseChannel(device: Device): string | null {
     const parsed = this._parseManufacturerData(device);
     if (parsed) return parsed.serial;
-    // last-resort: name-based channel number
-    const m = (device.name ?? '').match(/G1_(\d+)_[LR]/);
-    return m ? m[1] : null;
+    // last-resort: name-based channel number (same normalisation as _parseManufacturerData fallback)
+    const m = (device.name ?? '').match(/G1_([A-Za-z0-9]+)_[LR]/);
+    return m ? m[1].replace(/[LR]$/i, '') : null;
   }
 
   /** Parse Side from device. Uses manufacturerData byte (preferred) or name. */
@@ -582,9 +645,7 @@ export class G1Core {
       for (const ch of chars) {
         if (ch.uuid.toLowerCase() === P.UART_TX) {
           this.txChars[side] = ch;
-          // Mark lens as actually usable (not just OS-connected)
-          if (side === 'L') this.status.left.txReady = true;
-          if (side === 'R') this.status.right.txReady = true;
+          // txReady is set after both TX and RX are wired — see _setConnected call below.
         }
         if (ch.uuid.toLowerCase() === P.UART_RX) {
           this._log(`[G1] RX found [${side}] notifiable=${ch.isNotifiable}`);
@@ -601,8 +662,17 @@ export class G1Core {
       }
     }
 
-    // Handshake
-    await this._send(side, P.handshake());
+    // Mark TX as ready — both TX char and RX monitor are now wired.
+    // Setting this here (after the loop) ensures the monitor is live before
+    // any incoming ACKs from the handshake below are processed.
+    if (side === 'L') this.status.left.txReady = true;
+    if (side === 'R') this.status.right.txReady = true;
+
+    // Handshake — firmware does not ACK 0xF4, fire-and-forget.
+    await this._send(side, P.handshake(), false);
+    // Suppress firmware notification overlays (e.g. "Even AI unable to connect")
+    // so they don't clobber our teleprompter display.
+    await this._send(side, P.silent(true));
     this._setConnected(side, true);
     this.reconnectAttempts[side] = 0;
 
@@ -629,10 +699,13 @@ export class G1Core {
 
   private _scheduleReconnect(side: Side): void {
     if (this.destroyed) return;
+    // Cancel any existing timer for this side before scheduling a new one.
+    clearTimeout(this._reconnectTimers[side]);
     const attempts = this.reconnectAttempts[side] ?? 0;
     const delay = RECONNECT_BACKOFF_MS[Math.min(attempts, RECONNECT_BACKOFF_MS.length - 1)];
     this.reconnectAttempts[side] = attempts + 1;
-    setTimeout(async () => {
+    this._reconnectTimers[side] = setTimeout(async () => {
+      this._reconnectTimers[side] = undefined;
       if (this.destroyed) return;
       const dev = this.devices[side];
       if (!dev) return;
@@ -657,11 +730,12 @@ export class G1Core {
         bleErr.errorCode === BleErrorCode.DeviceDisconnected ||
         bleErr.errorCode === BleErrorCode.OperationCancelled;
       if (isDisconnect) {
-        // Monitor subscription is dead — ensure state is cleaned up immediately
-        // (onDisconnected will fire too, but this closes the gap)
-        this._setConnected(side, false);
-        this.txChars[side] = undefined;
-        return; // not an unexpected error — don't log
+        // Monitor subscription is dead — drive _onDisconnected directly so
+        // cleanup + reconnect scheduling happen immediately rather than waiting
+        // for the OS-level onDisconnected callback (which may arrive later or
+        // not at all if the notify fires first on this iOS version).
+        this._onDisconnected(side);
+        return;
       }
       console.warn(
         `[G1] notify error [${side}] code=${bleErr.errorCode} reason=${bleErr.reason ?? '—'}:`,
@@ -690,9 +764,26 @@ export class G1Core {
       return;
     }
 
+    // ── Heartbeat (firmware-initiated) ───────────────────────────────────
+    // The glasses send 0x25 to us; we echo it straight back. We do NOT send
+    // unsolicited heartbeats — the firmware owns the heartbeat clock.
+    if (op === P.OP_HEARTBEAT) {
+      this._send(side, data, false).catch(() => {});
+      return;
+    }
+
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
-      if (event) this.eventHandlers.forEach(h => h(event));
+      if (event) {
+        // Firmware sends connection_error (0x11) when it shows its own overlay
+        // (e.g. "Even AI unable to connect"). Re-silence it immediately so our
+        // display isn't clobbered.
+        if (event.name === 'connection_error') {
+          this._log(`[G1] connection_error event [${side}] — re-sending silent`);
+          this._send(side, P.silent(true)).catch(() => {});
+        }
+        this.eventHandlers.forEach(h => h(event));
+      }
       return;
     }
 
@@ -702,7 +793,7 @@ export class G1Core {
       const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
       if (side === 'R') this.status.right.batteryPct = level;
-      this.onStatusChange?.({ left: { ...this.status.left }, right: { ...this.status.right } });
+      this.onStatusChange?.({ left: { ...this.status.left }, right: { ...this.status.right }, firmwareVersion: this.status.firmwareVersion });
       return;
     }
   }
@@ -725,6 +816,44 @@ export class G1Core {
    * Timeout: 2 s per packet. On timeout or NACK we log a warning but do not
    * throw — the caller's sequence continues. This matches the official app.
    */
+  /**
+   * Like _send but returns true on ACK ok, false on NACK/timeout/write-error.
+   * Used by the heartbeat monitor to detect zombied lenses.
+   */
+  private async _sendForResult(side: Side, data: Uint8Array): Promise<boolean> {
+    const ch = this.txChars[side];
+    const dev = this.devices[side];
+    if (!ch || !dev) return false;
+
+    const opHex = data[0].toString(16).padStart(2, '0');
+    const ackKey = `${side}${opHex}`;
+    const b64 = uint8ToBase64(data);
+
+    const stale = this._pendingAck.get(ackKey);
+    if (stale) { clearTimeout(stale.timer); this._pendingAck.delete(ackKey); }
+
+    const ackPromise = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this._pendingAck.delete(ackKey);
+        resolve(false);
+      }, 2000);
+      this._pendingAck.set(ackKey, { resolve, timer });
+    });
+
+    try {
+      await Promise.race([
+        dev.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, b64),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('write timeout')), 3000)),
+      ]);
+    } catch {
+      const waiter = this._pendingAck.get(ackKey);
+      if (waiter) { clearTimeout(waiter.timer); this._pendingAck.delete(ackKey); }
+      return false;
+    }
+
+    return ackPromise;
+  }
+
   private async _send(side: Side, data: Uint8Array, awaitAck = true): Promise<void> {
     const ch = this.txChars[side];
     const dev = this.devices[side];
@@ -755,10 +884,15 @@ export class G1Core {
       });
     }
 
+    // Race the BLE write against a hard timeout — firmware can stall the radio
+    // and writeCharacteristicWithResponse has no built-in deadline, which would
+    // block _sendQueue indefinitely and freeze all subsequent sends.
+    const WRITE_TIMEOUT_MS = 3000;
     try {
-      await dev.writeCharacteristicWithResponseForService(
-        P.UART_SVC, P.UART_TX, b64,
-      );
+      await Promise.race([
+        dev.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, b64),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('write timeout')), WRITE_TIMEOUT_MS)),
+      ]);
     } catch (e: any) {
       // Clean up the ACK waiter we registered above.
       if (awaitAck) {
@@ -767,6 +901,10 @@ export class G1Core {
       }
       const code = (e as BleError)?.errorCode;
       if (code === BleErrorCode.DeviceDisconnected || code === BleErrorCode.OperationCancelled) return;
+      if (e?.message === 'write timeout') {
+        this._log(`[G1] _send [${side}] write stalled >3s op=0x${opHex} — dropping`);
+        return;
+      }
       console.warn(
         `[G1] _send [${side}] write failed code=${code ?? '?'} reason=${(e as BleError)?.reason ?? '—'}:`,
         e?.message ?? e,
@@ -799,9 +937,9 @@ export class G1Core {
   private _startHeartbeat(): void {
     this._stopHeartbeat();
     this._hbCount = 0;
+    // Heartbeat direction: the firmware sends 0x25 to us and we echo it back
+    // in _onNotify. We only use this timer for periodic battery polling.
     this.heartbeatTimer = setInterval(async () => {
-      await this._sendBoth(P.heartbeat(this._nextSeq()));
-      // Poll battery every 4th heartbeat (~32s)
       if (++this._hbCount % 4 === 0) {
         await this._send('L', P.batteryRequest());
         await this._send('R', P.batteryRequest());
@@ -836,6 +974,7 @@ export class G1Core {
     this.onStatusChange?.({
       left:  { ...this.status.left },
       right: { ...this.status.right },
+      firmwareVersion: this.status.firmwareVersion,
     });
   }
 }

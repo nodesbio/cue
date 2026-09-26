@@ -2,10 +2,14 @@
   "expo": {
     "name": "cue",
     "slug": "cue",
+    "scheme": "cue",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-dev-client"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "bio.nodes.cue",

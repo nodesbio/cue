@@ -30,7 +30,9 @@ export default function SettingsScreen() {
   // Live event monitor — shows the last raw G1 gesture received
   useG1Event((e) => {
     if (e.name === 'head_up' || e.name === 'head_down') {
-      setLastEvent(`${e.name}  (0x0${e.subcmd.toString(16)})  from ${e.side}`);
+      const subcmdStr = 'subcmd' in e ? `  (0x0${(e as any).subcmd.toString(16)})` : '';
+      const sideStr   = 'side'   in e ? `  from ${(e as any).side}` : '';
+      setLastEvent(`${e.name}${subcmdStr}${sideStr}`);
     }
   });
 

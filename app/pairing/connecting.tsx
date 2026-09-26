@@ -71,6 +71,9 @@ export default function PairingConnectingScreen() {
   }
 
   function retry() {
+    // Stop any in-flight scan before starting a fresh attempt — two concurrent
+    // startDeviceScan calls on the same BleManager race each other.
+    try { (core as any).manager.stopDeviceScan(); } catch {}
     attemptConnect();
   }
 

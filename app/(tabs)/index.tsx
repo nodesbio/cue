@@ -39,9 +39,9 @@ import {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function speedLabel(s: number): string {
-  if (s >= SPEED_SLOW)         return 'Slow';
-  if (s > SPEED_FAST)          return 'Normal';
-  if (s > SPEED_TURBO + 0.25)  return 'Fast';
+  if (s >= SPEED_SLOW)   return 'Slow';
+  if (s >= SPEED_NORMAL) return 'Normal';
+  if (s >= SPEED_FAST)   return 'Fast';
   return 'Turbo';
 }
 

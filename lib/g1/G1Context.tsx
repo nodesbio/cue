@@ -71,8 +71,10 @@ const _logListeners = new Set<() => void>();
 
 function _addLog(line: string) {
   const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.mmm
-  _logBuffer.push(`${ts}  ${line}`);
+  const entry = `${ts}  ${line}`;
+  _logBuffer.push(entry);
   if (_logBuffer.length > LOG_MAX) _logBuffer.shift();
+  console.log('[G1]', entry);
   _logListeners.forEach(fn => fn());
 }
 
@@ -220,8 +222,9 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
 
   async function disconnect() {
     await coreRef.current.disconnect();
-    setPairedSerial(null);
-    await AsyncStorage.removeItem(PAIRED_SERIAL_KEY).catch(() => {});
+    // Do NOT clear pairedSerial — we want auto-reconnect to work next time
+    // the app comes to foreground. Only an explicit "forget device" action
+    // should remove the serial.
   }
 
   const core = coreRef.current;
