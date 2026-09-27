@@ -455,16 +455,38 @@ export class G1Core {
   private async _resumeAlreadyConnected(channel?: string): Promise<boolean> {
     try {
       const connected = await this.manager.connectedDevices([P.UART_SVC]);
+      // Log every device returned — react-native-ble-plx does NOT populate
+      // manufacturerData or name on connectedDevices results (iOS only exposes
+      // those in scan advertisements). We log id + name so we can see what we
+      // actually get and diagnose _parseSide failures.
+      this._log(`[G1] connectedDevices returned ${connected.length}: ${connected.map(d => `${d.name ?? 'noname'}[${d.id}] mfr=${d.manufacturerData ?? 'null'}`).join(', ')}`);
+
       const found: Partial<Record<Side, Device>> = {};
+      const unidentified: Device[] = [];
       for (const device of connected) {
         const side = this._parseSide(device);
-        if (!side) continue;
+        if (!side) {
+          // manufacturerData absent (iOS behaviour) — keep for fallback pairing
+          if (device.name?.includes('G1') || device.name == null) unidentified.push(device);
+          continue;
+        }
         if (channel) {
           const ch = this._parseChannel(device);
           if (ch !== channel) continue;
         }
         found[side] = device;
       }
+
+      // If we couldn't identify sides from metadata, try assigning unidentified
+      // devices to the missing sides by order (first unidentified → L, second → R).
+      // This works because the G1 always presents exactly one L and one R device.
+      for (const s of ['L', 'R'] as Side[]) {
+        if (!found[s] && unidentified.length > 0) {
+          found[s] = unidentified.shift();
+          this._log(`[G1] _resumeAlreadyConnected: assigned unidentified device to [${s}] by position`);
+        }
+      }
+
       if (found.L && found.R) {
         this._log('[G1] Both lenses already connected — skipping scan');
         try {
