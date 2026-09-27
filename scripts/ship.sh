@@ -49,21 +49,31 @@ while (( attempt < MAX_BUILD_ATTEMPTS )); do
   (( attempt++ )) || true
   log "Build attempt $attempt / $MAX_BUILD_ATTEMPTS..."
 
-  # Run build, capture output, stream it live
+  # Run build in background, tail last line every 5s
   BUILD_OUTPUT=$(mktemp)
-  if eas build \
+  eas build \
       --platform "$PLATFORM" \
       --profile "$PROFILE" \
       --non-interactive \
-      2>&1 | tee "$BUILD_OUTPUT"; then
-    BUILD_STATUS=success
-  else
-    BUILD_STATUS=failed
-  fi
+      > "$BUILD_OUTPUT" 2>&1 &
+  EAS_PID=$!
+  log "Build running (PID $EAS_PID) — polling every 5s. Full log: $BUILD_OUTPUT"
+  while kill -0 "$EAS_PID" 2>/dev/null; do
+    LAST=$(tail -1 "$BUILD_OUTPUT" 2>/dev/null | sed 's/^[[:space:]]*//' | cut -c1-100)
+    [[ -n "$LAST" ]] && echo -e "  ${YELLOW}…${NC} $LAST"
+    sleep 5
+  done
+  wait "$EAS_PID" && BUILD_STATUS=success || BUILD_STATUS=failed
 
   # Extract build ID from EAS output (works for both success and failure URLs)
-  BUILD_ID=$(grep -oE 'Build details: https://expo\.dev[^ ]+' "$BUILD_OUTPUT" \
+  BUILD_ID=$(grep -oE 'https://expo\.dev/[^ ]+/builds/[a-f0-9-]{36}' "$BUILD_OUTPUT" \
     | grep -oE '[a-f0-9-]{36}$' | head -1 || true)
+  # fallback: any UUID-shaped string on a "Build details" line
+  if [[ -z "$BUILD_ID" ]]; then
+    BUILD_ID=$(grep -i 'build' "$BUILD_OUTPUT" \
+      | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' \
+      | head -1 || true)
+  fi
 
   if [[ "$BUILD_STATUS" == "failed" ]]; then
     fail "❌ Build attempt $attempt failed."
