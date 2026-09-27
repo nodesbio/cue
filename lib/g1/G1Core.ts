@@ -441,6 +441,33 @@ export class G1Core {
     await this._sendBoth(P.exitToDashboard());
   }
 
+  /**
+   * Send a single-line test message to ONE lens only, showing its battery and
+   * RSSI so the user can verify the HUD is alive and the telemetry is correct.
+   * Uses the existing send queue so it doesn't race active teleprompter sends.
+   */
+  async sendTestDisplay(side: Side): Promise<void> {
+    const st = side === 'L' ? this.status.left : this.status.right;
+    const bat  = st.batteryPct != null ? `${st.batteryPct}%` : '--';
+    const rssi = st.rssi       != null ? `${st.rssi}dBm`     : '--';
+    const label = side === 'L' ? 'Left' : 'Right';
+    const line = `${label}: 🔋${bat}  📶${rssi}`;
+    return this._enqueue(async () => {
+      const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
+      await this._send(side, packet);
+    });
+  }
+
+  /**
+   * Clear the HUD on ONE lens by sending silent(true) to re-assert Cue ownership,
+   * which causes the firmware to blank the display.
+   */
+  async clearDisplay(side: Side): Promise<void> {
+    return this._enqueue(async () => {
+      await this._send(side, P.silent(true));
+    });
+  }
+
   destroy(): void {
     this.destroyed = true;
     this._stopHeartbeat();
@@ -780,7 +807,7 @@ export class G1Core {
    */
   private _enqueueConnect(side: Side, device: Device): void {
     if (this.destroyed || this.txChars[side] || this._connectingOnSide[side]) {
-      this._log(`[G1] _enqueueConnect [${side}] skipped — destroyed=${this.destroyed} txReady=${!!this.txChars[side]} connecting=${this._connectingOnSide[side]}`);
+      this._log(`[G1] _enqueueConnect [${side}] skipped — destroyed=${this.destroyed} txChars=${!!this.txChars[side]} connecting=${this._connectingOnSide[side]}`);
       return;
     }
     this._connectQueue[side] = this._connectQueue[side].then(async () => {
@@ -817,6 +844,15 @@ export class G1Core {
   }
 
   private async _connectLensInner(side: Side, device: Device): Promise<void> {
+    // #23: iOS BLE fires onDeviceConnected repeatedly for an already-connected
+    // peripheral. The fast silent-ACK-reuse path resolves in ~100ms, making
+    // _connectingOnSide briefly false — letting subsequent callbacks in.
+    // Gate here on rxSubs (live notification subscription) as the definitive
+    // "already initialised" signal, independent of timing.
+    if (this.rxSubs[side]) {
+      this._log(`[G1] _connectLensInner [${side}] skipped — RX subscription already live`);
+      return;
+    }
     const connected = await device.connect({ autoConnect: false });
     const discovered = await connected.discoverAllServicesAndCharacteristics();
     this.devices[side] = discovered;
@@ -877,6 +913,7 @@ export class G1Core {
       const silentOk = await this._sendForResult(side, P.silent(true), 12000);
       if (!silentOk) {
         this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
+        this.txChars[side] = undefined;   // #21/#22: clear so _enqueueConnect can retry and UI shows no telemetry
         this._scheduleReconnect(side);
         return;
       }

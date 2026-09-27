@@ -13,7 +13,7 @@ export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { core, status, isConnected: connected, isPartiallyConnected, isAutoConnecting, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness } = useG1();
+  const { core, status, isConnected: connected, isPartiallyConnected, isAutoConnecting, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness, sendTestDisplay, clearDisplay } = useG1();
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
@@ -116,6 +116,8 @@ export default function SettingsScreen() {
                   logs={logs}
                   onDisconnect={() => disconnectSide(side)}
                   onReconnect={() => reconnectSide(side)}
+                  onTest={() => sendTestDisplay(side)}
+                  onClear={() => clearDisplay(side)}
                 />
               );
             })}

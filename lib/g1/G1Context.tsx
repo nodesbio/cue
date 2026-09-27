@@ -133,6 +133,10 @@ interface G1ContextValue {
   /** Display brightness (0–42). Persisted + pushed to hardware automatically. */
   brightness: number;
   setBrightness: (level: number) => Promise<void>;
+  /** Send a one-line battery+signal test message to a single lens HUD. */
+  sendTestDisplay: (side: 'L' | 'R') => Promise<void>;
+  /** Clear the HUD on a single lens by re-asserting silent mode. */
+  clearDisplay: (side: 'L' | 'R') => Promise<void>;
 }
 
 const G1Context = createContext<G1ContextValue | null>(null);
@@ -242,6 +246,14 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnectedForEffect]);
 
+  async function sendTestDisplay(side: 'L' | 'R') {
+    await coreRef.current.sendTestDisplay(side).catch(() => {});
+  }
+
+  async function clearDisplay(side: 'L' | 'R') {
+    await coreRef.current.clearDisplay(side).catch(() => {});
+  }
+
   async function setBrightness(level: number): Promise<void> {
     const v = Math.max(0, Math.min(42, Math.round(level)));
     setBrightnessState(v);
@@ -292,7 +304,7 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   const isAutoConnecting_ = isAutoConnecting || core.isReconnecting;
 
   return (
-    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, isAutoConnecting: isAutoConnecting_, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness }}>
+    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, isAutoConnecting: isAutoConnecting_, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness, sendTestDisplay, clearDisplay }}>
       {children}
     </G1Context.Provider>
   );

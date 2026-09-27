@@ -21,6 +21,8 @@ export interface LensCardProps {
   logs: string[];
   onDisconnect: () => void;
   onReconnect: () => void;
+  onTest?: () => void;
+  onClear?: () => void;
 }
 
 /** Lines that belong to this side: tagged [L] / [R] or [G1 RX L] / [G1 RX R] */
@@ -44,7 +46,7 @@ async function shareSideLogs(side: 'L' | 'R', lines: string[]): Promise<void> {
   }
 }
 
-export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onDisconnect, onReconnect }: LensCardProps) {
+export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onDisconnect, onReconnect, onTest, onClear }: LensCardProps) {
   const [showLogs, setShowLogs] = useState(false);
 
   const label      = side === 'L' ? 'Left lens' : 'Right lens';
@@ -69,8 +71,8 @@ export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onD
 
       {/* Battery + RSSI chips */}
       <View style={s.meta}>
-        {batteryPct != null && <Text style={s.chip}>🔋 {batteryPct}%</Text>}
-        {rssi       != null && <Text style={s.chip}>📶 {rssi} dBm</Text>}
+        {txReady && batteryPct != null && <Text style={s.chip}>🔋 {batteryPct}%</Text>}
+        {txReady && rssi       != null && <Text style={s.chip}>📶 {rssi} dBm</Text>}
       </View>
 
       {/* Disconnect / Reconnect */}
@@ -92,6 +94,18 @@ export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onD
           </Text>
         </Pressable>
       </View>
+
+      {/* Test / Clear — only shown when lens is TX-ready */}
+      {txReady && (
+        <View style={[s.actions, { marginTop: 6 }]}>
+          <Pressable style={[s.btn, s.btnTest]} onPress={onTest}>
+            <Text style={s.btnText}>Test Display</Text>
+          </Pressable>
+          <Pressable style={[s.btn, s.btnClear]} onPress={onClear}>
+            <Text style={s.btnText}>Clear</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Per-lens log toggle row */}
       <View style={s.logToggleRow}>
@@ -139,6 +153,8 @@ const s = StyleSheet.create({
   btnDanger:      { backgroundColor: '#2a1a1a' },
   btnPrimary:     { backgroundColor: '#1a2a1a' },
   btnDisabled:    { opacity: 0.35 },
+  btnTest:        { backgroundColor: '#1a1f2a' },
+  btnClear:       { backgroundColor: '#1a1a2a' },
   btnText:        { color: '#ccc', fontSize: 13, fontWeight: '600' },
   btnTextDisabled:{ color: '#555' },
   logToggleRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#1e1e1e' },
