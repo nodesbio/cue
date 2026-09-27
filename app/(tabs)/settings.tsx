@@ -6,6 +6,7 @@ import Slider from '@react-native-community/slider';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useG1, useG1Event, useLogs, getLogsText, clearLogBuffer, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
+import { LensCard } from '@/components/LensCard';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
@@ -104,49 +105,18 @@ export default function SettingsScreen() {
             {/* ── Per-lens cards ──────────────────────────────── */}
             {(['L', 'R'] as const).map(side => {
               const lensStatus = side === 'L' ? status?.left : status?.right;
-              const batt = side === 'L' ? battL : battR;
-              const rssi = side === 'L' ? rssiL : rssiR;
-              const label = side === 'L' ? 'Left lens' : 'Right lens';
-              const isReady = !!lensStatus?.txReady;
-              const isConn  = !!lensStatus?.connected;
-              // Three states: ready (full), connecting (BLE up, init in flight), disconnected
-              const dot        = isReady ? '●' : isConn ? '◐' : '○';
-              const dotColor   = isReady ? s.green : isConn ? s.yellow : s.muted;
-              const stateLabel = isReady ? 'Ready' : isConn ? 'Connecting…' : 'Disconnected';
-              // Disconnect: available whenever BLE is up (connected or stuck in init)
-              const canDisconnect = isConn || isReady;
-              // Reconnect: available when not already ready; also force-available if stuck
-              //   connecting (isConn=true, isReady=false) so user can break the loop
-              const canReconnect = !isReady;
               return (
-                <View key={side} style={s.lensCard}>
-                  <View style={s.lensCardHeader}>
-                    <Text style={s.label}>{label}</Text>
-                    <Text style={[s.value, dotColor]}>{dot} {stateLabel}</Text>
-                  </View>
-                  <View style={s.lensMeta}>
-                    {batt != null && <Text style={s.metaChip}>🔋 {batt}%</Text>}
-                    {rssi != null && <Text style={s.metaChip}>📶 {rssi} dBm</Text>}
-                  </View>
-                  <View style={s.lensActions}>
-                    <Pressable
-                      style={[s.lensBtn, s.lensBtnDanger, !canDisconnect && s.lensBtnDisabled]}
-                      onPress={() => disconnectSide(side)}
-                      disabled={!canDisconnect}
-                    >
-                      <Text style={[s.lensBtnText, !canDisconnect && s.lensBtnTextDisabled]}>Disconnect</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[s.lensBtn, s.lensBtnPrimary, !canReconnect && s.lensBtnDisabled]}
-                      onPress={() => reconnectSide(side)}
-                      disabled={!canReconnect}
-                    >
-                      <Text style={[s.lensBtnText, !canReconnect && s.lensBtnTextDisabled]}>
-                        {isConn && !isReady ? 'Force Reconnect' : 'Reconnect'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </View>
+                <LensCard
+                  key={side}
+                  side={side}
+                  connected={!!lensStatus?.connected}
+                  txReady={!!lensStatus?.txReady}
+                  batteryPct={(side === 'L' ? battL : battR) ?? null}
+                  rssi={(side === 'L' ? rssiL : rssiR) ?? null}
+                  logs={logs}
+                  onDisconnect={() => disconnectSide(side)}
+                  onReconnect={() => reconnectSide(side)}
+                />
               );
             })}
 
@@ -320,17 +290,7 @@ const s = StyleSheet.create({
   green:       { color: '#00c47a' },
   yellow:      { color: '#f5c542' },
   muted:       { color: '#555' },
-  lensCard:    { backgroundColor: '#111', borderRadius: 12, padding: 14, marginTop: 10 },
-  lensCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  lensMeta:    { flexDirection: 'row', gap: 10, marginTop: 6 },
-  metaChip:    { color: '#888', fontSize: 12 },
-  lensActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  lensBtn:     { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
-  lensBtnDanger:        { backgroundColor: '#2a1a1a' },
-  lensBtnPrimary:       { backgroundColor: '#1a2a1a' },
-  lensBtnDisabled:      { opacity: 0.35 },
-  lensBtnText:          { color: '#ccc', fontSize: 13, fontWeight: '600' },
-  lensBtnTextDisabled:  { color: '#555' },
+
   btn:         { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 12 },
   btnSecondary:{ backgroundColor: '#1a1a1a' },
   btnDanger:   { backgroundColor: '#2a1a1a' },
