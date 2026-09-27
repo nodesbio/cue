@@ -868,6 +868,10 @@ export class G1Core {
   }
 
   private _onDisconnected(side: Side): void {
+    // Cancel all pending ACK waiters — a disconnected lens will never respond.
+    // This prevents stale waiters from timing out sequentially and producing
+    // a cascade of false-alarm log lines after reconnect.
+    this._drainAckWaiters(side);
     this._setConnected(side, false);
     this.txChars[side] = undefined;
     this._scheduleReconnect(side);
@@ -1038,11 +1042,16 @@ export class G1Core {
           event.name === 'ai_start'
         ) {
           this._log(`[G1] display takeover event "${event.name}" [${side}] — re-asserting silent`);
-          // Drain stale OP_TEXT (and any other) ACK waiters so their retries
-          // don't race with the re-assert and keep the display blank.
-          this._drainAckWaiters(side);
-          // Small delay on close/ai_start so the firmware finishes its own
-          // animation before we write over it.
+          // Do NOT drain ACK waiters here. Draining kills in-flight OP_TEXT
+          // sends whose ACK simply hasn't arrived yet (R delays 15-19s when
+          // audio is streaming). Draining causes those sends to NACK, the
+          // _enqueue swallows the error, and the HUD goes blank even though
+          // the firmware successfully received the text. The _sendQueue
+          // serialisation already prevents the re-silent from racing the
+          // in-flight text — it will queue behind it naturally.
+          //
+          // _drainAckWaiters is still appropriate before a full reconnect
+          // (called in _onDisconnected path) but NOT for display-takeover events.
           const delay = event.name === 'dashboard_open' ? 0 : 300;
           setTimeout(() => this._sendSilent(side), delay);
         }
@@ -1163,6 +1172,12 @@ export class G1Core {
     return ackPromise;
   }
 
+  // OP_TEXT ACKs can arrive up to ~20s late on the right lens when audio is
+  // streaming (0xf1 frames from the mic pipeline saturate firmware processing).
+  // Give text sends a generous timeout so we don't NACK and blank the HUD.
+  private static readonly ACK_TIMEOUT_TEXT_MS = 25_000;
+  private static readonly ACK_TIMEOUT_DEFAULT_MS = 2_000;
+
   private async _send(side: Side, data: Uint8Array, awaitAck = true): Promise<void> {
     const ch = this.txChars[side];
     const dev = this.devices[side];
@@ -1184,11 +1199,14 @@ export class G1Core {
         this._log(`[G1] _send [${side}] evicted stale ACK waiter op=0x${opHex}`);
       }
       ackPromise = new Promise<boolean>((resolve) => {
+        const ackTimeout = data[0] === P.OP_TEXT
+          ? G1Core.ACK_TIMEOUT_TEXT_MS
+          : G1Core.ACK_TIMEOUT_DEFAULT_MS;
         const timer = setTimeout(() => {
           this._pendingAck.delete(ackKey);
-          this._log(`[G1] _send [${side}] ACK timeout op=0x${opHex}`);
+          this._log(`[G1] _send [${side}] ACK timeout op=0x${opHex} after ${ackTimeout}ms`);
           resolve(false);
-        }, 2000);
+        }, ackTimeout);
         this._pendingAck.set(ackKey, { resolve, timer });
       });
     }
