@@ -132,7 +132,7 @@ export class G1Core {
    * a cold scan while L connects fine).
    */
   private _textNackCount: Record<Side, number> = { L: 0, R: 0 };
-  private static readonly TEXT_NACK_RECONNECT_THRESHOLD = 2;
+  private static readonly TEXT_NACK_RECONNECT_THRESHOLD = 1;
   /**
    * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
    * The firmware echoes the command opcode in data[0] and puts the status in
@@ -463,6 +463,7 @@ export class G1Core {
     const rssi = st.rssi       != null ? `${st.rssi}dBm`     : '--';
     const label = side === 'L' ? 'Left' : 'Right';
     const line = `${label}: 🔋${bat}  📶${rssi}`;
+    this._log(`[G1] sendTestDisplay [${side}] txReady=${st.txReady} txChars=${!!this.txChars[side]}`);
     return this._enqueue(async () => {
       const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
       await this._send(side, packet);
