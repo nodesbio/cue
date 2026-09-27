@@ -456,9 +456,9 @@ export class G1Core {
     try {
       // iOS registers UART service on bonded peripherals asynchronously — one lens
       // may not appear in connectedDevices([UART_SVC]) for several seconds after
-      // the other. Poll up to ~6s (3 attempts × 2s) before giving up.
+      // the other. Logs show R taking >6s; poll up to ~10s (5 × 2s) before giving up.
       const POLL_INTERVAL_MS = 2000;
-      const POLL_ATTEMPTS    = 3;
+      const POLL_ATTEMPTS    = 5;
 
       const parseBatch = (devices: Device[]): { found: Partial<Record<Side, Device>>; unidentified: Device[] } => {
         const found: Partial<Record<Side, Device>> = {};
@@ -628,9 +628,10 @@ export class G1Core {
       } catch {}
     }
     // Fallback: parse from name.
+    // Normalize "Even G1_..." → "G1_..." so the regex matches regardless of prefix.
     // Channel segment may contain letters as well as digits (e.g. "5L" in "G1_5L_L_810D29"),
     // so use [A-Za-z0-9]+ rather than \d+.
-    const name = device.name ?? '';
+    const name = (device.name ?? '').replace(/^Even G1/, 'G1');
     const m = name.match(/G1_([A-Za-z0-9]+)_([LR])_([0-9A-Fa-f]+)/);
     if (m) {
       // Strip any trailing side letter from the channel token so "5L" and "5" both
