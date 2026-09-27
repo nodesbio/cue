@@ -86,6 +86,16 @@ export class G1Core {
    */
   private _connectQueue: Record<Side, Promise<void>> = { L: Promise.resolve(), R: Promise.resolve() };
   /**
+   * True while a _connectLens call is actively executing for that side.
+   * Used to gate _scheduleReconnect / reconnectSide so a burst of reconnect
+   * requests doesn't pile up a queue of redundant attempts behind an in-flight
+   * connection.
+   */
+  private _connectingOnSide: Record<Side, boolean> = { L: false, R: false };
+  /** Timestamp of the last reconnectSide() call per side — used to debounce UI taps. */
+  private _lastReconnectSideAt: Record<Side, number> = { L: 0, R: 0 };
+  private static readonly RECONNECT_SIDE_DEBOUNCE_MS = 1500;
+  /**
    * Generation counter per side. Incremented each time _connectLens runs.
    * The onDisconnected closure captures its generation at creation time and
    * no-ops if a newer connection has since replaced it — prevents stale
@@ -299,6 +309,22 @@ export class G1Core {
    * reconnect scan knows what device to look for.
    */
   reconnectSide(side: Side): void {
+    // Debounce: ignore taps within RECONNECT_SIDE_DEBOUNCE_MS of the last call.
+    const now = Date.now();
+    if (now - this._lastReconnectSideAt[side] < G1Core.RECONNECT_SIDE_DEBOUNCE_MS) {
+      this._log(`[G1] reconnectSide [${side}] — debounced (too soon)`);
+      return;
+    }
+    this._lastReconnectSideAt[side] = now;
+
+    // In-flight guard: if _connectLens is already executing for this side,
+    // there's nothing to add — the running attempt will either succeed or
+    // call _scheduleReconnect itself on failure.
+    if (this._connectingOnSide[side]) {
+      this._log(`[G1] reconnectSide [${side}] — already connecting, ignored`);
+      return;
+    }
+
     this._log(`[G1] reconnectSide [${side}] — user-initiated`);
     clearTimeout(this._reconnectTimers[side]);
     this._reconnectTimers[side] = undefined;
@@ -745,6 +771,15 @@ export class G1Core {
   // ── Connection ────────────────────────────────────────────────────────────
 
   private async _connectLens(side: Side, device: Device): Promise<void> {
+    this._connectingOnSide[side] = true;
+    try {
+      await this._connectLensInner(side, device);
+    } finally {
+      this._connectingOnSide[side] = false;
+    }
+  }
+
+  private async _connectLensInner(side: Side, device: Device): Promise<void> {
     const connected = await device.connect({ autoConnect: false });
     const discovered = await connected.discoverAllServicesAndCharacteristics();
     this.devices[side] = discovered;
@@ -868,6 +903,10 @@ export class G1Core {
             });
           });
           if (found) {
+            if (this._connectingOnSide[side]) {
+              this._log(`[G1] _scheduleReconnect [${side}] already connecting — skipping enqueue`);
+              return;
+            }
             this._connectQueue[side] = this._connectQueue[side].then(async () => {
               if (this.destroyed) return;
               try { await this._connectLens(side, found); }
@@ -883,6 +922,10 @@ export class G1Core {
       }
 
       // Each side has its own queue — no cross-side serialisation needed.
+      if (this._connectingOnSide[side]) {
+        this._log(`[G1] _scheduleReconnect [${side}] already connecting — skipping enqueue`);
+        return;
+      }
       this._connectQueue[side] = this._connectQueue[side].then(async () => {
         if (this.destroyed) return;
         try {
