@@ -60,6 +60,7 @@ function makeStubCore(): G1Core {
     // Computed props
     get isConnected()          { return false; },
     get isPartiallyConnected() { return false; },
+    get isReconnecting()       { return false; },
   } as unknown as G1Core;
 }
 
@@ -111,12 +112,13 @@ interface G1ContextValue {
   status: G1Status | null;
   /** Both lenses TX-ready and usable. */
   isConnected: boolean;
-  /** OS reports connected but UART not yet ready (half-bonded). */
+  /** At least one lens has completed handshake (txReady) but not both. */
   isPartiallyConnected: boolean;
   /**
-   * True from mount until the AsyncStorage PAIRED_SERIAL_KEY check resolves.
-   * While true, the app is silently attempting auto-reconnect — UI should show
-   * a neutral "Connecting…" state rather than the full disconnected/pair flow.
+   * True from mount until the AsyncStorage PAIRED_SERIAL_KEY check resolves
+   * (initial auto-connect attempt), OR while G1Core has an active _connectLens
+   * in flight via _scheduleReconnect. UI should show "Connecting…" in both
+   * cases rather than the disconnected/pair flow.
    */
   isAutoConnecting: boolean;
   /** Connect to a specific serial (from pairing scan). */
@@ -277,14 +279,20 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   // mid-_connectLens showing the firmware dashboard — the reconnect-send
   // useEffect would fire, sending text to R before R's silent(true) had run.
   const isConnected = !!(status?.left.txReady && status?.right.txReady);
-  // "Partially connected" = at least one lens is ready (shows yellow indicator).
+  // "Partially connected" = at least one lens has completed handshake (txReady).
+  // Deliberately excludes raw `connected` state — a lens that is BLE-bonded but
+  // mid-silent-handshake (connected=true, txReady=false) is not usably connected
+  // and should not flash the LensCard UI. See issue #20.
   const isPartiallyConnected = !isConnected && !!(
-    status?.left.txReady || status?.right.txReady ||
-    status?.left.connected || status?.right.connected
+    status?.left.txReady || status?.right.txReady
   );
+  // Covers both the initial mount attempt AND background _scheduleReconnect cycles.
+  // Without the second term, isAutoConnecting goes permanently false after the first
+  // connect() resolves, exposing the "Reconnect" button during active retries. See #19.
+  const isAutoConnecting_ = isAutoConnecting || core.isReconnecting;
 
   return (
-    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, isAutoConnecting, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness }}>
+    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, isAutoConnecting: isAutoConnecting_, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness }}>
       {children}
     </G1Context.Provider>
   );

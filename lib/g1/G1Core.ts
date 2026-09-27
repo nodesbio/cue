@@ -92,6 +92,11 @@ export class G1Core {
    * connection.
    */
   private _connectingOnSide: Record<Side, boolean> = { L: false, R: false };
+
+  /** True while any _connectLens call is actively executing. Surfaced to G1Context. */
+  get isReconnecting(): boolean {
+    return this._connectingOnSide.L || this._connectingOnSide.R;
+  }
   /** Timestamp of the last reconnectSide() call per side — used to debounce UI taps. */
   private _lastReconnectSideAt: Record<Side, number> = { L: 0, R: 0 };
   private static readonly RECONNECT_SIDE_DEBOUNCE_MS = 1500;
