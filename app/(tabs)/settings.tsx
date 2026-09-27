@@ -13,7 +13,7 @@ export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { core, status, isConnected: connected, isPartiallyConnected, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness } = useG1();
+  const { core, status, isConnected: connected, isPartiallyConnected, isAutoConnecting, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness } = useG1();
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
@@ -101,8 +101,8 @@ export default function SettingsScreen() {
         <Text style={s.section}>Connection</Text>
 
         {(connected || isPartiallyConnected) ? (
+          /* ── Connected / partially connected ───────────────── */
           <>
-            {/* ── Per-lens cards ──────────────────────────────── */}
             {(['L', 'R'] as const).map(side => {
               const lensStatus = side === 'L' ? status?.left : status?.right;
               return (
@@ -119,33 +119,34 @@ export default function SettingsScreen() {
                 />
               );
             })}
-
-            {/* Serial */}
             {pairedSerial && (
               <View style={s.row}>
                 <Text style={s.label}>Serial</Text>
                 <Text style={s.value}>{pairedSerial}</Text>
               </View>
             )}
-
-            {/* Global disconnect */}
             <Pressable style={[s.btn, s.btnDanger]} onPress={handleDisconnect}>
               <Text style={[s.btnText, { color: '#fff' }]}>Disconnect All</Text>
             </Pressable>
           </>
+        ) : isAutoConnecting ? (
+          /* ── Auto-reconnect in flight — don't flash the pair UI ── */
+          <View style={s.row}>
+            <Text style={s.label}>Status</Text>
+            <Text style={s.value}>Connecting…</Text>
+          </View>
         ) : (
+          /* ── Genuinely disconnected ─────────────────────────── */
           <>
             <View style={s.row}>
               <Text style={s.label}>Status</Text>
               <Text style={s.value}>Not connected</Text>
             </View>
-
             <Pressable style={s.btn} onPress={handleConnectPress}>
               <Text style={s.btnText}>
                 {pairedSerial ? `Reconnect · ${pairedSerial}` : 'Pair G1 Glasses'}
               </Text>
             </Pressable>
-
             {pairedSerial && (
               <Pressable style={[s.btn, s.btnSecondary]} onPress={() => router.push('/pairing/prep')}>
                 <Text style={[s.btnText, { color: '#888' }]}>Pair a different G1</Text>

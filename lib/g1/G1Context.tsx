@@ -113,6 +113,12 @@ interface G1ContextValue {
   isConnected: boolean;
   /** OS reports connected but UART not yet ready (half-bonded). */
   isPartiallyConnected: boolean;
+  /**
+   * True from mount until the AsyncStorage PAIRED_SERIAL_KEY check resolves.
+   * While true, the app is silently attempting auto-reconnect — UI should show
+   * a neutral "Connecting…" state rather than the full disconnected/pair flow.
+   */
+  isAutoConnecting: boolean;
   /** Connect to a specific serial (from pairing scan). */
   connect: (serial: string) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -178,6 +184,12 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   const coreRef = useRef<G1Core>(global.__g1Core);
   const [pairedSerial, setPairedSerial] = useState<string | null>(null);
   const [brightness, setBrightnessState] = useState<number>(BRIGHTNESS_DEFAULT);
+  // True until the AsyncStorage paired-serial check resolves on first mount.
+  const [isAutoConnecting, setIsAutoConnecting] = useState<boolean>(() => {
+    // If the core is already live (Fast Refresh), no waiting needed.
+    const s = global.__g1Core!.status;
+    return !(s.left.connected || s.right.connected || s.left.txReady || s.right.txReady);
+  });
 
   useEffect(() => {
     // Start SmartRemote listener once on mount.
@@ -196,15 +208,22 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Auto-reconnect to the last paired serial
     AsyncStorage.getItem(PAIRED_SERIAL_KEY).then(serial => {
-      if (!serial) return;
+      if (!serial) {
+        // No paired device — nothing to connect to, stop waiting.
+        setIsAutoConnecting(false);
+        return;
+      }
       setPairedSerial(serial);
       coreRef.current.connect(serial).catch((e) => {
         // Silent — dashboard will show "Connect" CTA if glasses aren't in range
         const msg = `[G1Context] auto-reconnect failed: ${e?.message ?? e}`;
         console.log(msg);
         _addLog(msg);
+      }).finally(() => {
+        // Whether connect succeeded or failed, the auto-connect attempt is done.
+        setIsAutoConnecting(false);
       });
-    }).catch(() => {});
+    }).catch(() => { setIsAutoConnecting(false); });
 
     return () => {
       // Don't destroy on Fast Refresh unmount — the global instance stays alive.
@@ -265,7 +284,7 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness }}>
+    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, isAutoConnecting, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness }}>
       {children}
     </G1Context.Provider>
   );
