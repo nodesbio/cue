@@ -662,17 +662,21 @@ export class G1Core {
       }
     }
 
-    // Mark TX as ready — both TX char and RX monitor are now wired.
-    // Setting this here (after the loop) ensures the monitor is live before
-    // any incoming ACKs from the handshake below are processed.
-    if (side === 'L') this.status.left.txReady = true;
-    if (side === 'R') this.status.right.txReady = true;
+    // NOTE: txReady is intentionally set AFTER handshake + silent complete below.
+    // Setting it here would flip isConnected immediately and trigger React effects
+    // (e.g. the reconnect-send useEffect in index.tsx) before the glass is ready,
+    // causing 0x4e ACK timeouts and a connection_error loop.
 
     // Handshake — firmware does not ACK 0xF4, fire-and-forget.
     await this._send(side, P.handshake(), false);
     // Suppress firmware notification overlays (e.g. "Even AI unable to connect")
     // so they don't clobber our teleprompter display.
     await this._send(side, P.silent(true));
+
+    // Mark TX as ready only after init sequence is complete — the RX monitor
+    // is already live (set up in the loop above) so ACKs are handled correctly.
+    if (side === 'L') this.status.left.txReady = true;
+    if (side === 'R') this.status.right.txReady = true;
     this._setConnected(side, true);
     this.reconnectAttempts[side] = 0;
 
