@@ -65,7 +65,7 @@ export const PAIRED_SERIAL_KEY = 'g1_paired_serial';
 
 // ── Log buffer ─────────────────────────────────────────────────────────────
 // Module-level ring buffer: survives Fast Refresh, max 200 lines.
-const LOG_MAX = 200;
+const LOG_MAX = 1000;
 const _logBuffer: string[] = [];
 const _logListeners = new Set<() => void>();
 
@@ -76,6 +76,11 @@ function _addLog(line: string) {
   if (_logBuffer.length > LOG_MAX) _logBuffer.shift();
   console.log('[G1]', entry);
   _logListeners.forEach(fn => fn());
+}
+
+/** Returns the full log buffer as a single newline-joined string (for sharing). */
+export function getLogsText(): string {
+  return _logBuffer.join('\n');
 }
 
 /** Returns a stable snapshot of the log buffer that updates on every new line. */

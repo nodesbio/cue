@@ -3,7 +3,9 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { useG1, useG1Event, useLogs, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { useG1, useG1Event, useLogs, getLogsText, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
@@ -56,6 +58,14 @@ export default function SettingsScreen() {
 
   async function handleDisconnect() {
     await disconnect();
+  }
+
+  async function shareLogs() {
+    const text = getLogsText();
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const path = `${FileSystem.cacheDirectory}cue-logs-${ts}.txt`;
+    await FileSystem.writeAsStringAsync(path, text, { encoding: FileSystem.EncodingType.UTF8 });
+    await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: 'Share Cue Logs' });
   }
 
   async function runDebugScan() {
@@ -214,10 +224,15 @@ export default function SettingsScreen() {
         ))}
 
         {/* ── Raw Logs ───────────────────────────────────────── */}
-        <Pressable style={s.logsToggleRow} onPress={() => setShowLogs(v => !v)}>
-          <Text style={s.section}>Raw Logs</Text>
-          <Text style={s.logsToggleChevron}>{showLogs ? '▲' : '▼'}</Text>
-        </Pressable>
+        <View style={s.logsToggleRow}>
+          <Pressable onPress={() => setShowLogs(v => !v)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={s.section}>Raw Logs</Text>
+            <Text style={s.logsToggleChevron}>{showLogs ? '▲' : '▼'}</Text>
+          </Pressable>
+          <Pressable onPress={shareLogs} style={s.shareLogsBtn}>
+            <Text style={s.shareLogsBtnText}>⬆ Share</Text>
+          </Pressable>
+        </View>
 
         {showLogs && (
           <ScrollView
@@ -266,6 +281,8 @@ const s = StyleSheet.create({
   btnText:     { fontSize: 15, fontWeight: '600', color: '#000' },
   debugText:        { color: '#555', fontSize: 11, marginTop: 6, fontFamily: 'monospace' },
   logsToggleRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, marginBottom: 0 },
+  shareLogsBtn:     { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#1a1a1a', borderRadius: 8, borderWidth: 1, borderColor: '#333' },
+  shareLogsBtnText: { color: '#888', fontSize: 13 },
   logsToggleChevron:{ color: '#555', fontSize: 12 },
   logsScroll:       { maxHeight: 300, backgroundColor: '#111', borderRadius: 8, marginTop: 8, marginBottom: 4 },
   logsContent:      { padding: 10 },
