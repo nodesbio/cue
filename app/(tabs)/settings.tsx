@@ -12,7 +12,7 @@ export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { core, status, isConnected: connected, disconnect, pairedSerial, brightness, setBrightness } = useG1();
+  const { core, status, isConnected: connected, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness } = useG1();
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
@@ -101,38 +101,58 @@ export default function SettingsScreen() {
 
         {connected ? (
           <>
-            <View style={s.row}>
-              <View style={s.rowText}>
-                <Text style={s.label}>Status</Text>
-                <Text style={s.sub}>{pairedSerial ?? 'Connected'}</Text>
-              </View>
-              <Text style={[s.value, s.green]}>● Connected</Text>
-            </View>
+            {/* ── Per-lens status rows ─────────────────────────── */}
+            {(['L', 'R'] as const).map(side => {
+              const lensStatus = side === 'L' ? status?.left : status?.right;
+              const batt = side === 'L' ? battL : battR;
+              const rssi = side === 'L' ? rssiL : rssiR;
+              const label = side === 'L' ? 'Left lens' : 'Right lens';
+              const isReady = lensStatus?.txReady;
+              const isConn  = lensStatus?.connected;
+              const dot   = isReady ? '●' : isConn ? '◐' : '○';
+              const color = isReady ? s.green : isConn ? s.yellow : s.muted;
+              const stateLabel = isReady ? 'Ready' : isConn ? 'Connecting…' : 'Disconnected';
+              return (
+                <View key={side} style={s.lensCard}>
+                  <View style={s.lensCardHeader}>
+                    <Text style={s.label}>{label}</Text>
+                    <Text style={[s.value, color]}>{dot} {stateLabel}</Text>
+                  </View>
+                  <View style={s.lensMeta}>
+                    {batt != null && <Text style={s.metaChip}>🔋 {batt}%</Text>}
+                    {rssi != null && <Text style={s.metaChip}>📶 {rssi} dBm</Text>}
+                  </View>
+                  <View style={s.lensActions}>
+                    <Pressable
+                      style={[s.lensBtn, s.lensBtnDanger]}
+                      onPress={() => disconnectSide(side)}
+                      disabled={!isConn && !isReady}
+                    >
+                      <Text style={s.lensBtnText}>Disconnect</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[s.lensBtn, s.lensBtnPrimary]}
+                      onPress={() => reconnectSide(side)}
+                      disabled={!!(isReady)}
+                    >
+                      <Text style={s.lensBtnText}>Reconnect</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
 
-            {(battL != null || battR != null) && (
+            {/* Serial */}
+            {pairedSerial && (
               <View style={s.row}>
-                <Text style={s.label}>Battery</Text>
-                <Text style={s.value}>
-                  {battL != null ? `L: ${battL}%` : ''}
-                  {battL != null && battR != null ? '  ·  ' : ''}
-                  {battR != null ? `R: ${battR}%` : ''}
-                </Text>
+                <Text style={s.label}>Serial</Text>
+                <Text style={s.value}>{pairedSerial}</Text>
               </View>
             )}
 
-            {(rssiL != null || rssiR != null) && (
-              <View style={s.row}>
-                <Text style={s.label}>Signal (RSSI)</Text>
-                <Text style={s.value}>
-                  {rssiL != null ? `L: ${rssiL} dBm` : ''}
-                  {rssiL != null && rssiR != null ? '  ·  ' : ''}
-                  {rssiR != null ? `R: ${rssiR} dBm` : ''}
-                </Text>
-              </View>
-            )}
-
+            {/* Global disconnect */}
             <Pressable style={[s.btn, s.btnDanger]} onPress={handleDisconnect}>
-              <Text style={[s.btnText, { color: '#fff' }]}>Disconnect</Text>
+              <Text style={[s.btnText, { color: '#fff' }]}>Disconnect All</Text>
             </Pressable>
           </>
         ) : (
@@ -290,6 +310,17 @@ const s = StyleSheet.create({
   sub:         { color: '#555', fontSize: 12, marginTop: 3 },
   value:       { color: '#888', fontSize: 15 },
   green:       { color: '#00c47a' },
+  yellow:      { color: '#f5c542' },
+  muted:       { color: '#555' },
+  lensCard:    { backgroundColor: '#111', borderRadius: 12, padding: 14, marginTop: 10 },
+  lensCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  lensMeta:    { flexDirection: 'row', gap: 10, marginTop: 6 },
+  metaChip:    { color: '#888', fontSize: 12 },
+  lensActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  lensBtn:     { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
+  lensBtnDanger:  { backgroundColor: '#2a1a1a' },
+  lensBtnPrimary: { backgroundColor: '#1a2a1a' },
+  lensBtnText: { color: '#ccc', fontSize: 13, fontWeight: '600' },
   btn:         { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 12 },
   btnSecondary:{ backgroundColor: '#1a1a1a' },
   btnDanger:   { backgroundColor: '#2a1a1a' },

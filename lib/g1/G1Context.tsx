@@ -38,6 +38,8 @@ function makeStubCore(): G1Core {
     // Connection
     connect:              async () => {},
     disconnect:           async () => {},
+    disconnectSide:       async () => {},
+    reconnectSide:        () => {},
     reconnectDropped:     async () => {},
     destroy:              () => {},
     // Status / events
@@ -114,6 +116,10 @@ interface G1ContextValue {
   /** Connect to a specific serial (from pairing scan). */
   connect: (serial: string) => Promise<void>;
   disconnect: () => Promise<void>;
+  /** Disconnect a single lens and stop its reconnect timer. */
+  disconnectSide: (side: 'L' | 'R') => Promise<void>;
+  /** Reset backoff and immediately re-scan/reconnect a single lens. */
+  reconnectSide: (side: 'L' | 'R') => void;
   /** The last successfully paired serial, if any. */
   pairedSerial: string | null;
   /** Display brightness (0–42). Persisted + pushed to hardware automatically. */
@@ -238,6 +244,14 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     // should remove the serial.
   }
 
+  async function disconnectSide(side: 'L' | 'R') {
+    await coreRef.current.disconnectSide(side);
+  }
+
+  function reconnectSide(side: 'L' | 'R') {
+    coreRef.current.reconnectSide(side);
+  }
+
   const core = coreRef.current;
   // "Connected" = BOTH lenses TX-ready. Using OR here caused split-brain: L
   // would complete handshake+silent and flip isConnected true while R was still
@@ -251,7 +265,7 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, connect, disconnect, pairedSerial, brightness, setBrightness }}>
+    <G1Context.Provider value={{ core, status, isConnected, isPartiallyConnected, connect, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness }}>
       {children}
     </G1Context.Provider>
   );

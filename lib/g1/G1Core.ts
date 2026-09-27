@@ -77,8 +77,14 @@ export class G1Core {
    */
   private _sendQueue: Promise<void> = Promise.resolve();
   private _nextSendResolve: (() => void) | null = null;
-  /** Serialise all _connectLens calls so L and R never race on iOS BLE. */
-  private _lensConnectQueue: Promise<void> = Promise.resolve();
+  /**
+   * Per-side connect queues. Each side serialises its own _connectLens calls
+   * independently. A shared queue meant R's reconnect blocked on L's (and
+   * vice-versa), producing paired reconnect storms. iOS BLE does not require
+   * that L and R connects be serialised against each other — only that we
+   * don't issue two connects to the *same* peripheral concurrently.
+   */
+  private _connectQueue: Record<Side, Promise<void>> = { L: Promise.resolve(), R: Promise.resolve() };
   /**
    * Generation counter per side. Incremented each time _connectLens runs.
    * The onDisconnected closure captures its generation at creation time and
@@ -226,7 +232,7 @@ export class G1Core {
       const dev = this.devices[side];
       if (!dev) continue;
       this.reconnectAttempts[side] = 0; // reset backoff
-      this._lensConnectQueue = this._lensConnectQueue.then(async () => {
+      this._connectQueue[side] = this._connectQueue[side].then(async () => {
         if (this.destroyed) return;
         try { await this._connectLens(side, dev); }
         catch { this._scheduleReconnect(side); }
@@ -236,7 +242,7 @@ export class G1Core {
 
   async disconnect(): Promise<void> {
     this._connectingPromise = null;
-    this._lensConnectQueue = Promise.resolve();
+    this._connectQueue = { L: Promise.resolve(), R: Promise.resolve() };
     this._stopHeartbeat();
     clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
     clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
@@ -252,6 +258,42 @@ export class G1Core {
       this.reconnectAttempts[side] = 0;
       this._setConnected(side, false);
     }
+  }
+
+  /**
+   * Disconnect a single lens and stop any pending reconnect timer for it.
+   * The other lens is left untouched. Does NOT reset pairedSerial — a
+   * subsequent reconnectSide() call will re-scan and reconnect just that side.
+   */
+  async disconnectSide(side: Side): Promise<void> {
+    this._log(`[G1] disconnectSide [${side}] — user-initiated`);
+    clearTimeout(this._reconnectTimers[side]);
+    this._reconnectTimers[side] = undefined;
+    this._connectQueue[side] = Promise.resolve(); // flush any queued attempts
+    this.rxSubs[side]?.remove();
+    this.rxSubs[side] = undefined;
+    const dev = this.devices[side];
+    if (dev) {
+      try { await dev.cancelConnection(); } catch {}
+    }
+    this.devices[side] = undefined;
+    this.txChars[side] = undefined;
+    this.reconnectAttempts[side] = 0;
+    this._setConnected(side, false);
+  }
+
+  /**
+   * Reconnect a single lens. Resets backoff and immediately schedules a
+   * _connectLens attempt for this side only. The other lens is unaffected.
+   * Requires a prior connect() call to have set the paired serial so the
+   * reconnect scan knows what device to look for.
+   */
+  reconnectSide(side: Side): void {
+    this._log(`[G1] reconnectSide [${side}] — user-initiated`);
+    clearTimeout(this._reconnectTimers[side]);
+    this._reconnectTimers[side] = undefined;
+    this.reconnectAttempts[side] = 0; // reset backoff so it tries immediately
+    this._scheduleReconnect(side);
   }
 
   /** Both lenses OS-connected AND UART TX characteristic discovered (actually usable). */
@@ -507,14 +549,13 @@ export class G1Core {
       if (found.L && found.R) {
         this._log('[G1] Both lenses already connected — skipping scan');
         try {
-          // Must go through _lensConnectQueue — same serialisation guarantee
-          // as all other _connectLens calls, in case a prior reconnect attempt
-          // left something queued.
+          // Each side has its own queue — any prior reconnect attempt for that
+          // side is naturally serialised without blocking the other side.
           await new Promise<void>((resolve, reject) => {
-            this._lensConnectQueue = this._lensConnectQueue
-              .then(() => this._connectLens('L', found.L!))
-              .then(() => this._connectLens('R', found.R!))
-              .then(resolve, reject);
+            // Each side uses its own queue — L and R connect independently.
+            const pL = (this._connectQueue.L = this._connectQueue.L.then(() => this._connectLens('L', found.L!)));
+            const pR = (this._connectQueue.R = this._connectQueue.R.then(() => this._connectLens('R', found.R!)));
+            Promise.all([pL, pR]).then(() => resolve(), reject);
           });
           this._startHeartbeat();
           return true;
@@ -565,17 +606,13 @@ export class G1Core {
           found[side] = device;
 
           if (found.L && found.R) {
-            // Both lenses found — connect immediately via the shared queue so
-            // we can't race with reconnectDropped() or _resumeAlreadyConnected.
+            // Both lenses found — connect in parallel via per-side queues.
             clearTimeout(timeout);
             this.manager.stopDeviceScan();
             done(() => {
-              new Promise<void>((res, rej) => {
-                this._lensConnectQueue = this._lensConnectQueue
-                  .then(() => this._connectLens('L', found.L!))
-                  .then(() => this._connectLens('R', found.R!))
-                  .then(res, rej);
-              })
+              const pL = (this._connectQueue.L = this._connectQueue.L.then(() => this._connectLens('L', found.L!)));
+              const pR = (this._connectQueue.R = this._connectQueue.R.then(() => this._connectLens('R', found.R!)));
+              Promise.all([pL, pR])
                 .then(() => { this._startHeartbeat(); resolve(); })
                 .catch(reject);
             });
@@ -588,12 +625,11 @@ export class G1Core {
               clearTimeout(timeout);
               this.manager.stopDeviceScan();
               done(() => {
-                new Promise<void>((res, rej) => {
-                  // Chain all found sides sequentially through the queue.
-                  let q = this._lensConnectQueue;
-                  for (const s of sides) q = q.then(() => this._connectLens(s, found[s]!));
-                  this._lensConnectQueue = q.then(res, rej);
-                })
+                // Each side uses its own queue — no cross-side serialisation.
+                const ps = sides.map(s => {
+                  return (this._connectQueue[s] = this._connectQueue[s].then(() => this._connectLens(s, found[s]!)));
+                });
+                Promise.all(ps)
                   .then(() => {
                     this._startHeartbeat();
                     // Kick off reconnect for the missing side.
@@ -800,7 +836,7 @@ export class G1Core {
             });
           });
           if (found) {
-            this._lensConnectQueue = this._lensConnectQueue.then(async () => {
+            this._connectQueue[side] = this._connectQueue[side].then(async () => {
               if (this.destroyed) return;
               try { await this._connectLens(side, found); }
               catch { this._scheduleReconnect(side); }
@@ -814,8 +850,8 @@ export class G1Core {
         return;
       }
 
-      // Enqueue so L and R reconnects never race — iOS BLE cancels concurrent connects.
-      this._lensConnectQueue = this._lensConnectQueue.then(async () => {
+      // Each side has its own queue — no cross-side serialisation needed.
+      this._connectQueue[side] = this._connectQueue[side].then(async () => {
         if (this.destroyed) return;
         try {
           await this._connectLens(side, dev);
@@ -961,6 +997,15 @@ export class G1Core {
    * subsequent re-silences (e.g. connection_error storms).
    */
   private _sendSilent(side: Side): void {
+    // Do NOT send while the init sequence is in flight — txReady is only set
+    // after the init silent ACK is received. An event-triggered silent here
+    // would register a second R03/L03 waiter that evicts the init waiter,
+    // resolving it false and triggering an unnecessary reconnect. (Bug #10.)
+    const st = side === 'L' ? this.status.left : this.status.right;
+    if (!st.txReady) {
+      this._log(`[G1] _sendSilent [${side}] suppressed — init in progress (txReady=false)`);
+      return;
+    }
     this._lastSilentAt[side] = Date.now();
     this._send(side, P.silent(true)).catch(() => {});
   }
