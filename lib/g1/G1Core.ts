@@ -868,9 +868,20 @@ export class G1Core {
     // _connectingOnSide briefly false — letting subsequent callbacks in.
     // Gate here on rxSubs (live notification subscription) as the definitive
     // "already initialised" signal, independent of timing.
+    //
+    // Zoracon: don't silently bail if the lens is in a broken half-init state
+    // (rxSubs live but txReady false — e.g. a prior silent-ACK timeout left the
+    // sub wired but aborted before _setConnected). Tear down and re-enter so the
+    // reconnect path actually recovers instead of looping on a dead state.
     if (this.rxSubs[side]) {
-      this._log(`[G1] _connectLensInner [${side}] skipped — RX subscription already live`);
-      return;
+      const txReady = side === 'L' ? this.status.left.txReady : this.status.right.txReady;
+      if (txReady) {
+        this._log(`[G1] _connectLensInner [${side}] skipped — RX subscription already live and txReady`);
+        return;
+      }
+      this._log(`[G1] _connectLensInner [${side}] stale rxSub (txReady=false) — tearing down and re-entering`);
+      this.rxSubs[side]!.remove();
+      this.rxSubs[side] = undefined;
     }
     const connected = await device.connect({ autoConnect: false });
     const discovered = await connected.discoverAllServicesAndCharacteristics();
@@ -1412,5 +1423,12 @@ export class G1Core {
       right: { ...this.status.right },
       firmwareVersion: this.status.firmwareVersion,
     });
+    // Issue #7: restart heartbeat whenever both lenses are now up — covers the
+    // single-lens reconnect path (_scheduleReconnect → _connectLens) which never
+    // called _startHeartbeat. _startHeartbeat calls _stopHeartbeat first so this
+    // is safe to call even if the timer is already running.
+    if (connected && this.status.left.txReady && this.status.right.txReady) {
+      this._startHeartbeat();
+    }
   }
 }
