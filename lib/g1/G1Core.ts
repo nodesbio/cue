@@ -642,13 +642,20 @@ export class G1Core {
     return null;
   }
 
-  /** Extract channel/pair key from device. Uses serial from manufacturerData (preferred) or channel from name. */
+  /** Extract channel/pair key from device. Uses serial from manufacturerData (preferred) or hex suffix from name. */
   private _parseChannel(device: Device): string | null {
     const parsed = this._parseManufacturerData(device);
     if (parsed) return parsed.serial;
-    // last-resort: name-based channel number (same normalisation as _parseManufacturerData fallback)
-    const m = (device.name ?? '').match(/G1_([A-Za-z0-9]+)_[LR]/);
-    return m ? m[1].replace(/[LR]$/i, '') : null;
+    // Name format: "Even G1_5_L_810D29" or "G1_5L_R_D55156"
+    // The hex suffix (e.g. "810D29") is the same serial stored during pairing when
+    // manufacturerData was available. Extract it as the canonical channel key so
+    // reconnect channel-filter matching works even when mfr=null (iOS connectedDevices).
+    const name = (device.name ?? '').replace(/^Even G1/, 'G1');
+    const mHex = name.match(/G1_[A-Za-z0-9]+_[LR]_([0-9A-Fa-f]+)/);
+    if (mHex) return mHex[1];
+    // last-resort: channel number only (loses hex, but allows unfiltered reconnect)
+    const mCh = name.match(/G1_([A-Za-z0-9]+)_[LR]/);
+    return mCh ? mCh[1].replace(/[LR]$/i, '') : null;
   }
 
   /** Parse Side from device. Uses manufacturerData byte (preferred) or name. */
@@ -866,6 +873,28 @@ export class G1Core {
           this._log(`[G1] connection_error event [${side}] — re-sending silent`);
           this._send(side, P.silent(true)).catch(() => {});
         }
+
+        // Even AI / dashboard overlays steal the display. When the firmware
+        // signals that a foreign overlay has opened or closed, re-assert Cue's
+        // silent-mode ownership so we can push content again.
+        // dashboard_open  (0x1e): overlay appeared — silence immediately so we
+        //   don't fight the firmware mid-animation.
+        // dashboard_close (0x1f): overlay dismissed — re-silence to reclaim.
+        // ai_start        (0x17): triple-tap fired Even AI — same treatment.
+        if (
+          event.name === 'dashboard_open' ||
+          event.name === 'dashboard_close' ||
+          event.name === 'ai_start'
+        ) {
+          this._log(`[G1] display takeover event "${event.name}" [${side}] — re-asserting silent`);
+          // Small delay on close/ai_start so the firmware finishes its own
+          // animation before we write over it.
+          const delay = event.name === 'dashboard_open' ? 0 : 300;
+          setTimeout(() => {
+            this._send(side, P.silent(true)).catch(() => {});
+          }, delay);
+        }
+
         this.eventHandlers.forEach(h => h(event));
       }
       return;

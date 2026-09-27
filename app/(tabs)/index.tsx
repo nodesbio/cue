@@ -131,6 +131,19 @@ export default function TeleprompterScreen() {
     const isDblTap  = event.name === 'double_tap';
     const isTriTap  = event.name === 'triple_tap';
 
+    // Display takeover events — Even AI overlay or dashboard stole the HUD.
+    // G1Core already re-asserts silent ownership; we re-push the current frame
+    // so the user's content reappears (300 ms matches G1Core's re-assert delay).
+    if (event.name === 'dashboard_close' || event.name === 'ai_start') {
+      const s = snapRef.current;
+      if (s) {
+        setTimeout(() => {
+          void core.sendText(s.frame, s.topIndex + 1, s.totalLines);
+        }, 350);
+      }
+      return;
+    }
+
     if (!isUp && !isDown && !isTap && !isDblTap && !isTriTap) return;
 
     // ── Dedup ────────────────────────────────────────────────────────────
