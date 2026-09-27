@@ -83,6 +83,12 @@ export function getLogsText(): string {
   return _logBuffer.join('\n');
 }
 
+/** Clears the log buffer and notifies all listeners. */
+export function clearLogBuffer(): void {
+  _logBuffer.splice(0, _logBuffer.length);
+  _logListeners.forEach(fn => fn());
+}
+
 /** Returns a stable snapshot of the log buffer that updates on every new line. */
 export function useLogs(): string[] {
   const [, forceUpdate] = React.useState(0);

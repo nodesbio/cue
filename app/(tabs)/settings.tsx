@@ -5,7 +5,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } f
 import Slider from '@react-native-community/slider';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { useG1, useG1Event, useLogs, getLogsText, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
+import { useG1, useG1Event, useLogs, getLogsText, clearLogBuffer, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
@@ -61,11 +61,21 @@ export default function SettingsScreen() {
   }
 
   async function shareLogs() {
-    const text = getLogsText();
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const path = `${FileSystem.cacheDirectory}cue-logs-${ts}.txt`;
-    await FileSystem.writeAsStringAsync(path, text, { encoding: FileSystem.EncodingType.UTF8 });
-    await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: 'Share Cue Logs' });
+    try {
+      const text = getLogsText() || '(no logs)';
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const path = `${FileSystem.cacheDirectory}cue-logs-${ts}.txt`;
+      await FileSystem.writeAsStringAsync(path, text, { encoding: FileSystem.EncodingType.UTF8 });
+      const available = await Sharing.isAvailableAsync();
+      if (!available) { alert('Sharing not available on this device'); return; }
+      await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: 'Share Cue Logs' });
+    } catch (e: any) {
+      alert(`Share failed: ${e?.message ?? e}`);
+    }
+  }
+
+  function clearLogs() {
+    clearLogBuffer();
   }
 
   async function runDebugScan() {
@@ -229,9 +239,14 @@ export default function SettingsScreen() {
             <Text style={s.section}>Raw Logs</Text>
             <Text style={s.logsToggleChevron}>{showLogs ? '▲' : '▼'}</Text>
           </Pressable>
-          <Pressable onPress={shareLogs} style={s.shareLogsBtn}>
-            <Text style={s.shareLogsBtnText}>⬆ Share</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable onPress={clearLogs} style={s.shareLogsBtn}>
+              <Text style={s.shareLogsBtnText}>🗑 Clear</Text>
+            </Pressable>
+            <Pressable onPress={shareLogs} style={s.shareLogsBtn}>
+              <Text style={s.shareLogsBtnText}>⬆ Share</Text>
+            </Pressable>
+          </View>
         </View>
 
         {showLogs && (
