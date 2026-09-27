@@ -1,0 +1,451 @@
+18:39:19.820  [G1Context] seed L=connected:false txReady:false R=connected:false txReady:false
+18:39:19.905  [G1] connectedDevices attempt 1/5 returned 1: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null
+18:39:19.906  [G1] _resumeAlreadyConnected attempt 1: found L=false R=false — waiting
+18:39:21.909  [G1] connectedDevices attempt 2/5 returned 1: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null
+18:39:21.909  [G1] _resumeAlreadyConnected attempt 2: found L=false R=false — waiting
+18:39:23.912  [G1] connectedDevices attempt 3/5 returned 1: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null
+18:39:23.913  [G1] _resumeAlreadyConnected attempt 3: found L=false R=false — waiting
+18:39:25.916  [G1] connectedDevices attempt 4/5 returned 1: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null
+18:39:25.916  [G1] _resumeAlreadyConnected attempt 4: found L=false R=false — waiting
+18:39:27.919  [G1] connectedDevices attempt 5/5 returned 1: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null
+18:39:27.919  [G1] _resumeAlreadyConnected attempt 5: found L=false R=false — waiting
+18:39:27.992  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:27.993  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.150  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.157  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.284  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.548  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:28.630  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.639  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.750  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.756  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.831  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:28.831  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:28.906  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.913  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:28.913  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.070  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.070  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.120  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:29.126  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:29.231  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.232  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.393  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.394  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:29.415  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:29.420  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:29.565  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:30.858  [G1] RX found [R] notifiable=true
+18:39:31.104  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:39:31.284  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:39:31.706  [G1 RX R] op=0x2c len=20 raw=2c 66 56 3c e0 84 1f 01 06 06 01 06 06 00 00 00 00 00 00 00
+18:39:31.706  [G1] BATTERY raw [R]: 2c 66 56 3c e0 84 1f 01 06 06 01 06 06 00 00 00 00 00 00 00
+18:39:31.945  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:39:32.115  [G1] _scheduleReconnect [L] no cached device — scanning
+18:39:32.468  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:32.660  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:32.789  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:32.822  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:32.822  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:32.846  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:32.952  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:32.969  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:33.265  [G1 RX R] op=0xf5 len=21 raw=f5 0a 56 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:39:33.272  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:33.282  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:33.403  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:33.414  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:33.551  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:33.711  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:34.033  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:34.033  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:34.050  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:34.055  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:39:34.161  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:39:34.166  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:39:34.192  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:34.463  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:39:34.468  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:39:34.558  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:34.562  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:34.563  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:34.571  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:39:34.835  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:34.839  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:34.843  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:34.844  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:35.111  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:35.117  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:35.142  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:35.299  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:35.403  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:35.605  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:35.694  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:35.697  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:39.193  [G1] _scheduleReconnect [L] no cached device — scanning
+18:39:48.380  [G1] _scheduleReconnect [L] no cached device — scanning
+18:39:49.060  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:50.365  [G1] connectedDevices attempt 1/5 returned 0: 
+18:39:50.365  [G1] _resumeAlreadyConnected attempt 1: found L=false R=false — waiting
+18:39:51.280  [G1] RX found [L] notifiable=true
+18:39:52.379  [G1] connectedDevices attempt 2/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:39:52.379  [G1] _resumeAlreadyConnected attempt 2: found L=false R=false — waiting
+18:39:52.619  [G1] RX found [R] notifiable=true
+18:39:54.396  [G1] connectedDevices attempt 3/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:39:54.396  [G1] _resumeAlreadyConnected attempt 3: found L=false R=false — waiting
+18:39:56.413  [G1] connectedDevices attempt 4/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:39:56.414  [G1] _resumeAlreadyConnected attempt 4: found L=false R=false — waiting
+18:39:58.415  [G1] connectedDevices attempt 5/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:39:58.415  [G1] _resumeAlreadyConnected attempt 5: found L=false R=false — waiting
+18:39:58.512  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:58.830  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:58.966  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:59.010  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:39:59.107  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:39:59.150  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:59.310  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:59.426  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:39:59.432  [G1 RX L] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:39:59.472  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:39:59.573  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:00.289  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:00.578  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:00.668  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:00.679  [G1 RX L] op=0xf5 len=21 raw=f5 0a 3b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:40:00.826  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:00.832  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:01.156  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:01.162  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:01.296  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:01.439  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:01.446  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:01.452  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:01.452  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:01.606  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:01.631  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:01.723  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:01.757  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:01.906  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:01.913  [G1 RX L] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:40:02.010  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:02.014  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:02.073  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:02.143  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:40:02.295  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:02.530  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:02.536  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:02.552  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:02.576  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:02.580  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:02.580  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:02.684  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:02.713  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:02.827  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:02.991  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:03.150  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:03.156  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:03.307  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:03.311  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:03.351  [G1 RX L] op=0x2c len=20 raw=2c 66 3b 00 c1 91 21 00 00 00 01 06 06 00 00 00 00 00 00 00
+18:40:03.351  [G1] BATTERY raw [L]: 2c 66 3b 00 c1 91 21 00 00 00 01 06 06 00 00 00 00 00 00 00
+18:40:03.390  [G1 RX R] op=0x2c len=20 raw=2c 66 56 3c e0 82 1f 01 06 06 01 06 06 00 00 00 00 00 00 00
+18:40:03.390  [G1] BATTERY raw [R]: 2c 66 56 3c e0 82 1f 01 06 06 01 06 06 00 00 00 00 00 00 00
+18:40:03.447  [G1 RX R] op=0xf5 len=21 raw=f5 0a 56 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:40:03.466  [G1] _sendForResult [L] ACK timeout op=0x03 after 12000ms
+18:40:03.466  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:40:03.773  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:03.858  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:03.924  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:03.954  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:04.021  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:04.027  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:04.078  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:04.088  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:04.272  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:04.398  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:04.551  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:04.598  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:04.737  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:40:04.750  [G1] _sendForResult [R] ACK timeout op=0x03 after 12000ms
+18:40:04.750  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
+18:40:04.883  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:05.005  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:05.011  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:05.032  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.161  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:05.193  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.319  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:05.326  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.326  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.470  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:05.512  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.628  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:05.634  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.741  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:05.747  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:05.787  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:05.949  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:06.375  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:06.434  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:06.440  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:06.551  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:06.720  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:07.164  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:07.165  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:07.171  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:07.672  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:07.790  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:07.797  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:07.834  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:08.062  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:08.168  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:08.272  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:08.310  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:08.478  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:08.900  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:08.907  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:08.912  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:09.071  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:09.193  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:09.193  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:09.391  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:09.481  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:09.488  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:09.512  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:09.532  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:09.670  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:09.779  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung 6 Series (50)" — falling through to name parse
+18:40:10.135  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:10.142  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:10.266  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:10.306  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:10.311  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:10.312  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:11.472  [G1] RX found [L] notifiable=true
+18:40:11.569  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:40:12.756  [G1] RX found [R] notifiable=true
+18:40:12.869  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
+18:40:21.575  [G1] RX found [L] notifiable=true
+18:40:21.709  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:40:22.875  [G1] RX found [R] notifiable=true
+18:40:22.995  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
+18:40:26.803  [G1] connectedDevices attempt 1/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:40:26.803  [G1] _resumeAlreadyConnected attempt 1: found L=false R=false — waiting
+18:40:28.818  [G1] connectedDevices attempt 2/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:40:28.819  [G1] _resumeAlreadyConnected attempt 2: found L=false R=false — waiting
+18:40:30.836  [G1] connectedDevices attempt 3/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:40:30.836  [G1] _resumeAlreadyConnected attempt 3: found L=false R=false — waiting
+18:40:31.722  [G1] RX found [L] notifiable=true
+18:40:31.847  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:40:32.853  [G1] connectedDevices attempt 4/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:40:32.853  [G1] _resumeAlreadyConnected attempt 4: found L=false R=false — waiting
+18:40:33.006  [G1] RX found [R] notifiable=true
+18:40:33.103  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
+18:40:34.869  [G1] connectedDevices attempt 5/5 returned 2: Even G1_5_L_810D29[D7CFD5E1-E2DE-1221-04DE-78163DAC982D] mfr=null, Even G1_5_R_D55156[F74C0B3D-0AE8-DA61-BA22-E89A2DEC8976] mfr=null
+18:40:34.870  [G1] _resumeAlreadyConnected attempt 5: found L=false R=false — waiting
+18:40:35.186  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:35.192  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:35.192  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:35.192  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:35.630  [G1 RX L] op=0xf5 len=21 raw=f5 0a 3a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+18:40:35.819  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:35.834  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:35.969  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:35.969  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:36.259  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:36.544  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:36.572  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:36.572  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:36.617  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:37.187  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:37.188  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:37.233  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:37.309  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.447  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.448  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.584  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.584  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.590  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.590  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:37.671  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:37.677  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:37.681  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:37.761  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:37.762  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:37.791  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:37.796  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:37.832  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:37.938  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:37.945  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:38.122  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:38.338  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:38.338  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:38.425  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:38.462  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:38.560  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:38.567  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:38.628  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:38.628  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:38.910  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:38.917  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:38.921  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:38.921  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:38.959  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:38.965  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:39.051  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:39.051  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:39.062  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.062  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.162  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.163  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.186  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:39.192  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:39.229  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:39.481  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:39.560  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.584  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:39.591  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:39.688  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.688  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.712  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:39.773  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:39.780  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:39.791  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:39.834  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:39.872  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:39.932  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:39.938  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:40.186  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:40.186  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:40.193  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:40.247  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:40.247  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:40.285  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:40.292  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:40.398  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:40.469  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:40.883  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:40.919  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:41.086  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:41.086  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:41.087  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:41.145  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:41.145  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:41.213  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:41.214  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:41.244  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:41.346  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:41.392  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:41.448  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:41.511  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:41.512  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:41.553  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:41.719  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:41.722  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:41.722  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:41.722  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:41.857  [G1] RX found [L] notifiable=true
+18:40:41.957  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:41.964  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:40:42.132  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.133  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.269  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:42.276  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:42.356  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:42.363  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:42.365  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:42.366  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:42.437  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:42.438  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:42.443  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:42.466  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:42.650  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:42.650  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:42.667  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:42.678  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.770  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:42.810  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.815  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.935  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:42.945  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.948  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:42.951  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:43.035  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.041  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.041  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.124  [G1] RX found [R] notifiable=true
+18:40:43.239  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.245  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
+18:40:43.607  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:43.608  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:43.614  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:43.614  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:43.721  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:43.760  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.790  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:43.794  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:43.841  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:43.862  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.863  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.872  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:43.882  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:43.962  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.963  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:43.971  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:44.037  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:44.038  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:44.082  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:44.107  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:44.786  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:44.786  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:44.792  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 301E LE" — falling through to name parse
+18:40:44.834  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:44.920  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:44.959  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.025  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:45.026  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:45.122  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:45.128  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:45.313  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:45.322  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:45.362  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.362  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.434  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:45.490  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.491  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.524  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:45.621  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:45.622  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:45.632  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.632  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:45.636  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:45.636  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:45.803  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:46.038  [G1] _parseManufacturerData: unknown side byte 0xa7 for "S57 322C LE" — falling through to name parse
+18:40:46.046  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.074  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:46.089  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:46.146  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.147  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.348  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.348  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.363  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:46.368  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:46.448  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.448  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.472  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:46.479  [G1] _parseManufacturerData: unknown side byte 0xd0 for "TY" — falling through to name parse
+18:40:46.554  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:46.612  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.612  [G1] _parseManufacturerData: unknown side byte 0xc4 for "[LG] webOS TV UN9070AUDg" — falling through to name parse
+18:40:46.669  [G1] _parseManufacturerData: unknown side byte 0x8e for "Quest 3S" — falling through to name parse
+18:40:46.676  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:46.676  [G1] _parseManufacturerData: unknown side byte 0x75 for "[TV] Samsung Q60 Series (43)" — falling through to name parse
+18:40:51.975  [G1] RX found [L] notifiable=true
+18:40:52.096  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:40:53.251  [G1] RX found [R] notifiable=true
+18:40:53.352  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
+18:41:02.117  [G1] RX found [L] notifiable=true
+18:41:02.224  [G1] _connectLens [L] silent ACK failed — aborting init, will reconnect
+18:41:03.360  [G1] RX found [R] notifiable=true
+18:41:03.480  [G1] _connectLens [R] silent ACK failed — aborting init, will reconnect
