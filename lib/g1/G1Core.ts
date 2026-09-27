@@ -995,11 +995,16 @@ export class G1Core {
     const b64 = uint8ToBase64(data);
 
     const stale = this._pendingAck.get(ackKey);
-    if (stale) { clearTimeout(stale.timer); this._pendingAck.delete(ackKey); }
+    if (stale) {
+      clearTimeout(stale.timer);
+      this._pendingAck.delete(ackKey);
+      stale.resolve(false); // don't orphan the previous awaiter
+    }
 
     const ackPromise = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         this._pendingAck.delete(ackKey);
+        this._log(`[G1] _sendForResult [${side}] ACK timeout op=0x${opHex} after ${timeoutMs}ms`);
         resolve(false);
       }, timeoutMs);
       this._pendingAck.set(ackKey, { resolve, timer });
@@ -1010,9 +1015,14 @@ export class G1Core {
         dev.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, b64),
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('write timeout')), 3000)),
       ]);
-    } catch {
+    } catch (e: any) {
       const waiter = this._pendingAck.get(ackKey);
       if (waiter) { clearTimeout(waiter.timer); this._pendingAck.delete(ackKey); }
+      const be = e as BleError;
+      this._log(
+        `[G1] _sendForResult [${side}] WRITE failed op=0x${opHex} ` +
+        `code=${be?.errorCode ?? '?'} reason=${be?.reason ?? '—'} msg=${e?.message ?? e}`,
+      );
       return false;
     }
 
