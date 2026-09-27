@@ -551,6 +551,11 @@ export class G1Core {
                 try {
                   for (const s of sides) await this._connectLens(s, found[s]!);
                   this._startHeartbeat();
+                  // If one lens wasn't found during scan, kick off a reconnect
+                  // scan for the missing side rather than leaving it blank.
+                  for (const s of ['L', 'R'] as Side[]) {
+                    if (!found[s]) this._scheduleReconnect(s);
+                  }
                   resolve();
                 } catch (e) {
                   reject(e);
@@ -712,7 +717,39 @@ export class G1Core {
       this._reconnectTimers[side] = undefined;
       if (this.destroyed) return;
       const dev = this.devices[side];
-      if (!dev) return;
+
+      if (!dev) {
+        // This side was never found during the initial scan (e.g. L didn't
+        // advertise in time). Run a short targeted scan to find it now.
+        this._log(`[G1] _scheduleReconnect [${side}] no cached device — scanning`);
+        try {
+          await this._ensureBleReady();
+          const found = await new Promise<Device | null>((resolve) => {
+            const t = setTimeout(() => { this.manager.stopDeviceScan(); resolve(null); }, 5000);
+            this.manager.startDeviceScan(null, { allowDuplicates: true }, (_err, device) => {
+              if (!device?.name) return;
+              if (this._parseSide(device) === side) {
+                clearTimeout(t);
+                this.manager.stopDeviceScan();
+                resolve(device);
+              }
+            });
+          });
+          if (found) {
+            this._lensConnectQueue = this._lensConnectQueue.then(async () => {
+              if (this.destroyed) return;
+              try { await this._connectLens(side, found); }
+              catch { this._scheduleReconnect(side); }
+            });
+          } else {
+            this._scheduleReconnect(side); // scan timed out, try again
+          }
+        } catch {
+          this._scheduleReconnect(side);
+        }
+        return;
+      }
+
       // Enqueue so L and R reconnects never race — iOS BLE cancels concurrent connects.
       this._lensConnectQueue = this._lensConnectQueue.then(async () => {
         if (this.destroyed) return;
