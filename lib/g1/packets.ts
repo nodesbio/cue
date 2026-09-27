@@ -76,6 +76,14 @@ export const NewScreen = {
 export type NewScreenValue = typeof NewScreen[keyof typeof NewScreen];
 
 // ── Event name map ─────────────────────────────────────────────────────────
+// WARNING: these opcode→name mappings are derived from community reverse-
+// engineering of the Even Realities G1 app, NOT from firmware source.
+// Treat all names as working hypotheses until verified against a primary
+// source (firmware disassembly or official SDK). In particular:
+//   0x11 ('connection_error') — observed firing during active teleprompter
+//         use with no visible overlay; true semantics unclear. See issue #18.
+//   0x17 ('ai_start')        — assumed triple-tap / Even AI trigger.
+//   0x1e/0x1f ('dashboard_open/close') — assumed dashboard gesture.
 export const EVENT_NAMES: Record<number, string> = {
   0x00: 'double_tap',
   0x01: 'single_tap',
@@ -90,7 +98,7 @@ export const EVENT_NAMES: Record<number, string> = {
   0x0a: 'battery',
   0x0e: 'case_charging',
   0x0f: 'case_battery',
-  0x11: 'connection_error',
+  0x11: 'status_ping',       // fires after every battery poll response (0x2c); NOT an overlay signal
   0x17: 'ai_start',
   0x18: 'record_over',
   0x1e: 'dashboard_open',

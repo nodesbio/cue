@@ -727,7 +727,16 @@ export class G1Core {
     await this._send(side, P.handshake(), false);
     // Suppress firmware notification overlays (e.g. "Even AI unable to connect")
     // so they don't clobber our teleprompter display.
-    await this._sendSilent(side);
+    // Use _sendForResult so we verify the ACK before marking txReady — a
+    // fire-and-forget silent that times out must not silently promote the lens
+    // to ready state (reproduces as one lens blank on startup, L vs R race).
+    this._lastSilentAt[side] = Date.now();
+    const silentOk = await this._sendForResult(side, P.silent(true));
+    if (!silentOk) {
+      this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
+      this._scheduleReconnect(side);
+      return;
+    }
 
     // Mark TX as ready only after init sequence is complete — the RX monitor
     // is already live (set up in the loop above) so ACKs are handled correctly.
@@ -877,26 +886,12 @@ export class G1Core {
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
       if (event) {
-        // Firmware sends connection_error (0x11) when it shows its own overlay
-        // (e.g. "Even AI unable to connect"). Re-silence it immediately so our
-        // display isn't clobbered.
-        if (event.name === 'connection_error') {
-          // Rate-limit: if we already sent silent for this side within the last
-          // 2 s, skip — repeated connection_error events from a firmware overlay
-          // storm would otherwise queue up ACK waiters that all time out in sequence,
-          // producing the 90-second degraded-state loop seen in logs.
-          const SILENT_RATELIMIT_MS = 2000;
-          const now = Date.now();
-          if (now - this._lastSilentAt[side] < SILENT_RATELIMIT_MS) {
-            this._log(`[G1] connection_error [${side}] — silent rate-limited (last sent ${now - this._lastSilentAt[side]}ms ago)`);
-          } else {
-            // Drain any stale ACK waiters for this side before re-silencing so
-            // they don't time out and log false alarm failures after we recover.
-            this._drainAckWaiters(side);
-            this._log(`[G1] connection_error [${side}] — re-sending silent`);
-            this._sendSilent(side);
-          }
-        }
+        // op=0x11 ('status_ping') — fires after every battery poll response
+        // (0x2c) as a routine firmware heartbeat. Confirmed from log correlation:
+        // f5 11 always arrives within ~300ms of a 0x2c battery packet on R.
+        // It is NOT a display-takeover signal. Genuine reconnects are handled
+        // by _connectLens (which calls _sendSilent before setting txReady).
+        // Intentionally ignored here. See issue #18 for full diagnosis.
 
         // Even AI / dashboard overlays steal the display. When the firmware
         // signals that a foreign overlay has opened or closed, re-assert Cue's
@@ -905,6 +900,9 @@ export class G1Core {
         //   don't fight the firmware mid-animation.
         // dashboard_close (0x1f): overlay dismissed — re-silence to reclaim.
         // ai_start        (0x17): triple-tap fired Even AI — same treatment.
+        //
+        // NOTE: opcode semantics for 0x1e/0x1f/0x17 are also community-sourced,
+        // not verified from firmware. Treat as working assumptions (see issue #18).
         if (
           event.name === 'dashboard_open' ||
           event.name === 'dashboard_close' ||
