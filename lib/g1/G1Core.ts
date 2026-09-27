@@ -250,11 +250,7 @@ export class G1Core {
       const dev = this.devices[side];
       if (!dev) continue;
       this.reconnectAttempts[side] = 0; // reset backoff
-      this._connectQueue[side] = this._connectQueue[side].then(async () => {
-        if (this.destroyed) return;
-        try { await this._connectLens(side, dev); }
-        catch { this._scheduleReconnect(side); }
-      });
+      this._enqueueConnect(side, dev);
     }
   }
 
@@ -601,12 +597,8 @@ export class G1Core {
           // Each side has its own queue — any prior reconnect attempt for that
           // side is naturally serialised without blocking the other side.
           await new Promise<void>((resolve, reject) => {
-            // Each side uses its own queue — L and R connect independently.
-            const pL = (this._connectQueue.L = this._connectQueue.L.then(() => this._connectLens('L', found.L!)));
-            const pR = (this._connectQueue.R = this._connectQueue.R.then(() => this._connectLens('R', found.R!)));
-            Promise.all([pL, pR]).then(() => resolve(), reject);
+            this._connectFoundPair(found as { L: Device; R: Device }, resolve, reject);
           });
-          this._startHeartbeat();
           return true;
         } catch (e: any) {
           // Partial resume — tear down whatever connected so scan starts clean.
@@ -658,13 +650,7 @@ export class G1Core {
             // Both lenses found — connect in parallel via per-side queues.
             clearTimeout(timeout);
             this.manager.stopDeviceScan();
-            done(() => {
-              const pL = (this._connectQueue.L = this._connectQueue.L.then(() => this._connectLens('L', found.L!)));
-              const pR = (this._connectQueue.R = this._connectQueue.R.then(() => this._connectLens('R', found.R!)));
-              Promise.all([pL, pR])
-                .then(() => { this._startHeartbeat(); resolve(); })
-                .catch(reject);
-            });
+            done(() => this._connectFoundPair(found as { L: Device; R: Device }, resolve, reject));
           } else {
             // One lens found — give the other a short window to advertise before
             // resolving with one. Reconnect loop handles the missing side.
@@ -674,14 +660,17 @@ export class G1Core {
               clearTimeout(timeout);
               this.manager.stopDeviceScan();
               done(() => {
-                // Each side uses its own queue — no cross-side serialisation.
-                const ps = sides.map(s => {
-                  return (this._connectQueue[s] = this._connectQueue[s].then(() => this._connectLens(s, found[s]!)));
-                });
+                // For the one-lens case we need heartbeat + missing-side kick.
+                // Build a fake "both" map so _connectFoundPair handles
+                // the queue/heartbeat/resolve, then schedule the missing side.
+                // If only one lens was found, fill the found pair with only the
+                // discovered side and wire them up individually.
+                const ps = sides.map(s =>
+                  (this._connectQueue[s] = this._connectQueue[s].then(() => this._connectLens(s, found[s]!))),
+                );
                 Promise.all(ps)
                   .then(() => {
                     this._startHeartbeat();
-                    // Kick off reconnect for the missing side.
                     for (const s of ['L', 'R'] as Side[]) {
                       if (!found[s]) this._scheduleReconnect(s);
                     }
@@ -769,6 +758,49 @@ export class G1Core {
   }
 
   // ── Connection ────────────────────────────────────────────────────────────
+
+  /**
+   * Canonical enqueue point for all _connectLens calls.
+   *
+   * Guards:
+   *   - destroyed: class is torn down
+   *   - txChars[side]: already connected — no-op
+   *   - _connectingOnSide[side]: a _connectLens is mid-execution — no-op
+   *
+   * Previously this pattern was copy-pasted four times (_reconnectDropped,
+   * _scheduleReconnect×2, _resumeAlreadyConnected). Each copy had subtly
+   * different guards, which caused the Bug #10 scan storm (txChars guard
+   * missing from two sites). Centralising here ensures every code path is
+   * consistent.
+   */
+  private _enqueueConnect(side: Side, device: Device): void {
+    if (this.destroyed || this.txChars[side] || this._connectingOnSide[side]) {
+      this._log(`[G1] _enqueueConnect [${side}] skipped — destroyed=${this.destroyed} txReady=${!!this.txChars[side]} connecting=${this._connectingOnSide[side]}`);
+      return;
+    }
+    this._connectQueue[side] = this._connectQueue[side].then(async () => {
+      if (this.destroyed || this.txChars[side]) return; // re-check: may have connected while queued
+      try { await this._connectLens(side, device); }
+      catch { this._scheduleReconnect(side); }
+    });
+  }
+
+  /**
+   * Connect both lenses from a `found` map, start the heartbeat, then
+   * settle the surrounding promise.  Used by _scan (both-at-once path) and
+   * _resumeAlreadyConnected.
+   */
+  private _connectFoundPair(
+    found: { L: Device; R: Device },
+    resolve: () => void,
+    reject: (e: unknown) => void,
+  ): void {
+    const pL = (this._connectQueue.L = this._connectQueue.L.then(() => this._connectLens('L', found.L)));
+    const pR = (this._connectQueue.R = this._connectQueue.R.then(() => this._connectLens('R', found.R)));
+    Promise.all([pL, pR])
+      .then(() => { this._startHeartbeat(); resolve(); })
+      .catch(reject);
+  }
 
   private async _connectLens(side: Side, device: Device): Promise<void> {
     this._connectingOnSide[side] = true;
@@ -907,15 +939,7 @@ export class G1Core {
             });
           });
           if (found) {
-            if (this._connectingOnSide[side]) {
-              this._log(`[G1] _scheduleReconnect [${side}] already connecting — skipping enqueue`);
-              return;
-            }
-            this._connectQueue[side] = this._connectQueue[side].then(async () => {
-              if (this.destroyed) return;
-              try { await this._connectLens(side, found); }
-              catch { this._scheduleReconnect(side); }
-            });
+            this._enqueueConnect(side, found);
           } else {
             this._scheduleReconnect(side); // scan timed out, try again
           }
@@ -925,19 +949,8 @@ export class G1Core {
         return;
       }
 
-      // Each side has its own queue — no cross-side serialisation needed.
-      if (this._connectingOnSide[side]) {
-        this._log(`[G1] _scheduleReconnect [${side}] already connecting — skipping enqueue`);
-        return;
-      }
-      this._connectQueue[side] = this._connectQueue[side].then(async () => {
-        if (this.destroyed) return;
-        try {
-          await this._connectLens(side, dev);
-        } catch {
-          this._scheduleReconnect(side);
-        }
-      });
+      // _enqueueConnect handles the _connectingOnSide / destroyed / txChars guards.
+      this._enqueueConnect(side, dev);
     }, delay);
   }
 
