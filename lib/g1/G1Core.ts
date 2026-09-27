@@ -89,6 +89,11 @@ export class G1Core {
   /** Pending reconnect timeout handles — cancelled on disconnect/destroy. */
   private _reconnectTimers: Partial<Record<Side, ReturnType<typeof setTimeout>>> = {};
   /**
+   * Timestamp (ms) of the last silent(true) send per side, used to rate-limit
+   * connection_error re-silences and avoid a re-silence storm.
+   */
+  private _lastSilentAt: Record<Side, number> = { L: 0, R: 0 };
+  /**
    * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
    * The firmware echoes the command opcode in data[0] and puts the status in
    * data[1] (0xC9 or 0xCB = ok). The key must include the opcode so concurrent
@@ -716,7 +721,7 @@ export class G1Core {
     await this._send(side, P.handshake(), false);
     // Suppress firmware notification overlays (e.g. "Even AI unable to connect")
     // so they don't clobber our teleprompter display.
-    await this._send(side, P.silent(true));
+    await this._sendSilent(side);
 
     // Mark TX as ready only after init sequence is complete — the RX monitor
     // is already live (set up in the loop above) so ACKs are handled correctly.
@@ -870,8 +875,21 @@ export class G1Core {
         // (e.g. "Even AI unable to connect"). Re-silence it immediately so our
         // display isn't clobbered.
         if (event.name === 'connection_error') {
-          this._log(`[G1] connection_error event [${side}] — re-sending silent`);
-          this._send(side, P.silent(true)).catch(() => {});
+          // Rate-limit: if we already sent silent for this side within the last
+          // 2 s, skip — repeated connection_error events from a firmware overlay
+          // storm would otherwise queue up ACK waiters that all time out in sequence,
+          // producing the 90-second degraded-state loop seen in logs.
+          const SILENT_RATELIMIT_MS = 2000;
+          const now = Date.now();
+          if (now - this._lastSilentAt[side] < SILENT_RATELIMIT_MS) {
+            this._log(`[G1] connection_error [${side}] — silent rate-limited (last sent ${now - this._lastSilentAt[side]}ms ago)`);
+          } else {
+            // Drain any stale ACK waiters for this side before re-silencing so
+            // they don't time out and log false alarm failures after we recover.
+            this._drainAckWaiters(side);
+            this._log(`[G1] connection_error [${side}] — re-sending silent`);
+            this._sendSilent(side);
+          }
         }
 
         // Even AI / dashboard overlays steal the display. When the firmware
@@ -890,9 +908,7 @@ export class G1Core {
           // Small delay on close/ai_start so the firmware finishes its own
           // animation before we write over it.
           const delay = event.name === 'dashboard_open' ? 0 : 300;
-          setTimeout(() => {
-            this._send(side, P.silent(true)).catch(() => {});
-          }, delay);
+          setTimeout(() => this._sendSilent(side), delay);
         }
 
         this.eventHandlers.forEach(h => h(event));
@@ -929,6 +945,31 @@ export class G1Core {
    * Timeout: 2 s per packet. On timeout or NACK we log a warning but do not
    * throw — the caller's sequence continues. This matches the official app.
    */
+  /**
+   * Send silent(true) and record the timestamp so callers can rate-limit
+   * subsequent re-silences (e.g. connection_error storms).
+   */
+  private _sendSilent(side: Side): void {
+    this._lastSilentAt[side] = Date.now();
+    this._send(side, P.silent(true)).catch(() => {});
+  }
+
+  /**
+   * Cancel and remove all pending ACK waiters for a given side.
+   * Call before re-silencing after a connection_error so stale waiters don't
+   * time out sequentially and produce a cascade of false-alarm log lines.
+   */
+  private _drainAckWaiters(side: Side): void {
+    for (const [key, waiter] of this._pendingAck.entries()) {
+      if (key.startsWith(side)) {
+        clearTimeout(waiter.timer);
+        waiter.resolve(false);
+        this._pendingAck.delete(key);
+        this._log(`[G1] _drainAckWaiters: cancelled stale waiter key=${key}`);
+      }
+    }
+  }
+
   /**
    * Like _send but returns true on ACK ok, false on NACK/timeout/write-error.
    * Used by the heartbeat monitor to detect zombied lenses.
