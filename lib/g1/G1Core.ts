@@ -980,6 +980,13 @@ export class G1Core {
     // rxSubs null so the next _enqueueConnect enters _connectLensInner cleanly.
     this.rxSubs[side]?.remove();
     this.rxSubs[side] = undefined;
+    // Invalidate the silent-ACK reuse timestamp.  _onDisconnected is called
+    // either on a genuine BLE disconnect or when we force-disconnect after
+    // consecutive text NACKs (display-dead).  In both cases the firmware may
+    // have rebooted and will send a fresh 0x03 ACK on the next connect — the
+    // old timestamp is no longer valid, and reusing it would skip the 12s
+    // _sendForResult wait and promote a still-initialising firmware to txReady.
+    this._lastSilentAckAt[side] = 0;
     this._scheduleReconnect(side);
   }
 
