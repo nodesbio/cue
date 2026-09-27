@@ -454,37 +454,47 @@ export class G1Core {
    */
   private async _resumeAlreadyConnected(channel?: string): Promise<boolean> {
     try {
-      const connected = await this.manager.connectedDevices([P.UART_SVC]);
-      // Log every device returned — react-native-ble-plx does NOT populate
-      // manufacturerData or name on connectedDevices results (iOS only exposes
-      // those in scan advertisements). We log id + name so we can see what we
-      // actually get and diagnose _parseSide failures.
-      this._log(`[G1] connectedDevices returned ${connected.length}: ${connected.map(d => `${d.name ?? 'noname'}[${d.id}] mfr=${d.manufacturerData ?? 'null'}`).join(', ')}`);
+      // iOS registers UART service on bonded peripherals asynchronously — one lens
+      // may not appear in connectedDevices([UART_SVC]) for several seconds after
+      // the other. Poll up to ~6s (3 attempts × 2s) before giving up.
+      const POLL_INTERVAL_MS = 2000;
+      const POLL_ATTEMPTS    = 3;
 
-      const found: Partial<Record<Side, Device>> = {};
-      const unidentified: Device[] = [];
-      for (const device of connected) {
-        const side = this._parseSide(device);
-        if (!side) {
-          // manufacturerData absent (iOS behaviour) — keep for fallback pairing
-          if (device.name?.includes('G1') || device.name == null) unidentified.push(device);
-          continue;
+      const parseBatch = (devices: Device[]): { found: Partial<Record<Side, Device>>; unidentified: Device[] } => {
+        const found: Partial<Record<Side, Device>> = {};
+        const unidentified: Device[] = [];
+        for (const device of devices) {
+          const side = this._parseSide(device);
+          if (!side) {
+            if (device.name?.includes('G1') || device.name == null) unidentified.push(device);
+            continue;
+          }
+          if (channel) {
+            const ch = this._parseChannel(device);
+            if (ch !== channel) continue;
+          }
+          found[side] = device;
         }
-        if (channel) {
-          const ch = this._parseChannel(device);
-          if (ch !== channel) continue;
+        // Assign any unidentified G1 devices to missing sides by position.
+        for (const s of ['L', 'R'] as Side[]) {
+          if (!found[s] && unidentified.length > 0) {
+            found[s] = unidentified.shift();
+            this._log(`[G1] _resumeAlreadyConnected: assigned unidentified device to [${s}] by position`);
+          }
         }
-        found[side] = device;
-      }
+        return { found, unidentified };
+      };
 
-      // If we couldn't identify sides from metadata, try assigning unidentified
-      // devices to the missing sides by order (first unidentified → L, second → R).
-      // This works because the G1 always presents exactly one L and one R device.
-      for (const s of ['L', 'R'] as Side[]) {
-        if (!found[s] && unidentified.length > 0) {
-          found[s] = unidentified.shift();
-          this._log(`[G1] _resumeAlreadyConnected: assigned unidentified device to [${s}] by position`);
-        }
+      let found: Partial<Record<Side, Device>> = {};
+      for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+        const connected = await this.manager.connectedDevices([P.UART_SVC]);
+        this._log(`[G1] connectedDevices attempt ${attempt + 1}/${POLL_ATTEMPTS} returned ${connected.length}: ${connected.map(d => `${d.name ?? 'noname'}[${d.id}] mfr=${d.manufacturerData ?? 'null'}`).join(', ')}`);
+        const batch = parseBatch(connected);
+        // Merge — keep any side already found in a prior attempt.
+        found = { ...batch.found, ...found };
+        if (found.L && found.R) break;
+        this._log(`[G1] _resumeAlreadyConnected attempt ${attempt + 1}: found L=${!!found.L} R=${!!found.R} — ${found.L && found.R ? 'done' : 'waiting'}`);
       }
 
       if (found.L && found.R) {
