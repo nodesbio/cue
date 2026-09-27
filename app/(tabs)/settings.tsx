@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import Slider from '@react-native-community/slider';
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useG1, useG1Event, useLogs, getLogsText, clearLogBuffer, PAIRED_SERIAL_KEY } from '@/lib/g1/G1Context';
 
@@ -64,11 +64,11 @@ export default function SettingsScreen() {
     try {
       const text = getLogsText() || '(no logs)';
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      const path = `${FileSystem.cacheDirectory}cue-logs-${ts}.txt`;
-      await FileSystem.writeAsStringAsync(path, text, { encoding: FileSystem.EncodingType.UTF8 });
+      const file = new File(Paths.cache, `cue-logs-${ts}.txt`);
+      file.write(text);
       const available = await Sharing.isAvailableAsync();
       if (!available) { alert('Sharing not available on this device'); return; }
-      await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: 'Share Cue Logs' });
+      await Sharing.shareAsync(file.uri, { mimeType: 'text/plain', dialogTitle: 'Share Cue Logs' });
     } catch (e: any) {
       alert(`Share failed: ${e?.message ?? e}`);
     }
