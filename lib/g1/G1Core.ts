@@ -123,6 +123,17 @@ export class G1Core {
   private _lastSilentAckAt: Record<Side, number> = { L: 0, R: 0 };
   private static readonly SILENT_ACK_REUSE_MS = 60_000;
   /**
+   * Consecutive OP_TEXT NACK counter per side.  Reset to 0 on any successful
+   * text ACK or on connect.  When it hits TEXT_NACK_RECONNECT_THRESHOLD we
+   * treat the lens as display-dead (firmware alive but not ACKing text) and
+   * force a reconnect via _onDisconnected.  This covers the case where iOS
+   * never fires onDisconnected but the firmware has silently stopped accepting
+   * display writes (observed in logs: R NACKs every 0x4e indefinitely after
+   * a cold scan while L connects fine).
+   */
+  private _textNackCount: Record<Side, number> = { L: 0, R: 0 };
+  private static readonly TEXT_NACK_RECONNECT_THRESHOLD = 2;
+  /**
    * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
    * The firmware echoes the command opcode in data[0] and puts the status in
    * data[1] (0xC9 or 0xCB = ok). The key must include the opcode so concurrent
@@ -737,7 +748,12 @@ export class G1Core {
         if (buf[0] === 0x02) side = 'L';
         else if (buf[0] === 0x01) side = 'R';
         else {
-          this._log(`[G1] _parseManufacturerData: unknown side byte 0x${buf[0].toString(16).padStart(2,'0')} for "${device.name}" — falling through to name parse`);
+          // Only log the unknown-byte warning for devices that look like G1 glasses
+          // (name contains "G1"). Samsung TVs, Quest headsets, etc. all have mfr
+          // data — logging every one pollutes the log and buries real signal.
+          if (device.name?.includes('G1')) {
+            this._log(`[G1] _parseManufacturerData: unknown side byte 0x${buf[0].toString(16).padStart(2,'0')} for "${device.name}" — falling through to name parse`);
+          }
           // Fall through to name-based parsing below rather than guessing.
           throw new Error('unknown side byte');
         }
@@ -928,6 +944,7 @@ export class G1Core {
 
     // Mark TX as ready only after init sequence is complete — the RX monitor
     // is already live (set up in the loop above) so ACKs are handled correctly.
+    this._textNackCount[side] = 0; // reset stale-display detector on clean connect
     if (side === 'L') this.status.left.txReady = true;
     if (side === 'R') this.status.right.txReady = true;
     this._setConnected(side, true);
@@ -955,6 +972,13 @@ export class G1Core {
     this._drainAckWaiters(side);
     this._setConnected(side, false);
     this.txChars[side] = undefined;
+    // Tear down the RX subscription so _connectLensInner's rxSubs guard
+    // doesn't mistake a stale subscription for "already initialised" and
+    // silently skip the reconnect attempt. This is the same invariant as the
+    // silent-ACK abort path — any exit from a connect lifecycle must leave
+    // rxSubs null so the next _enqueueConnect enters _connectLensInner cleanly.
+    this.rxSubs[side]?.remove();
+    this.rxSubs[side] = undefined;
     this._scheduleReconnect(side);
   }
 
@@ -1306,6 +1330,21 @@ export class G1Core {
     const ok = await ackPromise;
     if (!ok) {
       this._log(`[G1] _send [${side}] NACK op=0x${opHex}`);
+      // Track consecutive OP_TEXT NACKs.  If the firmware is alive but
+      // refusing display writes (e.g. R connects cleanly but never ACKs 0x4e),
+      // iOS won't fire onDisconnected — so we force the reconnect ourselves.
+      if (data[0] === P.OP_TEXT) {
+        this._textNackCount[side]++;
+        this._log(`[G1] _send [${side}] consecutive text NACKs=${this._textNackCount[side]}`);
+        if (this._textNackCount[side] >= G1Core.TEXT_NACK_RECONNECT_THRESHOLD) {
+          this._textNackCount[side] = 0;
+          this._log(`[G1] _send [${side}] text NACK threshold hit — forcing reconnect`);
+          this._onDisconnected(side);
+        }
+      }
+    } else if (data[0] === P.OP_TEXT) {
+      // Successful text ACK — reset stale-display counter.
+      this._textNackCount[side] = 0;
     }
   }
 
