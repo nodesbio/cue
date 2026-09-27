@@ -100,6 +100,14 @@ export class G1Core {
    */
   private _lastSilentAt: Record<Side, number> = { L: 0, R: 0 };
   /**
+   * Timestamp (ms) of the last received OP_SILENT (0x03) ACK from the glass,
+   * per side. If a successful ACK arrived within the last SILENT_ACK_REUSE_MS,
+   * _connectLens skips the 12-second _sendForResult wait (the glass already
+   * accepted silent mode and won't send another 0x03 ACK for the same power-on).
+   */
+  private _lastSilentAckAt: Record<Side, number> = { L: 0, R: 0 };
+  private static readonly SILENT_ACK_REUSE_MS = 60_000;
+  /**
    * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
    * The firmware echoes the command opcode in data[0] and puts the status in
    * data[1] (0xC9 or 0xCB = ok). The key must include the opcode so concurrent
@@ -256,6 +264,7 @@ export class G1Core {
       this.devices[side] = undefined;
       this.txChars[side] = undefined;
       this.reconnectAttempts[side] = 0;
+      this._lastSilentAckAt[side] = 0;
       this._setConnected(side, false);
     }
   }
@@ -279,6 +288,7 @@ export class G1Core {
     this.devices[side] = undefined;
     this.txChars[side] = undefined;
     this.reconnectAttempts[side] = 0;
+    this._lastSilentAckAt[side] = 0; // force full silent handshake on next connect
     this._setConnected(side, false);
   }
 
@@ -520,7 +530,20 @@ export class G1Core {
           }
           if (channel) {
             const ch = this._parseChannel(device);
-            if (ch !== channel) continue;
+            // _parseChannel returns the mfr-data serial when available, but
+            // connectedDevices() returns devices without advertisementdata on
+            // iOS — so ch may be a name-derived key like "name-ch5" while
+            // channel is the real serial "H290028". Accept the device if:
+            //   (a) keys match exactly, OR
+            //   (b) the device name contains the stored channel as a substring
+            //       (the hex suffix "810D29" appears in "Even G1_5_L_810D29"),
+            //       OR
+            //   (c) ch starts with "name-ch" (mfr absent — trust _parseSide
+            //       alone; connectedDevices already filters to our bonded UART
+            //       peripherals so any G1 device here is ours).
+            const nameMatch = channel && (device.name ?? '').includes(channel);
+            const nameChFallback = ch?.startsWith('name-ch');
+            if (ch !== channel && !nameMatch && !nameChFallback) continue;
           }
           found[side] = device;
         }
@@ -767,15 +790,24 @@ export class G1Core {
     // fire-and-forget silent that times out must not silently promote the lens
     // to ready state (reproduces as one lens blank on startup, L vs R race).
     this._lastSilentAt[side] = Date.now();
-    // Firmware ACK for OP_SILENT (0x03) arrives 5–8s after BLE connection in
-    // observed logs — well outside the default 2s window. Use a generous 12s
-    // timeout here so we don't reconnect-loop while the firmware is still
-    // initialising. The 2s default is still appropriate for mid-session sends.
-    const silentOk = await this._sendForResult(side, P.silent(true), 12000);
-    if (!silentOk) {
-      this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
-      this._scheduleReconnect(side);
-      return;
+    // If the glass already ACK'd OP_SILENT during this power-on cycle (e.g. the
+    // ACK arrived while a prior _connectLens attempt was still waiting, or after
+    // it timed out and gave up), skip the 12s wait entirely — the glass will NOT
+    // send a second 0x03 ACK for the same boot cycle and we'd always time out.
+    const silentAlreadyAckd = (Date.now() - this._lastSilentAckAt[side]) < G1Core.SILENT_ACK_REUSE_MS;
+    if (silentAlreadyAckd) {
+      this._log(`[G1] _connectLens [${side}] reusing recent silent ACK — skipping 12s wait`);
+    } else {
+      // Firmware ACK for OP_SILENT (0x03) arrives 5–8s after BLE connection in
+      // observed logs — well outside the default 2s window. Use a generous 12s
+      // timeout here so we don't reconnect-loop while the firmware is still
+      // initialising. The 2s default is still appropriate for mid-session sends.
+      const silentOk = await this._sendForResult(side, P.silent(true), 12000);
+      if (!silentOk) {
+        this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
+        this._scheduleReconnect(side);
+        return;
+      }
     }
 
     // Mark TX as ready only after init sequence is complete — the RX monitor
@@ -905,8 +937,22 @@ export class G1Core {
       clearTimeout(pending.timer);
       this._pendingAck.delete(ackKey);
       const status = data[1];
-      pending.resolve(status === P.R_STATUS_OK || status === P.R_STATUS_OK2);
+      const ok = status === P.R_STATUS_OK || status === P.R_STATUS_OK2;
+      // Track silent ACK receipt so _connectLens can skip the 12s wait on
+      // reconnect if the glass already ACK'd during this power-on cycle.
+      if (op === P.OP_SILENT && ok) this._lastSilentAckAt[side] = Date.now();
+      pending.resolve(ok);
       return;
+    }
+    // OP_SILENT ACK arrived with no pending waiter (e.g. arrived after a prior
+    // _connectLens already gave up and rescheduled). Record the timestamp anyway
+    // so the next _connectLens attempt can skip its 12s wait.
+    if (op === P.OP_SILENT) {
+      const status = data[1];
+      if (status === P.R_STATUS_OK || status === P.R_STATUS_OK2) {
+        this._lastSilentAckAt[side] = Date.now();
+        this._log(`[G1] OP_SILENT late ACK [${side}] — recorded for next _connectLens`);
+      }
     }
     // Clean up any battery ACK waiter — it resolves successfully since we got a response.
     if (op === P.OP_BATTERY && pending) {
