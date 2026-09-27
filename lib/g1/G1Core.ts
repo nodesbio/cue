@@ -916,6 +916,11 @@ export class G1Core {
       if (!silentOk) {
         this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
         this.txChars[side] = undefined;   // #21/#22: clear so _enqueueConnect can retry and UI shows no telemetry
+        // Also tear down the RX subscription — _connectLensInner guards on rxSubs
+        // being null to detect "not yet initialised". Leaving it set causes the
+        // reconnect attempt to hit the early-return and silently do nothing forever.
+        this.rxSubs[side]?.remove();
+        this.rxSubs[side] = undefined;
         this._scheduleReconnect(side);
         return;
       }
