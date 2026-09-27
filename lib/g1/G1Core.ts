@@ -731,7 +731,11 @@ export class G1Core {
     // fire-and-forget silent that times out must not silently promote the lens
     // to ready state (reproduces as one lens blank on startup, L vs R race).
     this._lastSilentAt[side] = Date.now();
-    const silentOk = await this._sendForResult(side, P.silent(true));
+    // Firmware ACK for OP_SILENT (0x03) arrives 5–8s after BLE connection in
+    // observed logs — well outside the default 2s window. Use a generous 12s
+    // timeout here so we don't reconnect-loop while the firmware is still
+    // initialising. The 2s default is still appropriate for mid-session sends.
+    const silentOk = await this._sendForResult(side, P.silent(true), 12000);
     if (!silentOk) {
       this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
       this._scheduleReconnect(side);
@@ -981,7 +985,7 @@ export class G1Core {
    * Like _send but returns true on ACK ok, false on NACK/timeout/write-error.
    * Used by the heartbeat monitor to detect zombied lenses.
    */
-  private async _sendForResult(side: Side, data: Uint8Array): Promise<boolean> {
+  private async _sendForResult(side: Side, data: Uint8Array, timeoutMs = 2000): Promise<boolean> {
     const ch = this.txChars[side];
     const dev = this.devices[side];
     if (!ch || !dev) return false;
@@ -997,7 +1001,7 @@ export class G1Core {
       const timer = setTimeout(() => {
         this._pendingAck.delete(ackKey);
         resolve(false);
-      }, 2000);
+      }, timeoutMs);
       this._pendingAck.set(ackKey, { resolve, timer });
     });
 
