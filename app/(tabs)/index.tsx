@@ -138,7 +138,7 @@ export default function TeleprompterScreen() {
       const s = snapRef.current;
       if (s) {
         setTimeout(() => {
-          void core.sendText(s.frame, s.topIndex + 1, s.totalLines);
+          void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
         }, 350);
       }
       return;
@@ -205,7 +205,7 @@ export default function TeleprompterScreen() {
         if (connectedRef.current) {
           // _enqueue inside sendText handles errors and serialisation;
           // void is intentional — onFrame is a sync callback.
-          void core.sendText(frame, curLine, totalLines);
+          void core.sendText(frame, curLine, totalLines, curLine >= totalLines);
         }
       },
       onStateChange: (s) => {
@@ -225,7 +225,7 @@ export default function TeleprompterScreen() {
     if (!connected) return;
     const s = snapRef.current;
     if (s) {
-      void core.sendText(s.frame, s.topIndex + 1, s.totalLines);
+      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
     }
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 

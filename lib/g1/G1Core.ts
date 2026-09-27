@@ -290,18 +290,20 @@ export class G1Core {
    * Send a text string to both lenses.
    * curLine / totalLines populate the status bar counter (e.g. "▶ 2/14").
    *
-   * newScreen defaults to NEW_SCREEN_MANUAL (0x30) — use
-   * NewScreen.CONTINUATION_MANUAL (0x40) for subsequent pages of the same
-   * logical sequence so the firmware doesn't clear the screen between packets.
+   * isLastPage: true on the final packet of a sequence — sends NewScreen.AUTO_LAST
+   * (0x41) so the firmware knows the transmission is complete. All other packets
+   * use NewScreen.AUTO_MID (0x31). Pass newScreen explicitly to override.
    */
   async sendText(
     str: string,
     curLine = 1,
     totalLines = 1,
-    newScreen: P.NewScreenValue = P.NewScreen.NEW_SCREEN_MANUAL,
+    isLastPage = false,
+    newScreen?: P.NewScreenValue,
   ): Promise<void> {
+    const ns = newScreen ?? (isLastPage ? P.NewScreen.AUTO_LAST : P.NewScreen.AUTO_MID);
     return this._enqueue(async () => {
-      const packet = P.text(str, this._nextSeq(), curLine, totalLines, newScreen);
+      const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
       await this._sendBoth(packet);
     });
   }

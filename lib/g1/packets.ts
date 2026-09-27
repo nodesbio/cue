@@ -42,28 +42,36 @@ export const BMP_ADDR   = new Uint8Array([0x00, 0x1c, 0x00, 0x00]);
 export const BMP_CHUNK  = 194;
 
 /**
- * newScreen byte — bitmask: type | status.
+ * newScreen byte — composite of two independent nibbles per the official spec:
  *
- * Type nibble (high):
- *   0x10 = new screen (clear display, start fresh)
- *   0x20 = continuation (append / scroll)
+ *   Upper nibble (Even AI / display mode):
+ *     0x30 = Even AI displaying — automatic mode (mid-scroll)
+ *     0x40 = Even AI display complete — last page of automatic mode
+ *     0x50 = Even AI manual mode
+ *     0x60 = Even AI network error
  *
- * Status nibble (low) — scroll mode:
- *   0x00 = manual (user taps to advance)
- *   0x01 = auto-scroll
+ *   Lower nibble (screen action):
+ *     0x01 = display new content  ← must always be set; 0x00 = no-op
  *
- * Canonical values from Even Realities official source (evenai.dart / text_service.dart):
- *   0x30 = new screen + manual   ← first packet of any sequence
- *   0x40 = continuation + manual ← subsequent packets in same sequence
- *   0x50 = continuation + auto
- *   0x60 = ??? (used in reply flow)
- *   0x70 = new screen + ??? (text_service.dart simple show)
+ *   Combined (spec example: "New content + Even AI displaying = 0x31"):
+ *     0x31 = auto-display, mid-scroll
+ *     0x41 = auto-display, last page
+ *     0x51 = manual mode
+ *     0x61 = network error
+ *
+ * Source: Even Realities EvenDemoApp README — "Send AI Result" protocol section.
+ * Do NOT derive these from evenai.dart / text_service.dart — those omit the
+ * 0x01 action bit and produce values the firmware silently ignores.
  */
 export const NewScreen = {
-  NEW_SCREEN_MANUAL:    0x30,  // start of a new display sequence, manual scroll
-  CONTINUATION_MANUAL:  0x40,  // next page of same sequence, manual scroll
-  CONTINUATION_AUTO:    0x50,  // next page, auto-scroll
-  NEW_SCREEN_AUTO:      0x70,  // new screen, auto (simple text show)
+  /** Auto-display, mid-scroll (any packet that is not the last). */
+  AUTO_MID:     0x31,
+  /** Auto-display, last page — signals firmware the sequence is complete. */
+  AUTO_LAST:    0x41,
+  /** Manual mode — user taps to advance pages. */
+  MANUAL:       0x51,
+  /** Network/AI error state. */
+  ERROR:        0x61,
 } as const;
 export type NewScreenValue = typeof NewScreen[keyof typeof NewScreen];
 
@@ -139,16 +147,18 @@ export function exitToDashboard(): Uint8Array {
  * curPage / maxPage are used by the status bar to show e.g. "▶ 14/56".
  * For the teleprompter, pass the current line index and total line count.
  *
- * newScreen: use NewScreen.NEW_SCREEN_MANUAL (0x30) for the first packet of
- * a sequence, NewScreen.CONTINUATION_MANUAL (0x40) for subsequent ones.
- * Defaults to NEW_SCREEN_MANUAL for simple one-shot text display.
+ * isLastPage: set true on the final packet of a sequence so the firmware
+ * receives NewScreen.AUTO_LAST (0x41) and knows the transmission is complete.
+ * All other packets use NewScreen.AUTO_MID (0x31) — the "displaying" state.
+ *
+ * Pass newScreen explicitly to override (e.g. NewScreen.MANUAL for manual mode).
  */
 export function text(
   str: string,
   seq: number,
   curPage = 1,
   maxPage = 1,
-  newScreen: NewScreenValue = NewScreen.NEW_SCREEN_MANUAL,
+  newScreen: NewScreenValue = NewScreen.AUTO_MID,
 ): Uint8Array {
   const encoded = new TextEncoder().encode(str).slice(0, 191);
   const header = u8(OP_TEXT, seq & 0xff, 1, 0, newScreen, 0x00, 0x00, curPage & 0xff, maxPage & 0xff);
