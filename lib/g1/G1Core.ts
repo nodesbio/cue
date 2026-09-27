@@ -563,18 +563,19 @@ export class G1Core {
           found[side] = device;
 
           if (found.L && found.R) {
-            // Both lenses found — connect immediately.
+            // Both lenses found — connect immediately via the shared queue so
+            // we can't race with reconnectDropped() or _resumeAlreadyConnected.
             clearTimeout(timeout);
             this.manager.stopDeviceScan();
-            done(async () => {
-              try {
-                await this._connectLens('L', found.L!);
-                await this._connectLens('R', found.R!);
-                this._startHeartbeat();
-                resolve();
-              } catch (e) {
-                reject(e);
-              }
+            done(() => {
+              new Promise<void>((res, rej) => {
+                this._lensConnectQueue = this._lensConnectQueue
+                  .then(() => this._connectLens('L', found.L!))
+                  .then(() => this._connectLens('R', found.R!))
+                  .then(res, rej);
+              })
+                .then(() => { this._startHeartbeat(); resolve(); })
+                .catch(reject);
             });
           } else {
             // One lens found — give the other a short window to advertise before
@@ -584,19 +585,22 @@ export class G1Core {
               if (sides.length === 0 || settled) return;
               clearTimeout(timeout);
               this.manager.stopDeviceScan();
-              done(async () => {
-                try {
-                  for (const s of sides) await this._connectLens(s, found[s]!);
-                  this._startHeartbeat();
-                  // If one lens wasn't found during scan, kick off a reconnect
-                  // scan for the missing side rather than leaving it blank.
-                  for (const s of ['L', 'R'] as Side[]) {
-                    if (!found[s]) this._scheduleReconnect(s);
-                  }
-                  resolve();
-                } catch (e) {
-                  reject(e);
-                }
+              done(() => {
+                new Promise<void>((res, rej) => {
+                  // Chain all found sides sequentially through the queue.
+                  let q = this._lensConnectQueue;
+                  for (const s of sides) q = q.then(() => this._connectLens(s, found[s]!));
+                  this._lensConnectQueue = q.then(res, rej);
+                })
+                  .then(() => {
+                    this._startHeartbeat();
+                    // Kick off reconnect for the missing side.
+                    for (const s of ['L', 'R'] as Side[]) {
+                      if (!found[s]) this._scheduleReconnect(s);
+                    }
+                    resolve();
+                  })
+                  .catch(reject);
               });
             }, 1500);
           }
