@@ -239,11 +239,15 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   }
 
   const core = coreRef.current;
-  // "Connected" = at least one lens is TX-ready (the other may be mid-reconnect).
-  // "Both ready" = both txReady (used for full-feature sends).
-  const isConnected = !!(status?.left.txReady || status?.right.txReady);
+  // "Connected" = BOTH lenses TX-ready. Using OR here caused split-brain: L
+  // would complete handshake+silent and flip isConnected true while R was still
+  // mid-_connectLens showing the firmware dashboard — the reconnect-send
+  // useEffect would fire, sending text to R before R's silent(true) had run.
+  const isConnected = !!(status?.left.txReady && status?.right.txReady);
+  // "Partially connected" = at least one lens is ready (shows yellow indicator).
   const isPartiallyConnected = !isConnected && !!(
-    (status?.left.connected || status?.right.connected)
+    status?.left.txReady || status?.right.txReady ||
+    status?.left.connected || status?.right.connected
   );
 
   return (
