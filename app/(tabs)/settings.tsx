@@ -12,7 +12,7 @@ export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { core, status, isConnected: connected, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness } = useG1();
+  const { core, status, isConnected: connected, isPartiallyConnected, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness } = useG1();
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
@@ -99,24 +99,30 @@ export default function SettingsScreen() {
         {/* ── Connection ─────────────────────────────────────── */}
         <Text style={s.section}>Connection</Text>
 
-        {connected ? (
+        {(connected || isPartiallyConnected) ? (
           <>
-            {/* ── Per-lens status rows ─────────────────────────── */}
+            {/* ── Per-lens cards ──────────────────────────────── */}
             {(['L', 'R'] as const).map(side => {
               const lensStatus = side === 'L' ? status?.left : status?.right;
               const batt = side === 'L' ? battL : battR;
               const rssi = side === 'L' ? rssiL : rssiR;
               const label = side === 'L' ? 'Left lens' : 'Right lens';
-              const isReady = lensStatus?.txReady;
-              const isConn  = lensStatus?.connected;
-              const dot   = isReady ? '●' : isConn ? '◐' : '○';
-              const color = isReady ? s.green : isConn ? s.yellow : s.muted;
+              const isReady = !!lensStatus?.txReady;
+              const isConn  = !!lensStatus?.connected;
+              // Three states: ready (full), connecting (BLE up, init in flight), disconnected
+              const dot        = isReady ? '●' : isConn ? '◐' : '○';
+              const dotColor   = isReady ? s.green : isConn ? s.yellow : s.muted;
               const stateLabel = isReady ? 'Ready' : isConn ? 'Connecting…' : 'Disconnected';
+              // Disconnect: available whenever BLE is up (connected or stuck in init)
+              const canDisconnect = isConn || isReady;
+              // Reconnect: available when not already ready; also force-available if stuck
+              //   connecting (isConn=true, isReady=false) so user can break the loop
+              const canReconnect = !isReady;
               return (
                 <View key={side} style={s.lensCard}>
                   <View style={s.lensCardHeader}>
                     <Text style={s.label}>{label}</Text>
-                    <Text style={[s.value, color]}>{dot} {stateLabel}</Text>
+                    <Text style={[s.value, dotColor]}>{dot} {stateLabel}</Text>
                   </View>
                   <View style={s.lensMeta}>
                     {batt != null && <Text style={s.metaChip}>🔋 {batt}%</Text>}
@@ -124,18 +130,20 @@ export default function SettingsScreen() {
                   </View>
                   <View style={s.lensActions}>
                     <Pressable
-                      style={[s.lensBtn, s.lensBtnDanger]}
+                      style={[s.lensBtn, s.lensBtnDanger, !canDisconnect && s.lensBtnDisabled]}
                       onPress={() => disconnectSide(side)}
-                      disabled={!isConn && !isReady}
+                      disabled={!canDisconnect}
                     >
-                      <Text style={s.lensBtnText}>Disconnect</Text>
+                      <Text style={[s.lensBtnText, !canDisconnect && s.lensBtnTextDisabled]}>Disconnect</Text>
                     </Pressable>
                     <Pressable
-                      style={[s.lensBtn, s.lensBtnPrimary]}
+                      style={[s.lensBtn, s.lensBtnPrimary, !canReconnect && s.lensBtnDisabled]}
                       onPress={() => reconnectSide(side)}
-                      disabled={!!(isReady)}
+                      disabled={!canReconnect}
                     >
-                      <Text style={s.lensBtnText}>Reconnect</Text>
+                      <Text style={[s.lensBtnText, !canReconnect && s.lensBtnTextDisabled]}>
+                        {isConn && !isReady ? 'Force Reconnect' : 'Reconnect'}
+                      </Text>
                     </Pressable>
                   </View>
                 </View>
@@ -318,9 +326,11 @@ const s = StyleSheet.create({
   metaChip:    { color: '#888', fontSize: 12 },
   lensActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   lensBtn:     { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
-  lensBtnDanger:  { backgroundColor: '#2a1a1a' },
-  lensBtnPrimary: { backgroundColor: '#1a2a1a' },
-  lensBtnText: { color: '#ccc', fontSize: 13, fontWeight: '600' },
+  lensBtnDanger:        { backgroundColor: '#2a1a1a' },
+  lensBtnPrimary:       { backgroundColor: '#1a2a1a' },
+  lensBtnDisabled:      { opacity: 0.35 },
+  lensBtnText:          { color: '#ccc', fontSize: 13, fontWeight: '600' },
+  lensBtnTextDisabled:  { color: '#555' },
   btn:         { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 12 },
   btnSecondary:{ backgroundColor: '#1a1a1a' },
   btnDanger:   { backgroundColor: '#2a1a1a' },
