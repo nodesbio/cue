@@ -758,14 +758,24 @@ export class G1Core {
     // The firmware echoes the command opcode in data[0] and puts the result
     // in data[1]: 0xC9 or 0xCB = ok, anything else = nack.
     // Look up the pending waiter by side+opcode key (e.g. "L4e").
+    //
+    // Exception: OP_BATTERY (0x2C) responses use a different status format —
+    // data[1]=0x66 is a battery-specific status byte, not a protocol ACK.
+    // Always route battery packets directly to the OP_BATTERY handler below.
     const ackKey = `${side}${op.toString(16).padStart(2, '0')}`;
     const pending = this._pendingAck.get(ackKey);
-    if (pending) {
+    if (pending && op !== P.OP_BATTERY) {
       clearTimeout(pending.timer);
       this._pendingAck.delete(ackKey);
       const status = data[1];
       pending.resolve(status === P.R_STATUS_OK || status === P.R_STATUS_OK2);
       return;
+    }
+    // Clean up any battery ACK waiter — it resolves successfully since we got a response.
+    if (op === P.OP_BATTERY && pending) {
+      clearTimeout(pending.timer);
+      this._pendingAck.delete(ackKey);
+      pending.resolve(true);
     }
 
     // ── Heartbeat (firmware-initiated) ───────────────────────────────────
