@@ -911,6 +911,9 @@ export class G1Core {
           event.name === 'ai_start'
         ) {
           this._log(`[G1] display takeover event "${event.name}" [${side}] — re-asserting silent`);
+          // Drain stale OP_TEXT (and any other) ACK waiters so their retries
+          // don't race with the re-assert and keep the display blank.
+          this._drainAckWaiters(side);
           // Small delay on close/ai_start so the firmware finishes its own
           // animation before we write over it.
           const delay = event.name === 'dashboard_open' ? 0 : 300;
