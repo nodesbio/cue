@@ -585,19 +585,21 @@ export class G1Core {
           if (channel) {
             const ch = this._parseChannel(device);
             // _parseChannel returns the mfr-data serial when available, but
-            // connectedDevices() returns devices without advertisementdata on
-            // iOS — so ch may be a name-derived key like "name-ch5" while
-            // channel is the real serial "H290028". Accept the device if:
+            // connectedDevices() returns devices WITHOUT advertisementdata on
+            // iOS resume — so ch is the hex name-suffix ("810D29") while
+            // channel is the real paired serial ("H290028"). Accept the device if:
             //   (a) keys match exactly, OR
             //   (b) the device name contains the stored channel as a substring
             //       (the hex suffix "810D29" appears in "Even G1_5_L_810D29"),
             //       OR
-            //   (c) ch starts with "name-ch" (mfr absent — trust _parseSide
-            //       alone; connectedDevices already filters to our bonded UART
-            //       peripherals so any G1 device here is ours).
-            const nameMatch = channel && (device.name ?? '').includes(channel);
+            //   (c) ch starts with "name-ch" (legacy fallback), OR
+            //   (d) device.manufacturerData is null — iOS connectedDevices never
+            //       returns mfr data; the UART service filter already guarantees
+            //       this peripheral is our bonded G1, so trust _parseSide alone.
+            const nameMatch    = channel && (device.name ?? '').includes(channel);
             const nameChFallback = ch?.startsWith('name-ch');
-            if (ch !== channel && !nameMatch && !nameChFallback) continue;
+            const noMfrData    = device.manufacturerData == null;
+            if (ch !== channel && !nameMatch && !nameChFallback && !noMfrData) continue;
           }
           found[side] = device;
         }
