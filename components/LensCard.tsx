@@ -21,8 +21,6 @@ export interface LensCardProps {
   logs: string[];
   onDisconnect: () => void;
   onReconnect: () => void;
-  onTest?: () => void;
-  onClear?: () => void;
 }
 
 /** Lines that belong to this side: tagged [L] / [R] or [G1 RX L] / [G1 RX R] */
@@ -46,7 +44,7 @@ async function shareSideLogs(side: 'L' | 'R', lines: string[]): Promise<void> {
   }
 }
 
-export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onDisconnect, onReconnect, onTest, onClear }: LensCardProps) {
+export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onDisconnect, onReconnect }: LensCardProps) {
   const [showLogs, setShowLogs] = useState(false);
 
   const label      = side === 'L' ? 'Left lens' : 'Right lens';
@@ -69,10 +67,10 @@ export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onD
         <Text style={[s.state, dotStyle]}>{dot} {stateLabel}</Text>
       </View>
 
-      {/* Battery + RSSI chips */}
+      {/* Battery + RSSI chips — batt shown when txReady; rssi shown whenever known (dimmed if stale) */}
       <View style={s.meta}>
         {txReady && batteryPct != null && <Text style={s.chip}>🔋 {batteryPct}%</Text>}
-        {txReady && rssi       != null && <Text style={s.chip}>📶 {rssi} dBm</Text>}
+        {rssi != null && <Text style={[s.chip, !txReady && s.chipStale]}>📶 {rssi} dBm</Text>}
       </View>
 
       {/* Disconnect / Reconnect */}
@@ -94,18 +92,6 @@ export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onD
           </Text>
         </Pressable>
       </View>
-
-      {/* Test / Clear — only shown when lens is TX-ready */}
-      {txReady && (
-        <View style={[s.actions, { marginTop: 6 }]}>
-          <Pressable style={[s.btn, s.btnTest]} onPress={onTest}>
-            <Text style={s.btnText}>Test Display</Text>
-          </Pressable>
-          <Pressable style={[s.btn, s.btnClear]} onPress={onClear}>
-            <Text style={s.btnText}>Clear</Text>
-          </Pressable>
-        </View>
-      )}
 
       {/* Per-lens log toggle row */}
       <View style={s.logToggleRow}>
@@ -148,13 +134,12 @@ const s = StyleSheet.create({
   muted:          { color: '#555' },
   meta:           { flexDirection: 'row', gap: 10, marginTop: 6 },
   chip:           { color: '#888', fontSize: 12 },
+  chipStale:      { opacity: 0.4 },
   actions:        { flexDirection: 'row', gap: 8, marginTop: 10 },
   btn:            { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
   btnDanger:      { backgroundColor: '#2a1a1a' },
   btnPrimary:     { backgroundColor: '#1a2a1a' },
   btnDisabled:    { opacity: 0.35 },
-  btnTest:        { backgroundColor: '#1a1f2a' },
-  btnClear:       { backgroundColor: '#1a1a2a' },
   btnText:        { color: '#ccc', fontSize: 13, fontWeight: '600' },
   btnTextDisabled:{ color: '#555' },
   logToggleRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#1e1e1e' },

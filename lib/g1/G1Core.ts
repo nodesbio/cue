@@ -457,16 +457,17 @@ export class G1Core {
    * RSSI so the user can verify the HUD is alive and the telemetry is correct.
    * Uses the existing send queue so it doesn't race active teleprompter sends.
    */
-  async sendTestDisplay(side: Side): Promise<void> {
-    const st = side === 'L' ? this.status.left : this.status.right;
-    const bat  = st.batteryPct != null ? `${st.batteryPct}%` : '--';
-    const rssi = st.rssi       != null ? `${st.rssi}dBm`     : '--';
-    const label = side === 'L' ? 'Left' : 'Right';
-    const line = `${label}: 🔋${bat}  📶${rssi}`;
-    this._log(`[G1] sendTestDisplay [${side}] txReady=${st.txReady} txChars=${!!this.txChars[side]}`);
+  async sendTestDisplay(): Promise<void> {
+    const fmt = (st: typeof this.status.left, label: string) => {
+      const bat  = st.batteryPct != null ? `${st.batteryPct}%` : '--';
+      const rssi = st.rssi       != null ? `${st.rssi}dBm`     : '--';
+      return `${label} 🔋${bat} 📶${rssi}`;
+    };
+    const line = `${fmt(this.status.left, 'L:')}  ${fmt(this.status.right, 'R:')}`;
+    this._log(`[G1] sendTestDisplay txReady L=${this.status.left.txReady} R=${this.status.right.txReady}`);
     return this._enqueue(async () => {
       const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
-      await this._send(side, packet);
+      await this._sendBoth(packet);
     });
   }
 

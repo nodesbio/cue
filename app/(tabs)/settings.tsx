@@ -13,7 +13,7 @@ export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { core, status, isConnected: connected, isPartiallyConnected, isAutoConnecting, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness, sendTestDisplay, clearDisplay } = useG1();
+  const { core, status, isConnected: connected, isPartiallyConnected, isAutoConnecting, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness, sendTestDisplay } = useG1();
 
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
@@ -116,11 +116,17 @@ export default function SettingsScreen() {
                   logs={logs}
                   onDisconnect={() => disconnectSide(side)}
                   onReconnect={() => reconnectSide(side)}
-                  onTest={() => sendTestDisplay(side)}
-                  onClear={() => clearDisplay(side)}
                 />
               );
             })}
+            {/* Test HUD — sends battery+signal to both lenses at once */}
+            <Pressable
+              style={[s.btn, s.btnTest, !(status?.left.txReady || status?.right.txReady) && s.btnDisabled]}
+              disabled={!(status?.left.txReady || status?.right.txReady)}
+              onPress={() => void sendTestDisplay()}
+            >
+              <Text style={[s.btnText, { color: '#ccc' }]}>Test HUD</Text>
+            </Pressable>
             {pairedSerial && (
               <View style={s.row}>
                 <Text style={s.label}>Serial</Text>
@@ -297,6 +303,8 @@ const s = StyleSheet.create({
   btn:         { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 12 },
   btnSecondary:{ backgroundColor: '#1a1a1a' },
   btnDanger:   { backgroundColor: '#2a1a1a' },
+  btnTest:     { backgroundColor: '#1a1f2a' },
+  btnDisabled: { opacity: 0.35 },
   btnText:     { fontSize: 15, fontWeight: '600', color: '#000' },
   debugText:        { color: '#555', fontSize: 11, marginTop: 6, fontFamily: 'monospace' },
   logsToggleRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 28, marginBottom: 0 },

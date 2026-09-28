@@ -133,8 +133,8 @@ interface G1ContextValue {
   /** Display brightness (0–42). Persisted + pushed to hardware automatically. */
   brightness: number;
   setBrightness: (level: number) => Promise<void>;
-  /** Send a one-line battery+signal test message to a single lens HUD. */
-  sendTestDisplay: (side: 'L' | 'R') => Promise<void>;
+  /** Send a one-line battery+signal test to both lens HUDs. */
+  sendTestDisplay: () => Promise<void>;
   /** Clear the HUD on a single lens by re-asserting silent mode. */
   clearDisplay: (side: 'L' | 'R') => Promise<void>;
 }
@@ -246,8 +246,8 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnectedForEffect]);
 
-  async function sendTestDisplay(side: 'L' | 'R') {
-    await coreRef.current.sendTestDisplay(side).catch(() => {});
+  async function sendTestDisplay() {
+    await coreRef.current.sendTestDisplay().catch(() => {});
   }
 
   async function clearDisplay(side: 'L' | 'R') {
