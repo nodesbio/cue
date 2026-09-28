@@ -999,6 +999,13 @@ export class G1Core {
     // old timestamp is no longer valid, and reusing it would skip the 12s
     // _sendForResult wait and promote a still-initialising firmware to txReady.
     this._lastSilentAckAt[side] = 0;
+    // Also zero the send-timestamp so the no-waiter OP_SILENT ACK handler
+    // (see _onNotify) cannot stamp _lastSilentAckAt from a ghost buffered ACK
+    // that iOS delivers on the new RX subscription before we've actually sent
+    // the silent command in the new connection cycle.  The handler gates on
+    // _lastSilentAt[side] !== 0, which is only true after _connectLensInner
+    // (or _sendSilent) has written the command.
+    this._lastSilentAt[side] = 0;
     this._scheduleReconnect(side);
   }
 
@@ -1098,9 +1105,15 @@ export class G1Core {
       return;
     }
     // OP_SILENT ACK arrived with no pending waiter (e.g. arrived after a prior
-    // _connectLens already gave up and rescheduled). Record the timestamp anyway
-    // so the next _connectLens attempt can skip its 12s wait.
-    if (op === P.OP_SILENT) {
+    // _connectLens already gave up and rescheduled). Record the timestamp so the
+    // next _connectLens attempt can skip its 12s wait — BUT only if we have
+    // actually sent a silent in this connection cycle (_lastSilentAt[side] !== 0).
+    // If _lastSilentAt is 0 the ACK is a ghost: a buffered iOS notification from
+    // the previous connection, delivered on the new RX subscription before we have
+    // written anything.  Accepting it would incorrectly enable the fast-path and
+    // let _connectLensInner skip the full firmware-init wait, leaving R in a state
+    // where it never ACKs 0x4e.  (Bug #10 resurfacing — fixed 2026-09-27.)
+    if (op === P.OP_SILENT && this._lastSilentAt[side] !== 0) {
       const status = data[1];
       if (status === P.R_STATUS_OK || status === P.R_STATUS_OK2) {
         this._lastSilentAckAt[side] = Date.now();
