@@ -466,6 +466,21 @@ export class G1Core {
     const line = `${fmt(this.status.left, 'L:')}  ${fmt(this.status.right, 'R:')}`;
     this._log(`[G1] sendTestDisplay txReady L=${this.status.left.txReady} R=${this.status.right.txReady}`);
     return this._enqueue(async () => {
+      // Re-assert silent(false) immediately before the text write.
+      // The firmware may have re-entered silent mode after our connect-time
+      // silent(false) handshake (e.g. triggered by an inactivity timer or the
+      // f5 00 "close feature" event the right lens emits after display commands).
+      // Sending 03 0a here mirrors what _sendSilent does on display-takeover
+      // recovery and is the same reason triple-tap shows a brief flash — the
+      // user's gesture toggles the firmware's own silent mode off.
+      //
+      // awaitAck=false: the firmware sends exactly ONE 0x03 ACK per boot cycle,
+      // which is already consumed by _connectLensInner. A second silent(false)
+      // will never be ACK'd — awaiting it burns 2s per lens (4s total) before
+      // the text packet is sent, causing the button to appear unresponsive.
+      // The send still reaches the firmware; we just don't block on confirmation.
+      this._send('L', P.silent(false), false);
+      this._send('R', P.silent(false), false);
       const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
       await this._sendBoth(packet);
     });
@@ -941,7 +956,15 @@ export class G1Core {
       // observed logs — well outside the default 2s window. Use a generous 12s
       // timeout here so we don't reconnect-loop while the firmware is still
       // initialising. The 2s default is still appropriate for mid-session sends.
-      const silentOk = await this._sendForResult(side, P.silent(true), 12000);
+      // silent(false) = EXIT silent mode (03 0a). Firmware decomp
+      // (display_dispatch_thread.c) shows silent mode SUSPENDS the master
+      // lens's display thread — which both blanks the HUD and defers the
+      // 0x4e text ACK indefinitely (ble_process_req_dispatch.c case 0x4e:
+      // master defers ACK to the display thread via DAT_20019a69).
+      // We previously sent silent(true) here believing it asserted display
+      // ownership; it actually turned the display OFF. Same opcode, same
+      // ACK path, so txReady gating is unchanged.
+      const silentOk = await this._sendForResult(side, P.silent(false), 12000);
       if (!silentOk) {
         this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
         this.txChars[side] = undefined;   // #21/#22: clear so _enqueueConnect can retry and UI shows no telemetry
@@ -1138,6 +1161,7 @@ export class G1Core {
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
       if (event) {
+        this._log(`[G1 EVENT ${side}] subcmd=0x${event.subcmd.toString(16).padStart(2,'0')} name="${event.name}"`);
         // op=0x11 ('status_ping') — fires after every battery poll response
         // (0x2c) as a routine firmware heartbeat. Confirmed from log correlation:
         // f5 11 always arrives within ~300ms of a 0x2c battery packet on R.
@@ -1165,14 +1189,21 @@ export class G1Core {
           // sends whose ACK simply hasn't arrived yet (R delays 15-19s when
           // audio is streaming). Draining causes those sends to NACK, the
           // _enqueue swallows the error, and the HUD goes blank even though
-          // the firmware successfully received the text. The _sendQueue
-          // serialisation already prevents the re-silent from racing the
-          // in-flight text — it will queue behind it naturally.
+          // the firmware successfully received the text.
           //
-          // _drainAckWaiters is still appropriate before a full reconnect
-          // (called in _onDisconnected path) but NOT for display-takeover events.
-          const delay = event.name === 'dashboard_open' ? 0 : 300;
-          setTimeout(() => this._sendSilent(side), delay);
+          // _drainAckWaiters is appropriate before a full reconnect
+          // (_onDisconnected path) but NOT for display-takeover events.
+          //
+          // _sendSilent goes through _enqueue, so any sendText enqueued by
+          // index.tsx's event handler will sequence behind it in _sendQueue —
+          // no timing race between the silent and the content re-push.
+          // For dashboard_open, silence immediately.
+          // For close/ai_start, defer 300ms to let the overlay animation finish.
+          if (event.name === 'dashboard_open') {
+            this._sendSilent(side);
+          } else {
+            setTimeout(() => this._sendSilent(side), 300);
+          }
         }
 
         this.eventHandlers.forEach(h => h(event));
@@ -1224,7 +1255,14 @@ export class G1Core {
       return;
     }
     this._lastSilentAt[side] = Date.now();
-    this._send(side, P.silent(true)).catch(() => {});
+    // Route through _enqueue so this silent is ordered in the same queue as
+    // any subsequent sendText call. A bare _send here would race a sendText
+    // enqueued by index.tsx's event handler — the silent could arrive on the
+    // glasses AFTER the text, leaving "Silent" as the last visible frame.
+    // silent(false): EXIT silent mode. silent(true) here would SUSPEND the
+    // master lens's display thread (firmware decomp) — the opposite of
+    // reclaiming the display after an overlay.
+    this._enqueue(() => this._send(side, P.silent(false))).catch(() => {});
   }
 
   /**
@@ -1300,7 +1338,11 @@ export class G1Core {
   private async _send(side: Side, data: Uint8Array, awaitAck = true): Promise<void> {
     const ch = this.txChars[side];
     const dev = this.devices[side];
-    if (!ch || !dev) return;
+    if (!ch || !dev) {
+      const opHex = data[0].toString(16).padStart(2, '0');
+      this._log(`[G1] _send [${side}] DROP op=0x${opHex} — txChars=${!!ch} dev=${!!dev} txReady=${side === 'L' ? this.status.left.txReady : this.status.right.txReady}`);
+      return;
+    }
 
     const opHex = data[0].toString(16).padStart(2, '0');
     const ackKey = `${side}${opHex}`;

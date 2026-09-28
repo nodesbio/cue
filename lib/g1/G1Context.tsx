@@ -237,6 +237,33 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // ── TEMP DEV PROBE (remove me): auto-fire Test HUD once both lenses ready,
+  // report result to Jarvis listener. Verifies the silent(false) init fix.
+  const bothReadyForProbe = !!(status?.left.txReady && status?.right.txReady);
+  const probeFiredRef = useRef(false);
+  useEffect(() => {
+    if (!__DEV__ || !bothReadyForProbe || probeFiredRef.current) return;
+    probeFiredRef.current = true;
+    const report = (msg: string) =>
+      fetch('http://192.168.0.199:8909/', { method: 'POST', body: msg }).catch(() => {});
+    // EXPERIMENT: send 0x4e to R FIRST, then L. If R ACKs when sent first,
+    // the failure is sequencing in _sendBoth (L-then-R), not R lens state.
+    report(`probe: EXPERIMENT — sending 0x4e to R first, then L`);
+    const core: any = coreRef.current;
+    const P = require('./packets');
+    const packet = P.text('R-FIRST TEST', core._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
+    core._enqueue(async () => {
+      await core._send('R', packet);
+      report('probe: R send returned (check log tail for ACK vs timeout)');
+      await core._send('L', packet);
+      report('probe: L send returned');
+    })
+      .catch((e: any) => report(`probe: EXPERIMENT FAILED — ${e?.message ?? e}`))
+      // Ship the log tail 5s later so we can see the 0x4e ACK/NACK outcome.
+      .then(() => new Promise(r => setTimeout(r, 5000)))
+      .then(() => report(`probe: LOG TAIL\n${_logBuffer.slice(-40).join('\n')}`));
+  }, [bothReadyForProbe]);
+
   // Re-push stored brightness whenever glasses become connected/reconnect.
   const isConnectedForEffect = !!(status?.left.txReady || status?.right.txReady);
   useEffect(() => {
