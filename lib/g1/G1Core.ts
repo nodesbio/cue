@@ -17,6 +17,20 @@ export interface LensState {
   connected: boolean;
   /** TX characteristic was discovered — lens is actually usable, not just OS-connected */
   txReady: boolean;
+  /**
+   * Link is up and the firmware answers control opcodes, but the last OP_TEXT
+   * went un-ACKed. The master lens defers the 0x4e ACK to its display thread
+   * (ble_process_req_dispatch.c:316 → display_dispatch_thread.c:703), so this
+   * means "display pipeline not rendering" (glasses in case / asleep) — NOT a
+   * BLE fault. Cleared on the next text ACK or on (re)connect. See #26.
+   */
+  displayIdle: boolean;
+  /**
+   * BLE link is up but the firmware is not responding at all (no 0x03 ACK, no
+   * events). Glasses are in the case / powered down. We hold the connection
+   * and wait for the first unsolicited frame instead of reconnect-looping. #27
+   */
+  asleep: boolean;
   batteryPct: number | null;
   rssi: number | null;
 }
@@ -123,16 +137,20 @@ export class G1Core {
   private _lastSilentAckAt: Record<Side, number> = { L: 0, R: 0 };
   private static readonly SILENT_ACK_REUSE_MS = 60_000;
   /**
-   * Consecutive OP_TEXT NACK counter per side.  Reset to 0 on any successful
-   * text ACK or on connect.  When it hits TEXT_NACK_RECONNECT_THRESHOLD we
-   * treat the lens as display-dead (firmware alive but not ACKing text) and
-   * force a reconnect via _onDisconnected.  This covers the case where iOS
-   * never fires onDisconnected but the firmware has silently stopped accepting
-   * display writes (observed in logs: R NACKs every 0x4e indefinitely after
-   * a cold scan while L connects fine).
+   * Consecutive OP_TEXT NACK counter per side — telemetry only. Reset to 0 on
+   * any successful text ACK or on connect.
+   *
+   * #24: this used to force _onDisconnected at threshold=1. That flapped R
+   * every 27 s (38×/session), dropped 2 queued lines per cycle, and recovered
+   * 0 times — because an un-ACKed 0x4e is a display-thread state, not a link
+   * fault (see LensState.displayIdle). We now surface it instead.
    */
   private _textNackCount: Record<Side, number> = { L: 0, R: 0 };
-  private static readonly TEXT_NACK_RECONNECT_THRESHOLD = 1;
+  /**
+   * #27: resolver for "first RX frame from this side", armed while a lens is
+   * asleep during init. Resolved by _onNotify (wake) or _onDisconnected (abort).
+   */
+  private _wakeWaiters: Record<Side, (() => void) | undefined> = { L: undefined, R: undefined };
   /**
    * Pending ACK resolvers. Key = "<side><opcode_hex>" (e.g. "L4e", "R15").
    * The firmware echoes the command opcode in data[0] and puts the status in
@@ -146,8 +164,8 @@ export class G1Core {
   }> = new Map();
 
   public status: G1Status = {
-    left:  { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
-    right: { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
+    left:  { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
+    right: { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
     firmwareVersion: null,
   };
 
@@ -499,6 +517,7 @@ export class G1Core {
   destroy(): void {
     this.destroyed = true;
     this._stopHeartbeat();
+    this._resolveWake('L'); this._resolveWake('R'); // #27: don't leave _connectLensInner parked forever
     clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
     clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
     this.rxSubs.L?.remove();
@@ -964,23 +983,30 @@ export class G1Core {
       // We previously sent silent(true) here believing it asserted display
       // ownership; it actually turned the display OFF. Same opcode, same
       // ACK path, so txReady gating is unchanged.
-      const silentOk = await this._sendForResult(side, P.silent(false), 12000);
-      if (!silentOk) {
-        this._log(`[G1] _connectLens [${side}] silent ACK failed — aborting init, will reconnect`);
-        this.txChars[side] = undefined;   // #21/#22: clear so _enqueueConnect can retry and UI shows no telemetry
-        // Also tear down the RX subscription — _connectLensInner guards on rxSubs
-        // being null to detect "not yet initialised". Leaving it set causes the
-        // reconnect attempt to hit the early-return and silently do nothing forever.
-        this.rxSubs[side]?.remove();
-        this.rxSubs[side] = undefined;
-        this._scheduleReconnect(side);
-        return;
+      let silentOk = await this._sendForResult(side, P.silent(false), 12000);
+      // #27: no 0x03 ACK means the firmware is asleep (in case / powered down),
+      // not that the link is bad — in the 2026-10-25 log both lenses were
+      // BLE-connected for 2.5 min with zero RX of any kind, then R emitted a
+      // 0xf5 event and ACK'd 0x03 100 ms later. Tearing down + rediscovering
+      // 12× per side bought nothing. Hold the link, wait for the first
+      // unsolicited frame, and retry the silent command.
+      while (!silentOk) {
+        if (this.destroyed || !this.rxSubs[side]) return; // _onDisconnected owns cleanup + reconnect
+        this._setAsleep(side, true);
+        this._log(`[G1] _connectLens [${side}] no silent ACK — firmware asleep, holding link until first RX`);
+        await this._waitForWake(side);
+        if (this.destroyed) return;
+        if (!this.rxSubs[side]) { this._scheduleReconnect(side); return; } // link dropped while asleep
+        this._log(`[G1] _connectLens [${side}] woke — re-sending silent(false)`);
+        this._lastSilentAt[side] = Date.now();
+        silentOk = await this._sendForResult(side, P.silent(false), 12000);
       }
+      this._setAsleep(side, false);
     }
 
     // Mark TX as ready only after init sequence is complete — the RX monitor
     // is already live (set up in the loop above) so ACKs are handled correctly.
-    this._textNackCount[side] = 0; // reset stale-display detector on clean connect
+    this._textNackCount[side] = 0; // fresh link — restart telemetry streak
     if (side === 'L') this.status.left.txReady = true;
     if (side === 'R') this.status.right.txReady = true;
     this._setConnected(side, true);
@@ -1008,6 +1034,8 @@ export class G1Core {
     this._drainAckWaiters(side);
     this._setConnected(side, false);
     this.txChars[side] = undefined;
+    // #27: rxSubs is nulled below, so the asleep-wait loop in
+    // _connectLensInner sees the drop and exits after we resolve it.
     // Tear down the RX subscription so _connectLensInner's rxSubs guard
     // doesn't mistake a stale subscription for "already initialised" and
     // silently skip the reconnect attempt. This is the same invariant as the
@@ -1015,6 +1043,7 @@ export class G1Core {
     // rxSubs null so the next _enqueueConnect enters _connectLensInner cleanly.
     this.rxSubs[side]?.remove();
     this.rxSubs[side] = undefined;
+    this._resolveWake(side);
     // Invalidate the silent-ACK reuse timestamp.  _onDisconnected is called
     // either on a genuine BLE disconnect or when we force-disconnect after
     // consecutive text NACKs (display-dead).  In both cases the firmware may
@@ -1102,6 +1131,7 @@ export class G1Core {
     if (!char?.value) return;
     const data = base64ToUint8(char.value);
     if (!data.length) return;
+    this._resolveWake(side); // #27: any frame from a sleeping lens means it woke
 
     const op = data[0];
     this._log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
@@ -1217,7 +1247,7 @@ export class G1Core {
       const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
       if (side === 'R') this.status.right.batteryPct = level;
-      this.onStatusChange?.({ left: { ...this.status.left }, right: { ...this.status.right }, firmwareVersion: this.status.firmwareVersion });
+      this._emitStatus();
       return;
     }
   }
@@ -1405,32 +1435,73 @@ export class G1Core {
     const ok = await ackPromise;
     if (!ok) {
       this._log(`[G1] _send [${side}] NACK op=0x${opHex}`);
-      // Track consecutive OP_TEXT NACKs.  If the firmware is alive but
-      // refusing display writes (e.g. R connects cleanly but never ACKs 0x4e),
-      // iOS won't fire onDisconnected — so we force the reconnect ourselves.
       if (data[0] === P.OP_TEXT) {
         this._textNackCount[side]++;
         this._log(`[G1] _send [${side}] consecutive text NACKs=${this._textNackCount[side]}`);
-        if (this._textNackCount[side] >= G1Core.TEXT_NACK_RECONNECT_THRESHOLD) {
-          this._textNackCount[side] = 0;
-          this._log(`[G1] _send [${side}] text NACK threshold hit — forcing reconnect`);
-          this._onDisconnected(side);
-        }
+        this._setDisplayIdle(side, true);
       }
     } else if (data[0] === P.OP_TEXT) {
-      // Successful text ACK — reset stale-display counter.
       this._textNackCount[side] = 0;
+      this._setDisplayIdle(side, false);
     }
   }
 
   /**
-   * Send to LEFT, await ACK, then send to RIGHT.
-   * This is the mandatory order required by the G1 firmware — sending both
-   * in parallel (Promise.all) results in dropped or corrupted frames.
+   * #26: flip LensState.displayIdle and notify subscribers. Only fires a status
+   * change on an actual transition so the UI doesn't re-render per line.
+   * Note: a NACK on a side that is already disconnected (drained waiter) must
+   * not mark it idle — _onDisconnected owns that state.
+   */
+  private _setDisplayIdle(side: Side, idle: boolean): void {
+    const lens = side === 'L' ? this.status.left : this.status.right;
+    if (lens.displayIdle === idle) return;
+    if (idle && !lens.txReady) return;
+    lens.displayIdle = idle;
+    this._log(`[G1] displayIdle [${side}] = ${idle}`);
+    this._emitStatus();
+  }
+
+  private _setAsleep(side: Side, asleep: boolean): void {
+    const lens = side === 'L' ? this.status.left : this.status.right;
+    if (lens.asleep === asleep) return;
+    lens.asleep = asleep;
+    this._log(`[G1] asleep [${side}] = ${asleep}`);
+    this._emitStatus();
+  }
+
+  /** #27: resolves on the next RX frame from `side`, or when the side disconnects. */
+  private _waitForWake(side: Side): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this._wakeWaiters[side]?.();
+      this._wakeWaiters[side] = resolve;
+    });
+  }
+
+  private _resolveWake(side: Side): void {
+    const w = this._wakeWaiters[side];
+    if (!w) return;
+    this._wakeWaiters[side] = undefined;
+    w();
+  }
+
+  /**
+   * Write to LEFT then RIGHT back-to-back; the queue gate is LEFT's ACK only.
+   *
+   * #25: the master lens defers its OP_TEXT ACK to the display thread, so a
+   * right lens whose display is idle holds the ACK for the full
+   * ACK_TIMEOUT_TEXT_MS. Awaiting it serially here throttled a *healthy* left
+   * lens to one line per 25 s (L ACKs arrived in bursts right after each R
+   * timeout). R's waiter still runs — logs, NACK counter and displayIdle all
+   * see its result — it just no longer blocks the next send.
+   *
+   * The two writes are still issued in L→R order on the wire; only the
+   * awaiting changed. sendBmp already issues both sides in parallel.
    */
   private async _sendBoth(data: Uint8Array): Promise<void> {
-    await this._send('L', data);
-    await this._send('R', data);
+    const left = this._send('L', data);
+    const right = this._send('R', data);
+    right.catch((e) => this._log(`[G1] _sendBoth [R] background send error: ${e?.message ?? e}`));
+    await left;
   }
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
@@ -1465,20 +1536,21 @@ export class G1Core {
     return s;
   }
 
-  private _setConnected(side: Side, connected: boolean): void {
-    if (side === 'L') {
-      this.status.left.connected = connected;
-      if (!connected) { this.status.left.rssi = null; this.status.left.txReady = false; }
-    }
-    if (side === 'R') {
-      this.status.right.connected = connected;
-      if (!connected) { this.status.right.rssi = null; this.status.right.txReady = false; }
-    }
+  private _emitStatus(): void {
     this.onStatusChange?.({
       left:  { ...this.status.left },
       right: { ...this.status.right },
       firmwareVersion: this.status.firmwareVersion,
     });
+  }
+
+  private _setConnected(side: Side, connected: boolean): void {
+    const lens = side === 'L' ? this.status.left : this.status.right;
+    lens.connected = connected;
+    lens.displayIdle = false; // #26: fresh link, no evidence yet either way
+    if (!connected) lens.asleep = false;
+    if (!connected) { lens.rssi = null; lens.txReady = false; }
+    this._emitStatus();
     // Issue #7: restart heartbeat whenever both lenses are now up — covers the
     // single-lens reconnect path (_scheduleReconnect → _connectLens) which never
     // called _startHeartbeat. _startHeartbeat calls _stopHeartbeat first so this

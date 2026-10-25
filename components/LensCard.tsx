@@ -15,6 +15,8 @@ export interface LensCardProps {
   side: 'L' | 'R';
   connected: boolean;   // BLE link up (includes stuck-in-init)
   txReady: boolean;     // fully initialised and ready to send
+  displayIdle: boolean; // #26: link fine, but firmware is not ACKing text (display not rendering)
+  asleep: boolean;      // #27: link fine, firmware silent — in case / powered down
   batteryPct: number | null;
   rssi: number | null;
   /** Full shared log buffer — filtered here by [L] / [R] tag */
@@ -44,13 +46,14 @@ async function shareSideLogs(side: 'L' | 'R', lines: string[]): Promise<void> {
   }
 }
 
-export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onDisconnect, onReconnect }: LensCardProps) {
+export function LensCard({ side, connected, txReady, displayIdle, asleep, batteryPct, rssi, logs, onDisconnect, onReconnect }: LensCardProps) {
   const [showLogs, setShowLogs] = useState(false);
 
   const label      = side === 'L' ? 'Left lens' : 'Right lens';
+  const idle       = txReady && displayIdle;
   const dot        = txReady ? '●' : connected ? '◐' : '○';
-  const dotStyle   = txReady ? s.green : connected ? s.yellow : s.muted;
-  const stateLabel = txReady ? 'Ready' : connected ? 'Connecting…' : 'Disconnected';
+  const dotStyle   = idle ? s.yellow : txReady ? s.green : connected ? s.yellow : s.muted;
+  const stateLabel = idle ? 'Display idle' : txReady ? 'Ready' : connected ? (asleep ? 'Asleep' : 'Connecting…') : 'Disconnected';
 
   // Both buttons always rendered; disabled state communicated via opacity only
   const canDisconnect = connected || txReady;
@@ -66,6 +69,13 @@ export function LensCard({ side, connected, txReady, batteryPct, rssi, logs, onD
         <Text style={s.label}>{label}</Text>
         <Text style={[s.state, dotStyle]}>{dot} {stateLabel}</Text>
       </View>
+
+      {idle && (
+        <Text style={s.hint}>Link is up but this lens isn't rendering text — glasses in the case or asleep?</Text>
+      )}
+      {connected && !txReady && asleep && (
+        <Text style={s.hint}>Connected, but the glasses aren't responding — take them out of the case to wake them.</Text>
+      )}
 
       {/* Battery + RSSI chips — batt shown when txReady; rssi shown whenever known (dimmed if stale) */}
       <View style={s.meta}>
@@ -131,6 +141,7 @@ const s = StyleSheet.create({
   state:          { fontSize: 13 },
   green:          { color: '#00c47a' },
   yellow:         { color: '#f5c542' },
+  hint:           { color: '#888', fontSize: 12, marginTop: 4 },
   muted:          { color: '#555' },
   meta:           { flexDirection: 'row', gap: 10, marginTop: 6 },
   chip:           { color: '#888', fontSize: 12 },

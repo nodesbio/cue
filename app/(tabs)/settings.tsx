@@ -111,6 +111,8 @@ export default function SettingsScreen() {
                   side={side}
                   connected={!!lensStatus?.connected}
                   txReady={!!lensStatus?.txReady}
+                  displayIdle={!!lensStatus?.displayIdle}
+                  asleep={!!lensStatus?.asleep}
                   batteryPct={(side === 'L' ? battL : battR) ?? null}
                   rssi={(side === 'L' ? rssiL : rssiR) ?? null}
                   logs={logs}

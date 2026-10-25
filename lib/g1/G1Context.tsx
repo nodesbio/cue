@@ -31,8 +31,8 @@ function isBleAvailable(): boolean {
 function makeStubCore(): G1Core {
   return {
     status: {
-      left:  { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
-      right: { device: null, connected: false, txReady: false, batteryPct: null, rssi: null },
+      left:  { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
+      right: { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
       firmwareVersion: null,
     },
     // Connection

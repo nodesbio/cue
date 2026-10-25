@@ -21,7 +21,10 @@ const TIPS = [
 export default function PairingConnectingScreen() {
   const router = useRouter();
   const { serial, returnTo } = useLocalSearchParams<{ serial: string; returnTo?: string }>();
-  const { connect, core } = useG1();
+  const { connect, core, status } = useG1();
+  // #27: connect() now holds the link while the firmware is asleep rather than
+  // reconnect-looping — tell the user why the bar has stalled.
+  const asleep = !!(status?.left.asleep || status?.right.asleep);
   const [tipIndex, setTipIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -105,6 +108,8 @@ export default function PairingConnectingScreen() {
               <Text style={s.retryText}>Try again</Text>
             </Pressable>
           </>
+        ) : asleep ? (
+          <Text style={s.tip}>Glasses found but not responding — take them out of the case to wake them.</Text>
         ) : (
           <Text style={s.tip}>{TIPS[tipIndex]}</Text>
         )}
