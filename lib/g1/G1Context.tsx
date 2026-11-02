@@ -8,6 +8,7 @@
  *   - On mount, auto-reconnects to the last paired serial (if any).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { G1Core, G1Status, EventHandler } from './G1Core';
 import { smartRemoteManager } from './SmartRemoteManager';
@@ -81,9 +82,16 @@ function _addLog(line: string) {
   _logListeners.forEach(fn => fn());
 }
 
+// Build stamp — appVersionSource=remote means app.json's buildNumber is NOT
+// what's in the binary; nativeBuildVersion is the real CFBundleVersion.
+// Without this, a shared log can't be matched to an EAS build/commit (the
+// 2026-10-25 logs were triaged against a fix that wasn't in that binary).
+const BUILD_STAMP = `cue ${Constants.nativeAppVersion ?? '?'} (${Constants.nativeBuildVersion ?? '?'}) ${Constants.expoConfig?.runtimeVersion ?? ''}`.trim();
+_addLog(`[BUILD] ${BUILD_STAMP}`);
+
 /** Returns the full log buffer as a single newline-joined string (for sharing). */
 export function getLogsText(): string {
-  return _logBuffer.join('\n');
+  return [`[BUILD] ${BUILD_STAMP}`, ..._logBuffer].join('\n');
 }
 
 /** Clears the log buffer and notifies all listeners. */

@@ -1,0 +1,1000 @@
+14:56:07.000  [G1] RX found [R] notifiable=true
+14:56:07.234  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+14:56:07.260  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+14:56:07.385  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+14:56:07.893  [G1 RX R] op=0x2c len=20 raw=2c 66 4b 2c d4 86 16 01 06 06 01 06 06 00 00 00 00 00 00 00
+14:56:07.894  [G1] BATTERY raw [R]: 2c 66 4b 2c d4 86 16 01 06 06 01 06 06 00 00 00 00 00 00 00
+14:56:08.133  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+14:56:08.133  [G1 EVENT R] subcmd=0x11 name="status_ping"
+14:56:09.423  [G1 RX R] op=0xf5 len=21 raw=f5 0a 4b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+14:56:09.423  [G1 EVENT R] subcmd=0x0a name="battery"
+14:56:10.653  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+14:56:10.654  [G1 EVENT R] subcmd=0x09 name="charging"
+14:56:16.835  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+14:56:16.939  [G1 RX R] op=0x2c len=20 raw=2c 66 4b 2c d4 84 16 01 06 06 01 06 06 00 00 00 00 00 00 00
+14:56:16.940  [G1] BATTERY raw [R]: 2c 66 4b 2c d4 84 16 01 06 06 01 06 06 00 00 00 00 00 00 00
+14:57:39.703  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+14:57:39.704  [G1] _send [R] DROP op=0x2c — txChars=false dev=true txReady=false
+15:02:26.223  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+15:02:26.224  [G1] _send [R] DROP op=0x2c — txChars=false dev=true txReady=false
+17:03:23.858  [G1] RX found [R] notifiable=true
+17:03:24.095  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:24.127  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:03:24.277  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:24.277  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:24.277  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:03:24.697  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 86 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:03:24.698  [G1] BATTERY raw [R]: 2c 66 47 28 cf 86 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:03:25.506  [G1 RX R] op=0xf5 len=21 raw=f5 06 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:25.506  [G1 EVENT R] subcmd=0x06 name="glasses_worn"
+17:03:25.635  [G1] sendTestDisplay txReady L=false R=true
+17:03:25.649  [G1] _send [L] DROP op=0x03 — txChars=false dev=true txReady=false
+17:03:25.650  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:03:25.746  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:25.746  [G1] OP_SILENT late ACK [R] — recorded for next _connectLens
+17:03:25.986  [G1 RX R] op=0x4e len=21 raw=4e c9 a5 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:26.735  [G1] sendTestDisplay txReady L=false R=true
+17:03:26.749  [G1] _send [L] DROP op=0x03 — txChars=false dev=true txReady=false
+17:03:26.749  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:03:26.826  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:26.826  [G1] OP_SILENT late ACK [R] — recorded for next _connectLens
+17:03:26.856  [G1 RX R] op=0xf5 len=21 raw=f5 0a 47 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:26.857  [G1 EVENT R] subcmd=0x0a name="battery"
+17:03:27.068  [G1] sendTestDisplay txReady L=false R=true
+17:03:27.084  [G1] _send [L] DROP op=0x03 — txChars=false dev=true txReady=false
+17:03:27.084  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:03:27.084  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:03:27.096  [G1 RX R] op=0x4e len=21 raw=4e c9 a6 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:27.126  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:27.126  [G1] OP_SILENT late ACK [R] — recorded for next _connectLens
+17:03:27.251  [G1] sendTestDisplay txReady L=false R=true
+17:03:27.260  [G1] _send [L] DROP op=0x03 — txChars=false dev=true txReady=false
+17:03:27.260  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:03:27.755  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:27.755  [G1] OP_SILENT late ACK [R] — recorded for next _connectLens
+17:03:27.906  [G1 RX R] op=0x4e len=21 raw=4e c9 a7 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:28.058  [G1 RX R] op=0x4e len=21 raw=4e c9 a8 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:28.566  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:28.566  [G1 EVENT R] subcmd=0x09 name="charging"
+17:03:29.833  [G1 RX R] op=0xf5 len=21 raw=f5 12 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:29.833  [G1 EVENT R] subcmd=0x12 name="unknown"
+17:03:35.689  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:35.689  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:03:38.552  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:03:38.583  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 ce 91 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:03:38.583  [G1] BATTERY raw [R]: 2c 66 47 28 ce 91 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:03:42.377  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:42.378  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:03:43.007  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:43.008  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:03:43.008  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:03:43.051  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:43.052  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:03:43.052  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:03:43.561  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:43.561  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:03:43.562  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:03:43.562  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:03:43.562  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:03:43.607  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:43.607  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:03:44.160  [G1 RX R] op=0x4e len=21 raw=4e c9 aa 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:44.207  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:52.104  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:03:52.104  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:04:20.558  [G1] RX found [R] notifiable=true
+17:04:20.880  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:20.922  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:04:20.971  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:21.303  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:21.304  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:04:21.572  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 88 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:04:21.572  [G1] BATTERY raw [R]: 2c 66 47 28 cf 88 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:04:22.590  [G1 RX R] op=0xf5 len=21 raw=f5 0a 47 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:22.591  [G1 EVENT R] subcmd=0x0a name="battery"
+17:04:23.084  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:04:23.131  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 92 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:04:23.132  [G1] BATTERY raw [R]: 2c 66 47 28 cf 92 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:04:23.791  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:23.791  [G1 EVENT R] subcmd=0x09 name="charging"
+17:04:30.796  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:30.797  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:04:31.396  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:31.396  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:04:31.396  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:04:31.441  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:31.441  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:04:31.499  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:31.499  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:04:31.499  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:04:31.500  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:04:31.500  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:04:31.500  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:04:31.981  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:32.011  [G1 RX R] op=0x4e len=21 raw=4e c9 ac 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:32.746  [G1 RX R] op=0xf5 len=21 raw=f5 12 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:32.746  [G1 EVENT R] subcmd=0x12 name="unknown"
+17:04:40.486  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:40.486  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:04:41.972  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:41.972  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:04:41.972  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:04:42.016  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:42.016  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:04:42.017  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:04:42.511  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:42.512  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:04:42.512  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:04:42.512  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:04:42.513  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:04:43.126  [G1 RX R] op=0x4e len=21 raw=4e c9 ae 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:43.153  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:51.092  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:51.093  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:04:51.885  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:51.886  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:04:51.961  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:51.961  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:04:51.962  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:04:51.962  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:04:52.787  [G1 RX R] op=0x4e len=21 raw=4e c9 af 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:52.788  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:52.895  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:52.895  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:04:54.782  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:04:54.782  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:04:55.455  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:04:55.502  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 ce 8d 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:04:55.502  [G1] BATTERY raw [R]: 2c 66 47 28 ce 8d 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:05:00.781  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:00.781  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:05:02.818  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:02.818  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:05:03.347  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:03.347  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:05:03.347  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:05:03.391  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:03.392  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:05:03.392  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:05:03.886  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:03.886  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:05:03.886  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:05:03.887  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:05:03.887  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:05:03.888  [G1 RX R] op=0x4e len=21 raw=4e c9 b0 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:03.945  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:03.946  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:05:04.546  [G1 RX R] op=0x4e len=21 raw=4e c9 b1 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:04.567  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:12.511  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:12.512  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:05:18.782  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:18.782  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:05:19.426  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:19.426  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:05:19.427  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:05:19.470  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:19.471  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:05:19.471  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:05:19.982  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:19.982  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:05:19.982  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:05:19.982  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:05:19.983  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:05:20.596  [G1 RX R] op=0x4e len=21 raw=4e c9 b3 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:20.625  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:22.245  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:22.246  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:05:27.836  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:05:27.886  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cd 93 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:05:27.886  [G1] BATTERY raw [R]: 2c 66 47 28 cd 93 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:05:28.546  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:05:28.546  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:06:04.439  [G1] RX found [R] notifiable=true
+17:06:04.614  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:04.646  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:06:04.734  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:05.274  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 8e 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:06:05.274  [G1] BATTERY raw [R]: 2c 66 47 28 cf 8e 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:06:05.363  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:05.363  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:06:06.593  [G1 RX R] op=0xf5 len=21 raw=f5 0a 47 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:06.594  [G1 EVENT R] subcmd=0x0a name="battery"
+17:06:07.883  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:07.883  [G1 EVENT R] subcmd=0x09 name="charging"
+17:06:15.211  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:06:15.252  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 86 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:06:15.252  [G1] BATTERY raw [R]: 2c 66 47 28 cf 86 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:06:38.027  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:38.027  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:06:38.679  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:38.680  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:06:38.680  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:06:38.709  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:38.710  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:06:38.727  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:06:39.204  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:39.204  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:06:39.205  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:06:39.205  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:06:39.205  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:06:39.805  [G1 RX R] op=0x4e len=21 raw=4e c9 b4 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:39.836  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:39.911  [G1 RX R] op=0x4e len=21 raw=4e c9 b5 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:40.480  [G1 RX R] op=0xf5 len=21 raw=f5 12 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:40.480  [G1 EVENT R] subcmd=0x12 name="unknown"
+17:06:40.764  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:40.764  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:06:47.815  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:06:47.815  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:06:54.175  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:06:54.220  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 84 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:06:54.221  [G1] BATTERY raw [R]: 2c 66 47 28 cf 84 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:07:29.879  [G1] RX found [R] notifiable=true
+17:07:30.085  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:30.116  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:07:30.206  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:30.625  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:30.625  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:07:30.775  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 86 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:07:30.775  [G1] BATTERY raw [R]: 2c 66 47 28 cf 86 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:07:31.855  [G1 RX R] op=0xf5 len=21 raw=f5 0a 47 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:31.855  [G1 EVENT R] subcmd=0x0a name="battery"
+17:07:33.294  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:33.295  [G1 EVENT R] subcmd=0x09 name="charging"
+17:07:40.487  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:07:40.524  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 84 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:07:40.525  [G1] BATTERY raw [R]: 2c 66 47 28 cf 84 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:07:49.135  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:49.135  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:07:49.795  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:49.795  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:07:49.796  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:07:49.826  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:49.826  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:07:49.849  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:49.849  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:07:49.849  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:07:50.319  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:50.319  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:07:50.319  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:07:50.320  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:07:50.320  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:07:50.905  [G1 RX R] op=0x4e len=21 raw=4e c9 b6 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:51.416  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:51.581  [G1 RX R] op=0xf5 len=21 raw=f5 12 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:07:51.581  [G1 EVENT R] subcmd=0x12 name="unknown"
+17:08:05.427  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:05.427  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:08:05.995  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:05.995  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:08:05.995  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:08:06.040  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:06.041  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:08:06.042  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:08:06.535  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:06.535  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:08:06.535  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:08:06.536  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:08:06.536  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:08:07.103  [G1 RX R] op=0x4e len=21 raw=4e c9 b8 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:07.103  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:07.103  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:08:07.195  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:07.270  [G1 RX R] op=0x4e len=21 raw=4e c9 b9 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:13.510  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:08:13.540  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 ce 8d 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:08:13.541  [G1] BATTERY raw [R]: 2c 66 47 28 ce 8d 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:08:15.131  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:15.131  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:08:49.649  [G1] RX found [R] notifiable=true
+17:08:49.855  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:49.893  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:08:49.975  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:50.274  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:50.275  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:08:50.755  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:50.756  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:08:50.756  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:08:50.756  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:08:50.758  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cf 89 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:08:50.758  [G1] BATTERY raw [R]: 2c 66 47 28 cf 89 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:08:50.845  [G1 RX R] op=0x4e len=21 raw=4e c9 ba 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:51.625  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:51.955  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:51.955  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:08:53.216  [G1 RX R] op=0xf5 len=21 raw=f5 0a 47 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:53.216  [G1 EVENT R] subcmd=0x0a name="battery"
+17:08:54.460  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:54.461  [G1 EVENT R] subcmd=0x09 name="charging"
+17:08:55.721  [G1 RX R] op=0xf5 len=21 raw=f5 12 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:55.721  [G1 EVENT R] subcmd=0x12 name="unknown"
+17:08:59.545  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:08:59.545  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:09:00.206  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:09:00.254  [G1 RX R] op=0x2c len=20 raw=2c 66 47 28 cc 90 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:09:00.254  [G1] BATTERY raw [R]: 2c 66 47 28 cc 90 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:09:22.324  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:22.324  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:09:22.839  [G1 RX R] op=0xf5 len=21 raw=f5 1e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:22.840  [G1 EVENT R] subcmd=0x1e name="dashboard_open"
+17:09:22.840  [G1] display takeover event "dashboard_open" [R] — re-asserting silent
+17:09:22.885  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:22.885  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:09:22.885  [G1 RX R] op=0x22 len=10 raw=22 0a 00 00 01 00 00 00 00 01
+17:09:23.381  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:23.381  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:09:23.381  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:09:23.382  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:09:23.382  [G1] _send [R] evicted stale ACK waiter op=0x4e
+17:09:23.382  [G1 RX R] op=0x4e len=21 raw=4e c9 bb 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:23.455  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:23.455  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:09:24.039  [G1 RX R] op=0x4e len=21 raw=4e c9 bc 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:24.055  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:32.126  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:32.126  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:09:35.657  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:09:35.658  [G1 EVENT R] subcmd=0x0a name="battery"
+17:09:38.466  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:09:38.515  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 ce 88 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:09:38.515  [G1] BATTERY raw [R]: 2c 66 46 28 ce 88 1d 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:10:16.469  [G1] RX found [R] notifiable=true
+17:10:16.764  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:10:16.798  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:10:16.884  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:10:17.485  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:10:17.486  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:10:17.543  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 87 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:10:17.543  [G1] BATTERY raw [R]: 2c 66 46 28 cf 87 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:10:18.656  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:10:18.656  [G1 EVENT R] subcmd=0x0a name="battery"
+17:10:19.945  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:10:19.945  [G1 EVENT R] subcmd=0x09 name="charging"
+17:10:25.961  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:10:26.020  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 86 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:10:26.020  [G1] BATTERY raw [R]: 2c 66 46 28 cf 86 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:11:03.719  [G1] RX found [R] notifiable=true
+17:11:03.955  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:03.992  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:11:04.074  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:04.254  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:04.254  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:11:04.645  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 86 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:11:04.645  [G1] BATTERY raw [R]: 2c 66 46 28 cf 86 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:11:05.545  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:05.546  [G1 EVENT R] subcmd=0x0a name="battery"
+17:11:06.806  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:06.806  [G1 EVENT R] subcmd=0x09 name="charging"
+17:11:12.792  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:11:12.835  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 88 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:11:12.835  [G1] BATTERY raw [R]: 2c 66 46 28 cf 88 1c 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:11:39.981  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:39.981  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:11:40.256  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:40.256  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:11:40.329  [G1 RX R] op=0xf5 len=21 raw=f5 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:40.330  [G1 EVENT R] subcmd=0x1f name="dashboard_close"
+17:11:40.330  [G1] display takeover event "dashboard_close" [R] — re-asserting silent
+17:11:40.330  [G1] _send [L] DROP op=0x4e — txChars=false dev=true txReady=false
+17:11:40.465  [G1 RX R] op=0x4e len=21 raw=4e c9 bd 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:41.170  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:41.425  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:41.425  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:11:41.770  [G1 RX R] op=0xf5 len=21 raw=f5 12 2a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:41.770  [G1 EVENT R] subcmd=0x12 name="unknown"
+17:11:42.536  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:42.536  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:11:43.990  [G1 RX R] op=0xf5 len=21 raw=f5 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:43.990  [G1 EVENT R] subcmd=0x02 name="head_up"
+17:11:45.881  [G1 RX R] op=0xf5 len=21 raw=f5 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:45.881  [G1 EVENT R] subcmd=0x03 name="head_down"
+17:11:49.300  [G1 RX R] op=0xf5 len=21 raw=f5 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:11:49.301  [G1 EVENT R] subcmd=0x00 name="double_tap"
+17:11:56.127  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:11:56.186  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 ce 8e 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:11:56.187  [G1] BATTERY raw [R]: 2c 66 46 28 ce 8e 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:12:31.890  [G1] RX found [R] notifiable=true
+17:12:32.126  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:12:32.157  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:12:32.216  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:12:32.696  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 84 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:12:32.697  [G1] BATTERY raw [R]: 2c 66 46 28 cf 84 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:12:32.786  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:12:32.786  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:12:34.046  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:12:34.046  [G1 EVENT R] subcmd=0x0a name="battery"
+17:12:35.726  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:12:35.726  [G1 EVENT R] subcmd=0x09 name="charging"
+17:12:42.582  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:12:42.612  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 91 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:12:42.613  [G1] BATTERY raw [R]: 2c 66 46 28 cf 91 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:13:19.142  [G1] RX found [R] notifiable=true
+17:13:19.346  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:13:19.380  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:13:19.436  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:13:19.615  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:13:19.616  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:13:19.885  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 ce 88 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:13:19.886  [G1] BATTERY raw [R]: 2c 66 46 28 ce 88 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:13:20.936  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:13:20.936  [G1 EVENT R] subcmd=0x0a name="battery"
+17:13:22.227  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:13:22.227  [G1 EVENT R] subcmd=0x09 name="charging"
+17:13:29.518  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:13:29.546  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 97 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:13:29.546  [G1] BATTERY raw [R]: 2c 66 46 28 cf 97 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:05.943  [G1] RX found [R] notifiable=true
+17:14:06.145  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:06.181  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:14:06.265  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:06.385  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:06.385  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:14:06.777  [G1 RX R] op=0x2c len=20 raw=2c 66 46 28 cf 86 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:06.777  [G1] BATTERY raw [R]: 2c 66 46 28 cf 86 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:07.645  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:07.646  [G1 EVENT R] subcmd=0x0a name="battery"
+17:14:08.935  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:08.936  [G1 EVENT R] subcmd=0x09 name="charging"
+17:14:11.419  [G1 RX R] op=0xf5 len=21 raw=f5 07 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:11.419  [G1 EVENT R] subcmd=0x07 name="glasses_off"
+17:14:16.203  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:14:16.233  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 87 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:16.234  [G1] BATTERY raw [R]: 2c 66 46 27 cf 87 1b 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:52.526  [G1] RX found [R] notifiable=true
+17:14:52.766  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:52.796  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:14:52.855  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:53.153  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:53.153  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:14:53.396  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 86 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:53.396  [G1] BATTERY raw [R]: 2c 66 46 27 cf 86 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:14:54.413  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:54.413  [G1 EVENT R] subcmd=0x0a name="battery"
+17:14:55.673  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:14:55.673  [G1 EVENT R] subcmd=0x09 name="charging"
+17:15:03.137  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:15:03.176  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 8e 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:15:03.177  [G1] BATTERY raw [R]: 2c 66 46 27 cf 8e 1a 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:15:39.753  [G1] RX found [R] notifiable=true
+17:15:39.895  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:15:39.896  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:15:39.955  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:15:39.985  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:15:40.075  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:15:40.615  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 91 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:15:40.615  [G1] BATTERY raw [R]: 2c 66 46 27 cf 91 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:15:41.154  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:15:41.154  [G1 EVENT R] subcmd=0x0a name="battery"
+17:15:42.413  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:15:42.414  [G1 EVENT R] subcmd=0x09 name="charging"
+17:15:49.899  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:15:49.945  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:15:49.946  [G1] BATTERY raw [R]: 2c 66 46 27 cf 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:16:25.707  [G1] RX found [R] notifiable=true
+17:16:26.063  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:16:26.093  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:16:26.155  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:16:26.663  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:16:26.664  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:16:26.685  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:16:26.686  [G1] BATTERY raw [R]: 2c 66 46 27 cf 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:16:27.893  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:16:27.893  [G1 EVENT R] subcmd=0x0a name="battery"
+17:16:29.123  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:16:29.124  [G1 EVENT R] subcmd=0x09 name="charging"
+17:16:36.676  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:16:36.730  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:16:36.730  [G1] BATTERY raw [R]: 2c 66 46 27 cf 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:17:13.017  [G1] RX found [R] notifiable=true
+17:17:13.225  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:17:13.256  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:17:13.313  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:17:13.313  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:17:13.345  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:17:13.825  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:17:13.825  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:17:14.573  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:17:14.573  [G1 EVENT R] subcmd=0x0a name="battery"
+17:17:15.863  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:17:15.863  [G1 EVENT R] subcmd=0x09 name="charging"
+17:17:23.412  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:17:23.455  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 8e 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:17:23.455  [G1] BATTERY raw [R]: 2c 66 46 27 cf 8e 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:17:59.697  [G1] RX found [R] notifiable=true
+17:17:59.936  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:17:59.969  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:18:00.055  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:00.086  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:00.086  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:18:00.535  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:00.535  [G1] BATTERY raw [R]: 2c 66 46 27 cf 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:01.433  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:01.433  [G1 EVENT R] subcmd=0x0a name="battery"
+17:18:02.664  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:02.664  [G1 EVENT R] subcmd=0x09 name="charging"
+17:18:10.093  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:18:10.136  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:10.137  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:45.957  [G1] RX found [R] notifiable=true
+17:18:46.165  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:46.196  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:18:46.286  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:46.765  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:46.766  [G1] BATTERY raw [R]: 2c 66 46 27 cf 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:46.914  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:46.914  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:18:48.174  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:48.174  [G1 EVENT R] subcmd=0x0a name="battery"
+17:18:49.433  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:18:49.433  [G1 EVENT R] subcmd=0x09 name="charging"
+17:18:56.762  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:18:56.797  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:18:56.797  [G1] BATTERY raw [R]: 2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:19:33.058  [G1] RX found [R] notifiable=true
+17:19:33.266  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:19:33.298  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:19:33.385  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:19:33.684  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:19:33.684  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:19:33.866  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:19:33.866  [G1] BATTERY raw [R]: 2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:19:34.884  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:19:34.884  [G1 EVENT R] subcmd=0x0a name="battery"
+17:19:36.144  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:19:36.144  [G1 EVENT R] subcmd=0x09 name="charging"
+17:19:43.745  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:19:43.796  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:19:43.796  [G1] BATTERY raw [R]: 2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:20:23.552  [G1] RX found [R] notifiable=true
+17:20:23.755  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:20:23.785  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:20:23.877  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:20:24.203  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:20:24.203  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:20:24.356  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:20:24.356  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:20:25.554  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:20:25.554  [G1 EVENT R] subcmd=0x0a name="battery"
+17:20:26.784  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:20:26.785  [G1 EVENT R] subcmd=0x09 name="charging"
+17:20:30.299  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:20:30.326  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:20:30.326  [G1] BATTERY raw [R]: 2c 66 46 27 cf 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:06.958  [G1] RX found [R] notifiable=true
+17:21:07.164  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:07.164  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:21:07.195  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:07.224  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:21:07.316  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:07.826  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:07.826  [G1] BATTERY raw [R]: 2c 66 46 27 cf 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:08.423  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:08.424  [G1 EVENT R] subcmd=0x0a name="battery"
+17:21:09.654  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:09.654  [G1 EVENT R] subcmd=0x09 name="charging"
+17:21:17.161  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:21:17.186  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:17.186  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:53.127  [G1] RX found [R] notifiable=true
+17:21:53.336  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:53.369  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:21:53.456  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:53.874  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:53.874  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:21:54.026  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:54.026  [G1] BATTERY raw [R]: 2c 66 46 27 cf 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:21:55.136  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:55.136  [G1 EVENT R] subcmd=0x0a name="battery"
+17:21:56.484  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:21:56.484  [G1 EVENT R] subcmd=0x09 name="charging"
+17:22:03.706  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:22:03.747  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:22:03.747  [G1] BATTERY raw [R]: 2c 66 46 27 cf 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:22:40.198  [G1] RX found [R] notifiable=true
+17:22:40.435  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:22:40.451  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:22:40.496  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:22:40.706  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:22:40.706  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:22:41.191  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:22:41.191  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:22:42.055  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:22:42.055  [G1 EVENT R] subcmd=0x0a name="battery"
+17:22:43.316  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:22:43.316  [G1 EVENT R] subcmd=0x09 name="charging"
+17:22:50.732  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:22:50.772  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 87 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:22:50.772  [G1] BATTERY raw [R]: 2c 66 46 27 ce 87 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:23:26.879  [G1] RX found [R] notifiable=true
+17:23:27.117  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:23:27.147  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:23:27.207  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:23:27.565  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:23:27.565  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:23:27.747  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:23:27.747  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:23:28.765  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:23:28.765  [G1 EVENT R] subcmd=0x0a name="battery"
+17:23:30.026  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:23:30.027  [G1 EVENT R] subcmd=0x09 name="charging"
+17:23:37.468  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:23:37.497  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:23:37.498  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:24:13.745  [G1] RX found [R] notifiable=true
+17:24:13.947  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:24:13.963  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:24:14.066  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:24:14.337  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:24:14.337  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:24:14.547  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:24:14.547  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:24:15.595  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:24:15.596  [G1 EVENT R] subcmd=0x0a name="battery"
+17:24:16.825  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:24:16.826  [G1 EVENT R] subcmd=0x09 name="charging"
+17:24:24.126  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:24:24.171  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:24:24.171  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:00.218  [G1] RX found [R] notifiable=true
+17:25:00.426  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:00.458  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:25:00.516  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:01.024  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:01.024  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:25:01.056  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 cf 8e 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:01.056  [G1] BATTERY raw [R]: 2c 66 46 27 cf 8e 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:02.314  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:02.314  [G1 EVENT R] subcmd=0x0a name="battery"
+17:25:03.574  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:03.574  [G1 EVENT R] subcmd=0x09 name="charging"
+17:25:10.912  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:25:10.940  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 87 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:10.940  [G1] BATTERY raw [R]: 2c 66 46 27 ce 87 17 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:46.958  [G1] RX found [R] notifiable=true
+17:25:47.167  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:47.201  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:25:47.287  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:47.765  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:47.765  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:25:47.786  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:47.786  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:49.025  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:49.025  [G1 EVENT R] subcmd=0x0a name="battery"
+17:25:50.254  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:25:50.255  [G1 EVENT R] subcmd=0x09 name="charging"
+17:25:57.573  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:25:57.607  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:25:57.607  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:26:33.519  [G1] RX found [R] notifiable=true
+17:26:33.756  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:26:33.789  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:26:33.846  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:26:34.387  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:26:34.387  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:26:34.534  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:26:34.535  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:26:35.827  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:26:35.827  [G1 EVENT R] subcmd=0x0a name="battery"
+17:26:37.147  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:26:37.147  [G1 EVENT R] subcmd=0x09 name="charging"
+17:26:44.412  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:26:44.437  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 8e 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:26:44.437  [G1] BATTERY raw [R]: 2c 66 46 27 ce 8e 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:27:20.529  [G1] RX found [R] notifiable=true
+17:27:20.766  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:27:20.797  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:27:20.857  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:27:21.365  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:27:21.365  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:27:21.396  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 8e 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:27:21.396  [G1] BATTERY raw [R]: 2c 66 46 27 ce 8e 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:27:22.685  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:27:22.686  [G1 EVENT R] subcmd=0x0a name="battery"
+17:27:23.885  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:27:23.885  [G1 EVENT R] subcmd=0x09 name="charging"
+17:27:31.170  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:27:31.222  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:27:31.222  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:07.666  [G1] RX found [R] notifiable=true
+17:28:07.867  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:07.900  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:28:07.957  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:08.075  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:08.075  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:28:08.468  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:08.469  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:09.336  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:09.336  [G1 EVENT R] subcmd=0x0a name="battery"
+17:28:10.596  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:10.596  [G1 EVENT R] subcmd=0x09 name="charging"
+17:28:17.959  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:28:18.007  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:18.007  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:54.280  [G1] RX found [R] notifiable=true
+17:28:54.517  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:54.537  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:28:54.577  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:54.845  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:54.845  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:28:55.177  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:55.177  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:28:56.138  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:56.139  [G1 EVENT R] subcmd=0x0a name="battery"
+17:28:57.336  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:28:57.336  [G1 EVENT R] subcmd=0x09 name="charging"
+17:29:04.727  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:29:04.761  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:29:04.761  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:29:40.479  [G1] RX found [R] notifiable=true
+17:29:40.657  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:29:40.690  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:29:40.747  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:29:41.287  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:29:41.288  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:29:41.618  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:29:41.619  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:29:42.906  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:29:42.906  [G1 EVENT R] subcmd=0x0a name="battery"
+17:29:44.136  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:29:44.136  [G1 EVENT R] subcmd=0x09 name="charging"
+17:29:51.427  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:29:51.459  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:29:51.459  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:30:27.648  [G1] RX found [R] notifiable=true
+17:30:27.847  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:30:27.878  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:30:27.968  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:30:28.326  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:30:28.327  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:30:28.478  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:30:28.478  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:30:29.646  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:30:29.646  [G1 EVENT R] subcmd=0x0a name="battery"
+17:30:30.846  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:30:30.846  [G1 EVENT R] subcmd=0x09 name="charging"
+17:30:38.229  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:30:38.259  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:30:38.259  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:31:14.869  [G1] RX found [R] notifiable=true
+17:31:15.068  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:31:15.102  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:31:15.157  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:31:15.157  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:31:15.189  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:31:15.698  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:31:15.698  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:31:16.418  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:31:16.418  [G1 EVENT R] subcmd=0x0a name="battery"
+17:31:17.766  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:31:17.766  [G1 EVENT R] subcmd=0x09 name="charging"
+17:31:25.025  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:31:25.073  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:31:25.073  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:00.988  [G1] RX found [R] notifiable=true
+17:32:01.224  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:01.259  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:32:01.344  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:01.883  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 87 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:01.884  [G1] BATTERY raw [R]: 2c 66 46 27 ce 87 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:01.941  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:01.942  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:32:03.202  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:03.202  [G1 EVENT R] subcmd=0x0a name="battery"
+17:32:04.492  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:04.492  [G1 EVENT R] subcmd=0x09 name="charging"
+17:32:11.816  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:32:11.858  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:11.859  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:47.761  [G1] RX found [R] notifiable=true
+17:32:47.993  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:48.031  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:32:48.113  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:48.654  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:48.655  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:48.712  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:48.712  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:32:49.972  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:49.972  [G1 EVENT R] subcmd=0x0a name="battery"
+17:32:51.231  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:32:51.232  [G1 EVENT R] subcmd=0x09 name="charging"
+17:32:58.592  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:32:58.629  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 87 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:32:58.629  [G1] BATTERY raw [R]: 2c 66 46 27 ce 87 18 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:33:34.766  [G1] RX found [R] notifiable=true
+17:33:35.004  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:33:35.037  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:33:35.124  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:33:35.482  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:33:35.482  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:33:35.665  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 91 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:33:35.665  [G1] BATTERY raw [R]: 2c 66 46 27 ce 91 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:33:36.742  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:33:36.742  [G1 EVENT R] subcmd=0x0a name="battery"
+17:33:38.034  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:33:38.034  [G1 EVENT R] subcmd=0x09 name="charging"
+17:33:45.385  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:33:45.443  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:33:45.444  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:34:21.926  [G1] RX found [R] notifiable=true
+17:34:22.135  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:34:22.169  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:34:22.195  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:34:22.195  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:34:22.224  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:34:22.852  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:34:22.853  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:34:23.454  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:34:23.454  [G1 EVENT R] subcmd=0x0a name="battery"
+17:34:24.712  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:34:24.713  [G1 EVENT R] subcmd=0x09 name="charging"
+17:34:32.097  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:34:32.140  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 8e 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:34:32.140  [G1] BATTERY raw [R]: 2c 66 46 27 ce 8e 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:08.161  [G1] RX found [R] notifiable=true
+17:35:08.364  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:08.397  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:35:08.514  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:08.962  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:08.963  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:35:09.055  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:09.055  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:10.255  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:10.255  [G1 EVENT R] subcmd=0x0a name="battery"
+17:35:11.483  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:11.483  [G1 EVENT R] subcmd=0x09 name="charging"
+17:35:18.855  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:35:18.896  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:18.896  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:55.468  [G1] RX found [R] notifiable=true
+17:35:55.643  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:55.663  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:35:55.676  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:55.676  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:35:55.704  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:56.304  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:56.305  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:35:56.933  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:56.933  [G1 EVENT R] subcmd=0x0a name="battery"
+17:35:58.225  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:35:58.226  [G1 EVENT R] subcmd=0x09 name="charging"
+17:36:05.564  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:36:05.591  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:36:05.591  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:36:41.520  [G1] RX found [R] notifiable=true
+17:36:41.694  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:36:41.731  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:36:41.784  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:36:42.388  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:36:42.388  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:36:42.388  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:36:42.389  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:36:43.706  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:36:43.706  [G1 EVENT R] subcmd=0x0a name="battery"
+17:36:44.965  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:36:44.966  [G1 EVENT R] subcmd=0x09 name="charging"
+17:36:52.339  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:36:52.390  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:36:52.390  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:37:28.767  [G1] RX found [R] notifiable=true
+17:37:29.035  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:37:29.066  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:37:29.186  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:37:29.186  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:37:29.186  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:37:29.724  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:37:29.725  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:37:30.505  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:37:30.506  [G1 EVENT R] subcmd=0x0a name="battery"
+17:37:31.736  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:37:31.736  [G1 EVENT R] subcmd=0x09 name="charging"
+17:37:39.078  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:37:39.188  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:37:39.188  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:38:15.507  [G1] RX found [R] notifiable=true
+17:38:15.714  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:38:15.747  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:38:15.805  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:38:15.986  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:38:15.986  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:38:16.375  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 8e 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:38:16.375  [G1] BATTERY raw [R]: 2c 66 46 27 ce 8e 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:38:17.244  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:38:17.244  [G1 EVENT R] subcmd=0x0a name="battery"
+17:38:18.474  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:38:18.474  [G1 EVENT R] subcmd=0x09 name="charging"
+17:38:25.869  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:38:25.915  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:38:25.915  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:02.007  [G1] RX found [R] notifiable=true
+17:39:02.246  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:02.281  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:39:02.366  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:02.724  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:02.724  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:39:02.906  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:02.907  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:04.014  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:04.014  [G1 EVENT R] subcmd=0x0a name="battery"
+17:39:05.274  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:05.274  [G1 EVENT R] subcmd=0x09 name="charging"
+17:39:12.628  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:39:12.656  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:12.656  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:48.630  [G1] RX found [R] notifiable=true
+17:39:48.894  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:48.928  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:39:48.986  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:49.527  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:49.527  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:39:49.557  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:49.557  [G1] BATTERY raw [R]: 2c 66 46 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:50.753  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:50.754  [G1 EVENT R] subcmd=0x0a name="battery"
+17:39:52.044  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:39:52.044  [G1 EVENT R] subcmd=0x09 name="charging"
+17:39:59.377  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:39:59.412  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:39:59.412  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:40:35.338  [G1] RX found [R] notifiable=true
+17:40:35.546  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:40:35.578  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:40:35.636  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:40:36.146  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:40:36.147  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:40:36.264  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:40:36.265  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:40:37.554  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:40:37.555  [G1 EVENT R] subcmd=0x0a name="battery"
+17:40:38.819  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:40:38.819  [G1 EVENT R] subcmd=0x09 name="charging"
+17:40:46.133  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:40:46.166  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:40:46.166  [G1] BATTERY raw [R]: 2c 66 46 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:41:22.412  [G1] RX found [R] notifiable=true
+17:41:22.616  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:41:22.648  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:41:22.706  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:41:22.977  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:41:22.977  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:41:23.186  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:41:23.187  [G1] BATTERY raw [R]: 2c 66 46 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:41:24.325  [G1 RX R] op=0xf5 len=21 raw=f5 0a 46 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:41:24.325  [G1 EVENT R] subcmd=0x0a name="battery"
+17:41:25.524  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:41:25.525  [G1 EVENT R] subcmd=0x09 name="charging"
+17:41:32.741  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:41:32.786  [G1 RX R] op=0x2c len=20 raw=2c 66 46 27 ce 8e 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:41:32.787  [G1] BATTERY raw [R]: 2c 66 46 27 ce 8e 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:41:55.849  [G1 RX R] op=0xf5 len=21 raw=f5 0a 45 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:41:55.850  [G1 EVENT R] subcmd=0x0a name="battery"
+17:42:08.969  [G1] RX found [R] notifiable=true
+17:42:09.147  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:09.177  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:42:09.237  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:09.716  [G1 RX R] op=0x2c len=20 raw=2c 66 45 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:09.716  [G1] BATTERY raw [R]: 2c 66 45 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:09.747  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:09.747  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:42:11.006  [G1 RX R] op=0xf5 len=21 raw=f5 0a 45 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:11.007  [G1 EVENT R] subcmd=0x0a name="battery"
+17:42:12.031  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:42:12.086  [G1 RX R] op=0x2c len=20 raw=2c 66 45 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:12.087  [G1] BATTERY raw [R]: 2c 66 45 27 ce 88 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:12.265  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:12.265  [G1 EVENT R] subcmd=0x09 name="charging"
+17:42:47.939  [G1] RX found [R] notifiable=true
+17:42:48.147  [G1 RX R] op=0x03 len=20 raw=03 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:48.179  [G1] _send [L] DROP op=0x01 — txChars=false dev=true txReady=false
+17:42:48.237  [G1 RX R] op=0x01 len=20 raw=01 c9 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:48.837  [G1 RX R] op=0x2c len=20 raw=2c 66 45 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:48.837  [G1] BATTERY raw [R]: 2c 66 45 27 ce 86 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:48.955  [G1 RX R] op=0xf5 len=21 raw=f5 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:48.955  [G1 EVENT R] subcmd=0x11 name="status_ping"
+17:42:50.156  [G1 RX R] op=0xf5 len=21 raw=f5 0a 45 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:50.156  [G1 EVENT R] subcmd=0x0a name="battery"
+17:42:51.448  [G1 RX R] op=0xf5 len=21 raw=f5 09 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+17:42:51.448  [G1 EVENT R] subcmd=0x09 name="charging"
+17:42:58.738  [G1] _send [L] DROP op=0x2c — txChars=false dev=true txReady=false
+17:42:58.783  [G1 RX R] op=0x2c len=20 raw=2c 66 45 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00
+17:42:58.783  [G1] BATTERY raw [R]: 2c 66 45 27 ce 84 19 01 06 06 01 06 06 00 00 00 00 00 00 00

@@ -1,0 +1,11 @@
+app_identifier "bio.nodes.cue"
+api_key_path "#{ENV['HOME']}/.appstoreconnect/api_key.json"
+
+metadata_path "./fastlane/metadata"
+screenshots_path "./fastlane/screenshots"
+
+skip_binary_upload true
+overwrite_screenshots true
+
+submit_for_review false
+automatic_release false

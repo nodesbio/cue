@@ -173,6 +173,11 @@ export class G1Core {
   private onStatusChange?: StatusHandler;
   private onLog?: (line: string) => void;
 
+  /** When true, raw RX frames and routine heartbeat events are included in the log.
+   *  Off by default — these account for ~55% of log lines and push lifecycle
+   *  events out of the ring buffer before they can be captured. */
+  public verbose = false;
+
   constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler; onLog?: (line: string) => void }) {
     this.manager = new BleManager();
     if (opts?.onEvent) this.eventHandlers.add(opts.onEvent);
@@ -918,7 +923,34 @@ export class G1Core {
       this.rxSubs[side]!.remove();
       this.rxSubs[side] = undefined;
     }
-    const connected = await device.connect({ autoConnect: false });
+    this._log(`[G1] _connectLensInner [${side}] enter — device=${device.name ?? device.id}`);
+    let connected: Device;
+    try {
+      // Explicit timeout prevents CoreBluetooth from hanging indefinitely when
+      // the lens is out of range or held by another central. Without it,
+      // connect() never rejects → _connectingOnSide stays true → the per-side
+      // queue blocks → L never retries even after R has been running for hours.
+      connected = await device.connect({ autoConnect: false, timeout: 15000 });
+    } catch (e: any) {
+      // DeviceConnectionFailed (200) is iOS didFailToConnect — the CoreBluetooth
+      // code is the only thing that distinguishes "stale bond, Forget in
+      // Settings" (CBError 14) from "held by another central" (6/7). Log it and
+      // put it in the message so a screenshot of the pairing screen is enough.
+      const be = e as BleError;
+      this._log(
+        `[G1] _connectLensInner [${side}] connect() failed name=${device.name} ` +
+        `code=${be?.errorCode ?? '?'} ios=${be?.iosErrorCode ?? '?'} att=${be?.attErrorCode ?? '?'} reason=${be?.reason ?? '—'}`,
+      );
+      if (be?.errorCode === BleErrorCode.DeviceConnectionFailed) {
+        // CBError.peerRemovedPairingInformation = 14; ble-plx's BleIOSErrorCode
+        // enum stops at 12 so compare as a plain number.
+        const hint = (be.iosErrorCode as number | null) === 14
+          ? 'Pairing is stale — Settings → Bluetooth → Forget both lenses, then retry.'
+          : 'Make sure the Even app (and any other phone) is fully closed.';
+        throw new Error(`${side} lens connection failed (iOS ${be.iosErrorCode ?? '?'}). ${hint}`);
+      }
+      throw e;
+    }
     const discovered = await connected.discoverAllServicesAndCharacteristics();
     this.devices[side] = discovered;
     // Capture RSSI at connect time
@@ -1009,6 +1041,7 @@ export class G1Core {
     this._textNackCount[side] = 0; // fresh link — restart telemetry streak
     if (side === 'L') this.status.left.txReady = true;
     if (side === 'R') this.status.right.txReady = true;
+    this._log(`[G1] _connectLensInner [${side}] txReady — init complete`);
     this._setConnected(side, true);
     this.reconnectAttempts[side] = 0;
 
@@ -1021,13 +1054,18 @@ export class G1Core {
     // this stale handler becomes a no-op — preventing it from corrupting the
     // new healthy connection.
     const gen = ++this._connGen[side];
-    discovered.onDisconnected(() => {
+    discovered.onDisconnected((err) => {
       if (this._connGen[side] !== gen) return; // stale — a newer connection replaced this one
-      this._onDisconnected(side);
+      this._onDisconnected(side, err ?? undefined);
     });
   }
 
-  private _onDisconnected(side: Side): void {
+  private _onDisconnected(side: Side, err?: Error): void {
+    const be = err as BleError | undefined;
+    this._log(
+      `[G1] onDisconnected [${side}]` +
+      (be ? ` code=${be.errorCode ?? '?'} ios=${be.iosErrorCode ?? '?'} reason=${be.reason ?? '—'}` : ' (no error)'),
+    );
     // Cancel all pending ACK waiters — a disconnected lens will never respond.
     // This prevents stale waiters from timing out sequentially and producing
     // a cascade of false-alarm log lines after reconnect.
@@ -1068,6 +1106,7 @@ export class G1Core {
     const attempts = this.reconnectAttempts[side] ?? 0;
     const delay = RECONNECT_BACKOFF_MS[Math.min(attempts, RECONNECT_BACKOFF_MS.length - 1)];
     this.reconnectAttempts[side] = attempts + 1;
+    this._log(`[G1] _scheduleReconnect [${side}] attempt=${attempts + 1} delay=${delay}ms`);
     this._reconnectTimers[side] = setTimeout(async () => {
       this._reconnectTimers[side] = undefined;
       if (this.destroyed) return;
@@ -1119,7 +1158,7 @@ export class G1Core {
         // cleanup + reconnect scheduling happen immediately rather than waiting
         // for the OS-level onDisconnected callback (which may arrive later or
         // not at all if the notify fires first on this iOS version).
-        this._onDisconnected(side);
+        this._onDisconnected(side, error);
         return;
       }
       console.warn(
@@ -1134,7 +1173,9 @@ export class G1Core {
     this._resolveWake(side); // #27: any frame from a sleeping lens means it woke
 
     const op = data[0];
-    this._log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
+    if (this.verbose) {
+      this._log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
+    }
 
     // ── Protocol-level ACK ────────────────────────────────────────────────
     // The firmware echoes the command opcode in data[0] and puts the result
@@ -1191,7 +1232,13 @@ export class G1Core {
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
       if (event) {
-        this._log(`[G1 EVENT ${side}] subcmd=0x${event.subcmd.toString(16).padStart(2,'0')} name="${event.name}"`);
+        // Routine housekeeping events fire every ~47s (status_ping, battery,
+        // charging). Log them only in verbose mode — they account for ~45% of
+        // ring-buffer lines and push lifecycle events out before capture.
+        const isRoutine = event.name === 'status_ping' || event.name === 'battery' || event.name === 'charging';
+        if (!isRoutine || this.verbose) {
+          this._log(`[G1 EVENT ${side}] subcmd=0x${event.subcmd.toString(16).padStart(2,'0')} name="${event.name}"`);
+        }
         // op=0x11 ('status_ping') — fires after every battery poll response
         // (0x2c) as a routine firmware heartbeat. Confirmed from log correlation:
         // f5 11 always arrives within ~300ms of a 0x2c battery packet on R.
@@ -1242,7 +1289,9 @@ export class G1Core {
     }
 
     if (op === P.OP_BATTERY) {
-      this._log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
+      if (this.verbose) {
+        this._log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
+      }
       // resp[2] = battery % (confirmed from raw log). Each glass reports its own.
       const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
