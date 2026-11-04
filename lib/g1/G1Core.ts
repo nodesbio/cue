@@ -366,9 +366,9 @@ export class G1Core {
   private async _setPowered(on: boolean): Promise<void> {
     const sides = (['L', 'R'] as Side[]).filter(s => this.txChars[s]);
     if (!sides.length) { this._log(`[G1] _setPowered(${on}) — no lens txReady, ignored`); return; }
+    this._log(`[G1] _setPowered(${on}) sending silent(${!on}) to ${sides.join(',')}`);
     const acks = await Promise.all(sides.map(s => this._sendForResult(s, P.silent(!on), 5000)));
-    const failed = sides.filter((_, i) => !acks[i]);
-    if (failed.length) this._log(`[G1] _setPowered(${on}) no ACK on ${failed.join(',')}`);
+    this._log(`[G1] _setPowered(${on}) ACKs ${sides.map((s, i) => `${s}=${acks[i]}`).join(' ')}`);
     if (on) {
       // exit_silent_mode shows the firmware's "Activated" splash. Text written
       // while it's up is wiped when the splash clears, so hold the poweredOff
@@ -376,6 +376,7 @@ export class G1Core {
       await new Promise(r => setTimeout(r, G1Core.ACTIVATED_SPLASH_MS));
     }
     this.status.poweredOff = !on;
+    this._log(`[G1] _setPowered(${on}) done — poweredOff=${!on}`);
     this._emitStatus();
   }
   /** Duration of the firmware "Activated" splash after exit_silent_mode. Unmeasured — tune on device. */
@@ -491,6 +492,7 @@ export class G1Core {
     const ns = newScreen ?? P.NewScreen.TEXT;
     return this._enqueue(async () => {
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
+      this._log(`[G1] sendText seq=${packet[2]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
     });
   }

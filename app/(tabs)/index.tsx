@@ -204,6 +204,7 @@ export default function TeleprompterScreen() {
   useEffect(() => {
     if (!connected || poweredOff) return;
     const s = snapRef.current;
+    console.log(`[index] re-send effect connected=${connected} poweredOff=${poweredOff} hasSnap=${!!s}`);
     if (s) {
       void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
     }
