@@ -679,21 +679,27 @@ export class G1Core {
 
       if (found.L && found.R) {
         this._log('[G1] Both lenses already connected — skipping scan');
+        // _connectFound resolves if ≥1 lens comes up and schedules the other's
+        // reconnect itself. A total failure throws → fall through to scan.
         try {
-          // Each side has its own queue — any prior reconnect attempt for that
-          // side is naturally serialised without blocking the other side.
-          await new Promise<void>((resolve, reject) => {
-            this._connectFoundPair(found as { L: Device; R: Device }, resolve, reject);
-          });
+          await this._connectFound(found);
           return true;
         } catch (e: any) {
-          // Partial resume — tear down whatever connected so scan starts clean.
-          this._log(`[G1] _resumeAlreadyConnected partial failure: ${e?.message ?? e} — falling through to scan`);
-          for (const s of ['L', 'R'] as Side[]) {
-            this.rxSubs[s]?.remove(); this.rxSubs[s] = undefined;
-            this.txChars[s] = undefined;
-            this._setConnected(s, false);
-          }
+          this._log(`[G1] _resumeAlreadyConnected failed: ${e?.message ?? e} — falling through to scan`);
+          return false;
+        }
+      }
+      if (found.L || found.R) {
+        // 2026-11-04 log: R sat in connectedDevices for all 5 polls (10s) while
+        // L was absent — we then threw it away and ran a full 12s scan that
+        // re-found R and had to redo discovery. Resume the side we have NOW and
+        // let _scheduleReconnect's targeted scan pick up the missing side.
+        this._log(`[G1] One lens already connected (${found.L ? 'L' : 'R'}) — resuming it, scanning for the other`);
+        try {
+          await this._connectFound(found);
+          return true;
+        } catch (e: any) {
+          this._log(`[G1] _resumeAlreadyConnected single-side failed: ${e?.message ?? e} — falling through to scan`);
           return false;
         }
       }
@@ -736,34 +742,15 @@ export class G1Core {
             // Both lenses found — connect in parallel via per-side queues.
             clearTimeout(timeout);
             this.manager.stopDeviceScan();
-            done(() => this._connectFoundPair(found as { L: Device; R: Device }, resolve, reject));
+            done(() => this._connectFound(found).then(resolve, reject));
           } else {
             // One lens found — give the other a short window to advertise before
-            // resolving with one. Reconnect loop handles the missing side.
+            // resolving with one. _connectFound schedules the missing side.
             setTimeout(() => {
-              const sides = (['L', 'R'] as Side[]).filter(s => found[s]);
-              if (sides.length === 0 || settled) return;
+              if (settled) return;
               clearTimeout(timeout);
               this.manager.stopDeviceScan();
-              done(() => {
-                // For the one-lens case we need heartbeat + missing-side kick.
-                // Build a fake "both" map so _connectFoundPair handles
-                // the queue/heartbeat/resolve, then schedule the missing side.
-                // If only one lens was found, fill the found pair with only the
-                // discovered side and wire them up individually.
-                const ps = sides.map(s =>
-                  (this._connectQueue[s] = this._connectQueue[s].then(() => this._connectLens(s, found[s]!))),
-                );
-                Promise.all(ps)
-                  .then(() => {
-                    this._startHeartbeat();
-                    for (const s of ['L', 'R'] as Side[]) {
-                      if (!found[s]) this._scheduleReconnect(s);
-                    }
-                    resolve();
-                  })
-                  .catch(reject);
-              });
+              done(() => this._connectFound(found).then(resolve, reject));
             }, 1500);
           }
         },
@@ -869,7 +856,7 @@ export class G1Core {
       this._log(`[G1] _enqueueConnect [${side}] skipped — destroyed=${this.destroyed} txChars=${!!this.txChars[side]} connecting=${this._connectingOnSide[side]}`);
       return;
     }
-    this._connectQueue[side] = this._connectQueue[side].then(async () => {
+    void this._runOnQueue(side, async () => {
       if (this.destroyed || this.txChars[side]) return; // re-check: may have connected while queued
       try { await this._connectLens(side, device); }
       catch { this._scheduleReconnect(side); }
@@ -877,20 +864,50 @@ export class G1Core {
   }
 
   /**
-   * Connect both lenses from a `found` map, start the heartbeat, then
-   * settle the surrounding promise.  Used by _scan (both-at-once path) and
-   * _resumeAlreadyConnected.
+   * Serialise `fn` on the per-side connect queue. The queue itself NEVER holds
+   * a rejected promise — the 2026-11-04 log showed L's queue poisoned by a
+   * single connect() timeout at 14:34:55, after which every later
+   * _enqueueConnect('L') chained `.then()` onto a rejected promise and silently
+   * never ran. User "Reconnect L" taps found the lens via scan and did nothing.
+   * Callers still see the rejection via the returned promise.
    */
-  private _connectFoundPair(
-    found: { L: Device; R: Device },
-    resolve: () => void,
-    reject: (e: unknown) => void,
-  ): void {
-    const pL = (this._connectQueue.L = this._connectQueue.L.then(() => this._connectLens('L', found.L)));
-    const pR = (this._connectQueue.R = this._connectQueue.R.then(() => this._connectLens('R', found.R)));
-    Promise.all([pL, pR])
-      .then(() => { this._startHeartbeat(); resolve(); })
-      .catch(reject);
+  private _runOnQueue<T>(side: Side, fn: () => Promise<T>): Promise<T> {
+    const p = this._connectQueue[side].then(fn);
+    this._connectQueue[side] = p.then(() => undefined, () => undefined);
+    return p;
+  }
+
+  /**
+   * Connect whichever lenses are in `found` (one or both). Resolves if at
+   * least one lens reaches txReady; rejects only if every attempted lens
+   * failed. Any side that is missing or failed gets its device cached (so the
+   * reconnect path can skip scanning) and a _scheduleReconnect — previously a
+   * failed side in a pair-connect was orphaned: no timer, no cached device.
+   * Used by _scan (both paths) and _resumeAlreadyConnected.
+   */
+  private async _connectFound(found: Partial<Record<Side, Device>>): Promise<void> {
+    const sides = (['L', 'R'] as Side[]).filter(s => found[s]);
+    for (const s of sides) {
+      // Cache before connecting so a connect() failure still leaves
+      // _scheduleReconnect with a device to retry (no re-scan needed).
+      if (!this.devices[s]) this.devices[s] = found[s]!;
+    }
+    const results = await Promise.allSettled(
+      sides.map(s => this._runOnQueue(s, () => this._connectLens(s, found[s]!))),
+    );
+    const okSides = sides.filter((_, i) => results[i].status === 'fulfilled');
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+
+    for (const s of ['L', 'R'] as Side[]) {
+      if (!okSides.includes(s)) {
+        this._log(`[G1] _connectFound [${s}] ${found[s] ? 'failed' : 'not found'} — scheduling reconnect`);
+        this.reconnectAttempts[s] = 0;
+        this._scheduleReconnect(s);
+      }
+    }
+
+    if (okSides.length === 0) throw failures[0]?.reason ?? new Error('G1 glasses not found. Make sure they are on and in range.');
+    this._startHeartbeat();
   }
 
   private async _connectLens(side: Side, device: Device): Promise<void> {
@@ -1066,6 +1083,16 @@ export class G1Core {
       `[G1] onDisconnected [${side}]` +
       (be ? ` code=${be.errorCode ?? '?'} ios=${be.iosErrorCode ?? '?'} reason=${be.reason ?? '—'}` : ' (no error)'),
     );
+    // One BLE drop surfaces here up to 3× within ~5ms: the RX monitor error
+    // (no code), the OS onDisconnected (201), then OperationCancelled (2) from
+    // the monitor being torn down. Each call used to bump reconnectAttempts,
+    // so the FIRST retry after a single drop waited 4s instead of 1s and the
+    // backoff hit its 10s ceiling after two drops. Only the first call tears
+    // down + schedules; the rest are duplicates of a drop already handled.
+    if (!this.rxSubs[side] && !this.txChars[side] && this._reconnectTimers[side]) {
+      this._log(`[G1] onDisconnected [${side}] — duplicate, reconnect already scheduled`);
+      return;
+    }
     // Cancel all pending ACK waiters — a disconnected lens will never respond.
     // This prevents stale waiters from timing out sequentially and producing
     // a cascade of false-alarm log lines after reconnect.
@@ -1115,7 +1142,14 @@ export class G1Core {
       if (!dev) {
         // This side was never found during the initial scan (e.g. L didn't
         // advertise in time). Run a short targeted scan to find it now.
+        if (this._connectingOnSide[side]) {
+          this._log(`[G1] _scheduleReconnect [${side}] scan already in progress — skipped`);
+          return;
+        }
         this._log(`[G1] _scheduleReconnect [${side}] no cached device — scanning`);
+        // Mark in-flight for the scan's duration so reconnectSide()/_enqueueConnect
+        // treat it like an active connect and don't start a competing scan.
+        this._connectingOnSide[side] = true;
         try {
           await this._ensureBleReady();
           const found = await new Promise<Device | null>((resolve) => {
@@ -1129,12 +1163,14 @@ export class G1Core {
               }
             });
           });
+          this._connectingOnSide[side] = false;
           if (found) {
             this._enqueueConnect(side, found);
           } else {
             this._scheduleReconnect(side); // scan timed out, try again
           }
         } catch {
+          this._connectingOnSide[side] = false;
           this._scheduleReconnect(side);
         }
         return;
