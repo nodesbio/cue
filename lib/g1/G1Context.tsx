@@ -12,6 +12,7 @@ import Constants from 'expo-constants';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { G1Core, G1Status, EventHandler } from './G1Core';
 import { smartRemoteManager } from './SmartRemoteManager';
+import { startDevBridge } from './devBridge';
 
 // Detect whether the native BLE module is available (absent in Expo Go).
 function isBleAvailable(): boolean {
@@ -221,6 +222,7 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Start SmartRemote listener once on mount.
     smartRemoteManager.start();
+    startDevBridge({ core: coreRef.current, getLogs: () => _logBuffer, log: _addLog });
     return () => smartRemoteManager.stop();
   }, []);
 

@@ -423,9 +423,8 @@ export class G1Core {
    * Send a text string to both lenses.
    * curLine / totalLines populate the status bar counter (e.g. "▶ 2/14").
    *
-   * isLastPage: true on the final packet of a sequence — sends NewScreen.AUTO_LAST
-   * (0x41) so the firmware knows the transmission is complete. All other packets
-   * use NewScreen.AUTO_MID (0x31). Pass newScreen explicitly to override.
+   * Screen byte defaults to NewScreen.MANUAL (0x51) — see note in the body.
+   * Pass newScreen explicitly to override.
    */
   async sendText(
     str: string,
@@ -434,7 +433,14 @@ export class G1Core {
     isLastPage = false,
     newScreen?: P.NewScreenValue,
   ): Promise<void> {
-    const ns = newScreen ?? (isLastPage ? P.NewScreen.AUTO_LAST : P.NewScreen.AUTO_MID);
+    // Default MANUAL (0x51), never AUTO_LAST (0x41). Every 0x4E lands on the
+    // firmware's Even AI surface (screen 0x10); 0x41 tells it the AI response
+    // is complete and the firmware repaints its own "Even AI listening" chrome
+    // over our text. 0x51 holds the text. Verified on-device 2026-11-04 via
+    // scripts/hud.mjs; see Cheddies1/even-g1-companion FINDINGS-evenai-flash-on-clear.
+    // isLastPage is kept for callers but no longer selects the screen byte.
+    void isLastPage;
+    const ns = newScreen ?? P.NewScreen.MANUAL;
     return this._enqueue(async () => {
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
       await this._sendBoth(packet);
@@ -515,9 +521,9 @@ export class G1Core {
       // noise. Per firmware decomp (even-g1-companion docs), 03 0a =
       // exit_silent_mode rewrites the live screen id and resumes the master
       // display thread — not something to fire 0 ms before a 0x4E. The
-      // 2026-11-04 "Even AI listening" flash this was suspected of causing
-      // turned out to be a dev probe in G1Context; removed separately.
-      const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
+      // 2026-11-04 "Even AI listening" flash was AUTO_LAST (0x41) handing the
+      // surface back to the firmware's Even AI task — MANUAL holds it.
+      const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.MANUAL);
       await this._sendBoth(packet);
     });
   }
