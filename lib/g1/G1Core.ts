@@ -366,12 +366,20 @@ export class G1Core {
   private async _setPowered(on: boolean): Promise<void> {
     const sides = (['L', 'R'] as Side[]).filter(s => this.txChars[s]);
     if (!sides.length) { this._log(`[G1] _setPowered(${on}) — no lens txReady, ignored`); return; }
-    const results = await Promise.allSettled(sides.map(s => this._send(s, P.silent(!on))));
-    const failed = sides.filter((_, i) => results[i].status === 'rejected');
-    if (failed.length) this._log(`[G1] _setPowered(${on}) send failed on ${failed.join(',')}`);
+    const acks = await Promise.all(sides.map(s => this._sendForResult(s, P.silent(!on), 5000)));
+    const failed = sides.filter((_, i) => !acks[i]);
+    if (failed.length) this._log(`[G1] _setPowered(${on}) no ACK on ${failed.join(',')}`);
+    if (on) {
+      // exit_silent_mode shows the firmware's "Activated" splash. Text written
+      // while it's up is wiped when the splash clears, so hold the poweredOff
+      // flip (which triggers index.tsx's frame re-send) until it's gone.
+      await new Promise(r => setTimeout(r, G1Core.ACTIVATED_SPLASH_MS));
+    }
     this.status.poweredOff = !on;
     this._emitStatus();
   }
+  /** Duration of the firmware "Activated" splash after exit_silent_mode. Unmeasured — tune on device. */
+  private static readonly ACTIVATED_SPLASH_MS = 1500;
 
   /**
    * Disconnect a single lens and stop any pending reconnect timer for it.
