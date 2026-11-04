@@ -36,11 +36,13 @@ function makeStubCore(): G1Core {
       left:  { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
       right: { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
       firmwareVersion: null,
+      poweredOff: false,
     },
     // Connection
     connect:              async () => {},
     disconnect:           async () => {},
     powerOff:             async () => {},
+    powerOn:              async () => {},
     disconnectSide:       async () => {},
     reconnectSide:        () => {},
     reconnectDropped:     async () => {},

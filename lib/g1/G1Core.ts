@@ -39,6 +39,12 @@ export interface G1Status {
   left: LensState;
   right: LensState;
   firmwareVersion: string | null;
+  /**
+   * User tapped Power Off: silent mode ON on both arms. The BLE link stays up
+   * (the G1 has no real off state) — the display thread is just suspended.
+   * Cleared by powerOn() (silent OFF). Reset on disconnect.
+   */
+  poweredOff: boolean;
 }
 
 export type EventHandler = (event: P.G1Event) => void;
@@ -181,6 +187,7 @@ export class G1Core {
     left:  { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
     right: { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
     firmwareVersion: null,
+    poweredOff: false,
   };
 
   private eventHandlers = new Set<EventHandler>();
@@ -314,6 +321,7 @@ export class G1Core {
   }
 
   async disconnect(): Promise<void> {
+    this.status.poweredOff = false;
     this._connectingPromise = null;
     this._connectQueue = { L: Promise.resolve(), R: Promise.resolve() };
     this._stopHeartbeat();
@@ -347,9 +355,22 @@ export class G1Core {
    * wake them back up with a reconnect-init silent(false).
    */
   async powerOff(): Promise<void> {
+    await this._setPowered(false);
+  }
+
+  /** Counterpart to powerOff(): silent mode OFF resumes the display thread. */
+  async powerOn(): Promise<void> {
+    await this._setPowered(true);
+  }
+
+  private async _setPowered(on: boolean): Promise<void> {
     const sides = (['L', 'R'] as Side[]).filter(s => this.txChars[s]);
-    await Promise.allSettled(sides.map(s => this._send(s, P.silent(true))));
-    await this.disconnect();
+    if (!sides.length) { this._log(`[G1] _setPowered(${on}) — no lens txReady, ignored`); return; }
+    const results = await Promise.allSettled(sides.map(s => this._send(s, P.silent(!on))));
+    const failed = sides.filter((_, i) => results[i].status === 'rejected');
+    if (failed.length) this._log(`[G1] _setPowered(${on}) send failed on ${failed.join(',')}`);
+    this.status.poweredOff = !on;
+    this._emitStatus();
   }
 
   /**
@@ -1457,6 +1478,10 @@ export class G1Core {
       this._log(`[G1] _sendSilent [${side}] suppressed — init in progress (txReady=false)`);
       return;
     }
+    if (this.status.poweredOff) {
+      this._log(`[G1] _sendSilent [${side}] suppressed — user powered off`);
+      return;
+    }
     this._lastSilentAt[side] = Date.now();
     // Route through _enqueue so this silent is ordered in the same queue as
     // any subsequent sendText call. A bare _send here would race a sendText
@@ -1722,6 +1747,7 @@ export class G1Core {
       left:  { ...this.status.left },
       right: { ...this.status.right },
       firmwareVersion: this.status.firmwareVersion,
+      poweredOff: this.status.poweredOff,
     });
   }
 

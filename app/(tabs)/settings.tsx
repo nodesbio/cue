@@ -138,9 +138,14 @@ export default function SettingsScreen() {
             <Pressable style={[s.btn, s.btnDanger]} onPress={handleDisconnect}>
               <Text style={[s.btnText, { color: '#fff' }]}>Disconnect All</Text>
             </Pressable>
-            {/* Silent mode ON + disconnect. The G1 has no true power-off; this blanks the display and drops to standby. */}
-            <Pressable style={[s.btn, s.btnDanger]} onPress={() => void core.powerOff()}>
-              <Text style={[s.btnText, { color: '#fff' }]}>Power Off Glasses</Text>
+            {/* Silent mode toggle. The G1 has no true power-off; BLE stays connected, display thread suspends/resumes. */}
+            <Pressable
+              style={[s.btn, status?.poweredOff ? s.btnTest : s.btnDanger]}
+              onPress={() => void (status?.poweredOff ? core.powerOn() : core.powerOff())}
+            >
+              <Text style={[s.btnText, { color: '#fff' }]}>
+                {status?.poweredOff ? 'Power On Glasses' : 'Power Off Glasses'}
+              </Text>
             </Pressable>
           </>
         ) : isAutoConnecting ? (
@@ -158,7 +163,7 @@ export default function SettingsScreen() {
             </View>
             <Pressable style={s.btn} onPress={handleConnectPress}>
               <Text style={s.btnText}>
-                {pairedSerial ? `Power On / Connect · ${pairedSerial}` : 'Pair G1 Glasses'}
+                {pairedSerial ? `Reconnect · ${pairedSerial}` : 'Pair G1 Glasses'}
               </Text>
             </Pressable>
             {pairedSerial && (
