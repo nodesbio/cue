@@ -433,14 +433,14 @@ export class G1Core {
     isLastPage = false,
     newScreen?: P.NewScreenValue,
   ): Promise<void> {
-    // Default MANUAL (0x51), never AUTO_LAST (0x41). Every 0x4E lands on the
-    // firmware's Even AI surface (screen 0x10); 0x41 tells it the AI response
-    // is complete and the firmware repaints its own "Even AI listening" chrome
-    // over our text. 0x51 holds the text. Verified on-device 2026-11-04 via
-    // scripts/hud.mjs; see Cheddies1/even-g1-companion FINDINGS-evenai-flash-on-clear.
+    // Default TEXT (0x71) — the byte the official text_service.dart uses.
+    // 0x41/0x51 are Even AI session bytes; without an open AI session the
+    // firmware stores the frame but never switches to it, then emits F5 00
+    // ("exit to dashboard") once a second — which we were decoding as
+    // double-tap and rewinding the script. See NewScreen in packets.ts.
     // isLastPage is kept for callers but no longer selects the screen byte.
     void isLastPage;
-    const ns = newScreen ?? P.NewScreen.MANUAL;
+    const ns = newScreen ?? P.NewScreen.TEXT;
     return this._enqueue(async () => {
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
       await this._sendBoth(packet);
@@ -522,8 +522,9 @@ export class G1Core {
       // exit_silent_mode rewrites the live screen id and resumes the master
       // display thread — not something to fire 0 ms before a 0x4E. The
       // 2026-11-04 "Even AI listening" flash was AUTO_LAST (0x41) handing the
-      // surface back to the firmware's Even AI task — MANUAL holds it.
-      const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.MANUAL);
+      // surface back to the firmware's Even AI task — TEXT (0x71) is the
+      // only byte the firmware renders without an open AI session.
+      const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.TEXT);
       await this._sendBoth(packet);
     });
   }

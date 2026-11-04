@@ -3,7 +3,7 @@
  *
  * Bypasses the TeleprompterEngine: no scroll, no pages. Wraps the text to the
  * glasses' width, keeps the tail WINDOW_SIZE lines (so the newest words are
- * always visible), and pushes each frame as a single MANUAL (0x51) frame.
+ * always visible), and pushes each frame as a single TEXT (0x71) frame.
  *
  * Latency model: a text frame is not "sent" until the glasses ACK it, which
  * takes a few hundred ms over BLE. Typing produces frames far faster than

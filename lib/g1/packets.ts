@@ -53,25 +53,38 @@ export const BMP_CHUNK  = 194;
  *   Lower nibble (screen action):
  *     0x01 = display new content  ← must always be set; 0x00 = no-op
  *
- *   Combined (spec example: "New content + Even AI displaying = 0x31"):
- *     0x31 = auto-display, mid-scroll
- *     0x41 = auto-display, last page
- *     0x51 = manual mode
- *     0x61 = network error
+ *     0x70 = Text / teleprompter surface (undocumented in README; it is what
+ *            the official text_service.dart sends for EVERY frame)
  *
- * Source: Even Realities EvenDemoApp README — "Send AI Result" protocol section.
- * Do NOT derive these from evenai.dart / text_service.dart — those omit the
- * 0x01 action bit and produce values the firmware silently ignores.
+ *   Lower nibble (screen action):
+ *     0x01 = display new content  ← must always be set; 0x00 = no-op
+ *
+ * Firmware behaviour (even_realities_decomp ble_process_req_dispatch.c, case
+ * 0x4e, final chunk):
+ *   0x6x → always accepted, state 10 (Even AI reply)
+ *   0x7x → always accepted, state 0x0f (text surface)
+ *   0x3x/0x4x/0x5x → only accepted when dashboard state is already ≥ 7,
+ *                    i.e. an Even AI session is open. Without one the frame
+ *                    is stored but the state machine does NOT switch to it,
+ *                    and the firmware starts emitting F5 00 ("exit to
+ *                    dashboard") about once a second until it is cleared.
+ *
+ * That F5 00 storm (104 events in one 2026-11-04 session) was being decoded
+ * as a user double-tap and rewinding the script. 0x71 is the only byte that
+ * renders unconditionally for a non-AI app. Verified on-device 2026-11-04:
+ * "PROBE 0x71" rendered on both lenses with zero F5 00 events afterwards.
  */
 export const NewScreen = {
-  /** Auto-display, mid-scroll (any packet that is not the last). */
+  /** Auto-display, mid-scroll (Even AI session only). */
   AUTO_MID:     0x31,
-  /** Auto-display, last page — signals firmware the sequence is complete. */
+  /** Auto-display, last page (Even AI session only). */
   AUTO_LAST:    0x41,
-  /** Manual mode — user taps to advance pages. */
+  /** Manual mode (Even AI session only) — do NOT use for teleprompter text. */
   MANUAL:       0x51,
   /** Network/AI error state. */
   ERROR:        0x61,
+  /** Teleprompter / plain text surface. Use this for all Cue frames. */
+  TEXT:         0x71,
 } as const;
 export type NewScreenValue = typeof NewScreen[keyof typeof NewScreen];
 
@@ -85,7 +98,11 @@ export type NewScreenValue = typeof NewScreen[keyof typeof NewScreen];
 //   0x17 ('ai_start')        — assumed triple-tap / Even AI trigger.
 //   0x1e/0x1f ('dashboard_open/close') — assumed dashboard gesture.
 export const EVENT_NAMES: Record<number, string> = {
-  0x00: 'double_tap',
+  // 0x00 is NOT a tap. Per EvenDemoApp README ("subcmd 0: exit to dashboard
+  // manually — stop all advanced features") and ble_manager.dart (case 0 →
+  // App.exitAll()). The firmware emits it ~1/s while it is rejecting the
+  // current screen (see NewScreen doc). Gesture handlers must ignore it.
+  0x00: 'exit_to_dashboard',
   0x01: 'single_tap',
   0x02: 'head_up',
   0x03: 'head_down',
@@ -99,6 +116,7 @@ export const EVENT_NAMES: Record<number, string> = {
   0x0e: 'case_charging',
   0x0f: 'case_battery',
   0x11: 'status_ping',       // fires after every battery poll response (0x2c); NOT an overlay signal
+  0x12: 'brightness_level',  // decomp deal_event_to_phone.c: F5 12 <level>; sent once after connect
   0x17: 'ai_start',
   0x18: 'record_over',
   0x1e: 'dashboard_open',

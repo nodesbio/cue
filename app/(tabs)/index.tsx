@@ -89,9 +89,12 @@ export default function TeleprompterScreen() {
   //   head_up (after down<NOD_WINDOW_MS) → stop rewind + toggle pause
   //   head_up (no prior down, or down timed out) → play / stopRewind / advance
   //
-  // Media remote (G1 tap events — works regardless of gesturesEnabled):
-  //   single_tap → next line
-  //   double_tap → prev line
+  // Media remote (works regardless of gesturesEnabled):
+  //   single_tap → next line   (G1 touchbar or remote)
+  //   double_tap → prev line   (SmartRemote ◀◀ only — the G1 never emits a
+  //                             double-tap; F5 00 is 'exit_to_dashboard', a
+  //                             firmware screen-rejection signal, and is
+  //                             deliberately NOT mapped to any gesture)
   //
   // Dedup: hardware fires each event 2-3x in a burst; suppress repeats within DEDUP_MS.
   const NOD_WINDOW_MS = 600;

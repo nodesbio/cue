@@ -35,7 +35,7 @@ function hostFromMetro(): string | null {
 
 async function run(c: Cmd, d: Deps): Promise<unknown> {
   switch (c.cmd) {
-    case 'text':      await d.core.sendText(c.text, 1, 1, true, c.ns as any); return `sent ns=0x${(c.ns ?? 0x41).toString(16)}`;
+    case 'text':      await d.core.sendText(c.text, 1, 1, true, c.ns as any); return `sent ns=0x${(c.ns ?? 0x71).toString(16)}`;
     case 'test':      await d.core.sendTestDisplay(); return 'sent';
     case 'clear':     await Promise.all([d.core.clearDisplay('L'), d.core.clearDisplay('R')]); return 'cleared';
     case 'dashboard': await d.core.exitToDashboard(); return 'ok';
