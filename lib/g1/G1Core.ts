@@ -374,6 +374,12 @@ export class G1Core {
       // while it's up is wiped when the splash clears, so hold the poweredOff
       // flip (which triggers index.tsx's frame re-send) until it's gone.
       await new Promise(r => setTimeout(r, G1Core.ACTIVATED_SPLASH_MS));
+      // display_dispatch_thread.c:523 — the firmware memcmp()s the incoming
+      // frame against its last-rendered cache and skips the draw if identical.
+      // enter_silent_mode blanks the panel without invalidating that cache, so
+      // re-sending the same frame after Power On renders nothing. Dirty the
+      // cache with a blank frame; the caller's real frame queues behind it.
+      await this.sendText(' ');
     }
     this.status.poweredOff = !on;
     this._log(`[G1] _setPowered(${on}) done — poweredOff=${!on}`);
