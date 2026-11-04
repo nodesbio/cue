@@ -1592,7 +1592,20 @@ export class G1Core {
   private static readonly ACK_TIMEOUT_TEXT_MS = 25_000;
   private static readonly ACK_TIMEOUT_DEFAULT_MS = 2_000;
 
-  private async _send(side: Side, data: Uint8Array, awaitAck = true): Promise<void> {
+  /**
+   * @param onWritten fires once the write phase has finished — accepted by the
+   *   lens, dropped, or failed — regardless of ACK. _sendBoth uses it as a
+   *   barrier so the send queue can't run ahead of a slow lens's write.
+   */
+  private async _send(side: Side, data: Uint8Array, awaitAck = true, onWritten?: () => void): Promise<void> {
+    try {
+      await this._sendInner(side, data, awaitAck, onWritten);
+    } finally {
+      onWritten?.(); // idempotent: resolving a settled promise is a no-op
+    }
+  }
+
+  private async _sendInner(side: Side, data: Uint8Array, awaitAck: boolean, onWritten?: () => void): Promise<void> {
     const ch = this.txChars[side];
     const dev = this.devices[side];
     if (!ch || !dev) {
@@ -1657,6 +1670,7 @@ export class G1Core {
       return;
     }
 
+    onWritten?.();
     if (!awaitAck || !ackPromise) return;
 
     const ok = await ackPromise;
@@ -1725,10 +1739,19 @@ export class G1Core {
    * awaiting changed. sendBmp already issues both sides in parallel.
    */
   private async _sendBoth(data: Uint8Array): Promise<void> {
+    // Barrier: L's ACK (#25 — never wait on R's 25 s text ACK) AND R's write
+    // being accepted by the lens. Without the R-write barrier, a slow R let
+    // _sendQueue advance on L's ACK alone, R's CoreBluetooth write queue grew
+    // by one frame per tick, and R rendered one line behind L for the whole
+    // scroll (field report 2026-11-04). Awaiting R's write caps R's lag at one
+    // write (≤3 s via WRITE_TIMEOUT_MS) and lets sendText coalescing drop the
+    // intermediate frames so both lenses land on the same line.
+    let rWritten!: () => void;
+    const rWrittenP = new Promise<void>((r) => { rWritten = r; });
     const left = this._send('L', data);
-    const right = this._send('R', data);
+    const right = this._send('R', data, true, rWritten);
     right.catch((e) => this._log(`[G1] _sendBoth [R] background send error: ${e?.message ?? e}`));
-    await left;
+    await Promise.all([left, rWrittenP]);
   }
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
