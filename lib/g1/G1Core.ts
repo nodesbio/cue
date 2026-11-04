@@ -1596,9 +1596,17 @@ export class G1Core {
   private _startHeartbeat(): void {
     this._stopHeartbeat();
     this._hbCount = 0;
-    // Heartbeat direction: the firmware sends 0x25 to us and we echo it back
-    // in _onNotify. We only use this timer for periodic battery polling.
+    // EXPERIMENT (2026-11-04): firmware low_speed_peripheral_dispatch_thread.c:217
+    // disconnects (reason 0x13) when no app sync packet arrives for 30s, and
+    // ble_process_put_req.c:6689 case 0x25 logs "received app send sync packet"
+    // — the heartbeat is APP→GLASSES, not the reverse as previously assumed.
+    // Log shows R dropping every ~31s with ios=7 (remote terminated). Send the
+    // official-app heartbeat every 8s: 25 06 00 <seq> 04 <seq>.
     this.heartbeatTimer = setInterval(async () => {
+      const seq = this._hbCount & 0xff;
+      const hb = new Uint8Array([0x25, 0x06, 0x00, seq, 0x04, seq]);
+      this._send('L', hb, false).catch(() => {});
+      this._send('R', hb, false).catch(() => {});
       if (++this._hbCount % 4 === 0) {
         await this._send('L', P.batteryRequest());
         await this._send('R', P.batteryRequest());
