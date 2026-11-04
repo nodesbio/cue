@@ -124,6 +124,20 @@ export class G1Core {
   /** Pending reconnect timeout handles — cancelled on disconnect/destroy. */
   private _reconnectTimers: Partial<Record<Side, ReturnType<typeof setTimeout>>> = {};
   /**
+   * The pair we are bound to. `_pairedSerial` is the mfr-data serial
+   * ("H290036"); `_pairedIds` are the CoreBluetooth peripheral UUIDs learned
+   * the first time each side connects with mfr data verifying the serial.
+   * iOS connectedDevices() and some resume paths return devices WITHOUT mfr
+   * data, so the ids are the only way to tell G1_30 from G1_5 there. Every
+   * device-selection path (scan, resume, targeted reconnect scan) must go
+   * through _matchesPair — with two pairs in range, an unfiltered path
+   * connects one lens from each set.
+   */
+  private _pairedSerial: string | null = null;
+  private _pairedIds: Partial<Record<Side, string>> = {};
+  /** Lens peripheral ids verified against the paired serial. Persist these. */
+  get pairedIds(): Partial<Record<Side, string>> { return { ...this._pairedIds }; }
+  /**
    * Timestamp (ms) of the last silent(true) send per side, used to rate-limit
    * connection_error re-silences and avoid a re-silence storm.
    */
@@ -253,7 +267,13 @@ export class G1Core {
     });
   }
 
-  async connect(channel?: string): Promise<void> {
+  async connect(channel?: string, knownIds?: Partial<Record<Side, string>>): Promise<void> {
+    // Bind to the requested pair before any device selection runs.
+    if (channel && channel !== this._pairedSerial) {
+      this._pairedSerial = channel;
+      this._pairedIds = {};
+    }
+    if (knownIds) this._pairedIds = { ...this._pairedIds, ...knownIds };
     // If already connected, nothing to do.
     if (this.isConnected) return;
 
@@ -489,21 +509,14 @@ export class G1Core {
     const line = `${fmt(this.status.left, 'L:')}  ${fmt(this.status.right, 'R:')}`;
     this._log(`[G1] sendTestDisplay txReady L=${this.status.left.txReady} R=${this.status.right.txReady}`);
     return this._enqueue(async () => {
-      // Re-assert silent(false) immediately before the text write.
-      // The firmware may have re-entered silent mode after our connect-time
-      // silent(false) handshake (e.g. triggered by an inactivity timer or the
-      // f5 00 "close feature" event the right lens emits after display commands).
-      // Sending 03 0a here mirrors what _sendSilent does on display-takeover
-      // recovery and is the same reason triple-tap shows a brief flash — the
-      // user's gesture toggles the firmware's own silent mode off.
-      //
-      // awaitAck=false: the firmware sends exactly ONE 0x03 ACK per boot cycle,
-      // which is already consumed by _connectLensInner. A second silent(false)
-      // will never be ACK'd — awaiting it burns 2s per lens (4s total) before
-      // the text packet is sent, causing the button to appear unresponsive.
-      // The send still reaches the firmware; we just don't block on confirmation.
-      this._send('L', P.silent(false), false);
-      this._send('R', P.silent(false), false);
+      // No silent(false) before the text write. The lens already left silent
+      // mode in _connectLensInner (that ACK is what gates txReady), and the
+      // firmware ACKs 0x03 once per boot, so a second one is unverifiable
+      // noise. Per firmware decomp (even-g1-companion docs), 03 0a =
+      // exit_silent_mode rewrites the live screen id and resumes the master
+      // display thread — not something to fire 0 ms before a 0x4E. The
+      // 2026-11-04 "Even AI listening" flash this was suspected of causing
+      // turned out to be a dev probe in G1Context; removed separately.
       const packet = P.text(line, this._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
       await this._sendBoth(packet);
     });
@@ -634,33 +647,21 @@ export class G1Core {
             if (device.name?.includes('G1') || device.name == null) unidentified.push(device);
             continue;
           }
-          if (channel) {
-            const ch = this._parseChannel(device);
-            // _parseChannel returns the mfr-data serial when available, but
-            // connectedDevices() returns devices WITHOUT advertisementdata on
-            // iOS resume — so ch is the hex name-suffix ("810D29") while
-            // channel is the real paired serial ("H290028"). Accept the device if:
-            //   (a) keys match exactly, OR
-            //   (b) the device name contains the stored channel as a substring
-            //       (the hex suffix "810D29" appears in "Even G1_5_L_810D29"),
-            //       OR
-            //   (c) ch starts with "name-ch" (legacy fallback), OR
-            //   (d) device.manufacturerData is null — iOS connectedDevices never
-            //       returns mfr data; the UART service filter already guarantees
-            //       this peripheral is our bonded G1, so trust _parseSide alone.
-            const nameMatch    = channel && (device.name ?? '').includes(channel);
-            const nameChFallback = ch?.startsWith('name-ch');
-            const noMfrData    = device.manufacturerData == null;
-            if (ch !== channel && !nameMatch && !nameChFallback && !noMfrData) continue;
+          // connectedDevices() on iOS carries no mfr data. With two pairs in
+          // range (G1_30 + G1_5) the old rule "no mfr data → trust it" is how
+          // we ended up with one lens from each set. Only accept a peripheral
+          // whose id we've previously verified against the paired serial.
+          if (!this._matchesPair(device, side)) {
+            this._log(`[G1] _resumeAlreadyConnected: ${device.name ?? device.id} [${side}] is not the paired ${this._pairedSerial} — skipped`);
+            continue;
           }
           found[side] = device;
         }
-        // Assign any unidentified G1 devices to missing sides by position.
+        // Unidentified (nameless) peripherals: only accept by known id.
         for (const s of ['L', 'R'] as Side[]) {
-          if (!found[s] && unidentified.length > 0) {
-            found[s] = unidentified.shift();
-            this._log(`[G1] _resumeAlreadyConnected: assigned unidentified device to [${s}] by position`);
-          }
+          if (found[s]) continue;
+          const idx = unidentified.findIndex(d => d.id === this._pairedIds[s]);
+          if (idx >= 0) found[s] = unidentified.splice(idx, 1)[0];
         }
         return { found, unidentified };
       };
@@ -729,12 +730,8 @@ export class G1Core {
           const side = this._parseSide(device);
           if (!side) return;
           if (found[side]) return;
-
-          // If a channel filter is set, skip devices that don't match
-          if (channel) {
-            const ch = this._parseChannel(device);
-            if (ch !== channel) return;
-          }
+          if (!this._matchesPair(device, side)) return;
+          this._learnPairedId(device, side);
 
           found[side] = device;
 
@@ -821,6 +818,37 @@ export class G1Core {
     return mCh ? mCh[1].replace(/[LR]$/i, '') : null;
   }
 
+  /**
+   * Is this peripheral the `side` lens of the pair we're bound to?
+   *   1. No paired serial yet (first pairing) → accept.
+   *   2. We've learned this side's peripheral id → exact id match only.
+   *   3. Otherwise require mfr-data serial === paired serial.
+   *   4. No mfr data and no known id → reject. The name hex suffix is NOT the
+   *      serial and connectedDevices() on iOS never carries mfr data, so there
+   *      is nothing to verify against; the scan path (which has mfr data) will
+   *      find it and record the id.
+   */
+  private _matchesPair(device: Device, side: Side): boolean {
+    if (!this._pairedSerial) return true;
+    const knownId = this._pairedIds[side];
+    if (knownId) return device.id === knownId;
+    const parsed = this._parseManufacturerData(device);
+    return !!parsed && parsed.serial === this._pairedSerial;
+  }
+
+  /** Record a verified peripheral id for `side` once mfr data confirms the serial. */
+  private _learnPairedId(device: Device, side: Side): void {
+    const parsed = this._parseManufacturerData(device);
+    if (!parsed || parsed.serial.startsWith('name-ch')) return;
+    if (!this._pairedSerial) this._pairedSerial = parsed.serial;
+    if (parsed.serial !== this._pairedSerial) return;
+    if (this._pairedIds[side] !== device.id) {
+      this._pairedIds[side] = device.id;
+      this._log(`[G1] _learnPairedId [${side}] ${parsed.serial} → ${device.id}`);
+      this._emitStatus();
+    }
+  }
+
   /** Parse Side from device. Uses manufacturerData byte (preferred) or name. */
   private _parseSide(device: Device): Side | null {
     const parsed = this._parseManufacturerData(device);
@@ -852,12 +880,16 @@ export class G1Core {
    * consistent.
    */
   private _enqueueConnect(side: Side, device: Device): void {
-    if (this.destroyed || this.txChars[side] || this._connectingOnSide[side]) {
+    // "Already up" only counts if the lens we hold IS the one being requested.
+    // Holding a different peripheral (other pair's lens) must not block the
+    // correct one — _connectLensInner evicts the stranger.
+    const holdingThis = () => !!this.txChars[side] && this.devices[side]?.id === device.id;
+    if (this.destroyed || holdingThis() || this._connectingOnSide[side]) {
       this._log(`[G1] _enqueueConnect [${side}] skipped — destroyed=${this.destroyed} txChars=${!!this.txChars[side]} connecting=${this._connectingOnSide[side]}`);
       return;
     }
     void this._runOnQueue(side, async () => {
-      if (this.destroyed || this.txChars[side]) return; // re-check: may have connected while queued
+      if (this.destroyed || holdingThis()) return; // re-check: may have connected while queued
       try { await this._connectLens(side, device); }
       catch { this._scheduleReconnect(side); }
     });
@@ -890,6 +922,8 @@ export class G1Core {
     for (const s of sides) {
       // Cache before connecting so a connect() failure still leaves
       // _scheduleReconnect with a device to retry (no re-scan needed).
+      // Do NOT overwrite a cached different peripheral here — _connectLensInner
+      // uses devices[s].id !== found.id to detect and evict a wrong-pair lens.
       if (!this.devices[s]) this.devices[s] = found[s]!;
     }
     const results = await Promise.allSettled(
@@ -931,14 +965,32 @@ export class G1Core {
     // sub wired but aborted before _setConnected). Tear down and re-enter so the
     // reconnect path actually recovers instead of looping on a dead state.
     if (this.rxSubs[side]) {
+      const held = this.devices[side];
       const txReady = side === 'L' ? this.status.left.txReady : this.status.right.txReady;
-      if (txReady) {
+      if (held && held.id !== device.id) {
+        // 2026-11-04 log: rxSubs[R] was live for G1_30_R (the other pair's
+        // lens, grabbed before the pair filter existed) when the reconnect
+        // scan found the real H290028 R. The old guard saw "an R is up" and
+        // skipped — so we held the stranger forever and every 0x4e text
+        // timed out. The live sub is for the WRONG peripheral: drop it.
+        this._log(`[G1] _connectLensInner [${side}] held ${held.name ?? held.id} ≠ target ${device.name ?? device.id} — dropping wrong lens`);
+        this.rxSubs[side]!.remove();
+        this.rxSubs[side] = undefined;
+        this.txChars[side] = undefined;
+        this.devices[side] = undefined;
+        this._lastSilentAckAt[side] = 0;
+        this._setConnected(side, false);
+        try { await held.cancelConnection(); } catch (e: any) {
+          this._log(`[G1] _connectLensInner [${side}] cancelConnection on wrong lens failed: ${e?.message ?? e}`);
+        }
+      } else if (txReady) {
         this._log(`[G1] _connectLensInner [${side}] skipped — RX subscription already live and txReady`);
         return;
+      } else {
+        this._log(`[G1] _connectLensInner [${side}] stale rxSub (txReady=false) — tearing down and re-entering`);
+        this.rxSubs[side]!.remove();
+        this.rxSubs[side] = undefined;
       }
-      this._log(`[G1] _connectLensInner [${side}] stale rxSub (txReady=false) — tearing down and re-entering`);
-      this.rxSubs[side]!.remove();
-      this.rxSubs[side] = undefined;
     }
     this._log(`[G1] _connectLensInner [${side}] enter — device=${device.name ?? device.id}`);
     let connected: Device;
@@ -1137,7 +1189,14 @@ export class G1Core {
     this._reconnectTimers[side] = setTimeout(async () => {
       this._reconnectTimers[side] = undefined;
       if (this.destroyed) return;
-      const dev = this.devices[side];
+      let dev = this.devices[side];
+      if (dev && !this._matchesPair(dev, side)) {
+        // Cached device predates the pair binding (or belongs to the other
+        // set). Reconnecting it would re-grab the wrong lens — drop and scan.
+        this._log(`[G1] _scheduleReconnect [${side}] cached ${dev.name ?? dev.id} is not the paired ${this._pairedSerial} — discarding`);
+        this.devices[side] = undefined;
+        dev = undefined;
+      }
 
       if (!dev) {
         // This side was never found during the initial scan (e.g. L didn't
@@ -1156,7 +1215,10 @@ export class G1Core {
             const t = setTimeout(() => { this.manager.stopDeviceScan(); resolve(null); }, 5000);
             this.manager.startDeviceScan(null, { allowDuplicates: true }, (_err, device) => {
               if (!device?.name) return;
-              if (this._parseSide(device) === side) {
+              // Same pair filter as the main scan — this unfiltered path was
+              // the one that grabbed the other set's lens during reconnect.
+              if (this._parseSide(device) === side && this._matchesPair(device, side)) {
+                this._learnPairedId(device, side);
                 clearTimeout(t);
                 this.manager.stopDeviceScan();
                 resolve(device);

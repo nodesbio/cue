@@ -66,6 +66,16 @@ function makeStubCore(): G1Core {
 }
 
 export const PAIRED_SERIAL_KEY = 'g1_paired_serial';
+/** Per-serial CoreBluetooth peripheral ids: { L?: uuid, R?: uuid }. */
+const PAIRED_IDS_KEY = (serial: string) => `g1_paired_ids_${serial}`;
+
+// Module-level mirror of the persisted ids so the mount-time connect() can be
+// seeded synchronously after the serial read resolves.
+let _pairedIdsCache: { serial: string; ids: Partial<Record<'L' | 'R', string>> } | null = null;
+
+function _loadPairedIds(serial: string): Partial<Record<'L' | 'R', string>> | undefined {
+  return _pairedIdsCache?.serial === serial ? _pairedIdsCache.ids : undefined;
+}
 
 // ── Log buffer ─────────────────────────────────────────────────────────────
 // Module-level ring buffer: survives Fast Refresh, max 200 lines.
@@ -86,7 +96,10 @@ function _addLog(line: string) {
 // what's in the binary; nativeBuildVersion is the real CFBundleVersion.
 // Without this, a shared log can't be matched to an EAS build/commit (the
 // 2026-10-25 logs were triaged against a fix that wasn't in that binary).
-const BUILD_STAMP = `cue ${Constants.nativeAppVersion ?? '?'} (${Constants.nativeBuildVersion ?? '?'}) ${Constants.expoConfig?.runtimeVersion ?? ''}`.trim();
+// runtimeVersion may be a policy object ({ policy: 'appVersion' }) rather than
+// a string — rendered "[object Object]" in the 2026-11-04 log. Only print strings.
+const _rtv = Constants.expoConfig?.runtimeVersion;
+const BUILD_STAMP = `cue ${Constants.nativeAppVersion ?? '?'} (${Constants.nativeBuildVersion ?? '?'}) ${typeof _rtv === 'string' ? _rtv : ''}`.trim();
 _addLog(`[BUILD] ${BUILD_STAMP}`);
 
 /** Returns the full log buffer as a single newline-joined string (for sharing). */
@@ -221,14 +234,18 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Auto-reconnect to the last paired serial
-    AsyncStorage.getItem(PAIRED_SERIAL_KEY).then(serial => {
+    AsyncStorage.getItem(PAIRED_SERIAL_KEY).then(async serial => {
       if (!serial) {
         // No paired device — nothing to connect to, stop waiting.
         setIsAutoConnecting(false);
         return;
       }
       setPairedSerial(serial);
-      coreRef.current.connect(serial).catch((e) => {
+      const idsJson = await AsyncStorage.getItem(PAIRED_IDS_KEY(serial)).catch(() => null);
+      if (idsJson) {
+        try { _pairedIdsCache = { serial, ids: JSON.parse(idsJson) }; } catch { /* corrupt → re-learn from scan */ }
+      }
+      coreRef.current.connect(serial, _loadPairedIds(serial)).catch((e) => {
         // Silent — dashboard will show "Connect" CTA if glasses aren't in range
         const msg = `[G1Context] auto-reconnect failed: ${e?.message ?? e}`;
         console.log(msg);
@@ -245,32 +262,14 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ── TEMP DEV PROBE (remove me): auto-fire Test HUD once both lenses ready,
-  // report result to Jarvis listener. Verifies the silent(false) init fix.
-  const bothReadyForProbe = !!(status?.left.txReady && status?.right.txReady);
-  const probeFiredRef = useRef(false);
+  // Persist verified lens peripheral ids whenever the core learns one. Cold-start
+  // resume on iOS has no mfr data, so these ids are the only pair verification.
+  const pairedIdsJson = JSON.stringify(coreRef.current.pairedIds);
   useEffect(() => {
-    if (!__DEV__ || !bothReadyForProbe || probeFiredRef.current) return;
-    probeFiredRef.current = true;
-    const report = (msg: string) =>
-      fetch('http://192.168.0.199:8909/', { method: 'POST', body: msg }).catch(() => {});
-    // EXPERIMENT: send 0x4e to R FIRST, then L. If R ACKs when sent first,
-    // the failure is sequencing in _sendBoth (L-then-R), not R lens state.
-    report(`probe: EXPERIMENT — sending 0x4e to R first, then L`);
-    const core: any = coreRef.current;
-    const P = require('./packets');
-    const packet = P.text('R-FIRST TEST', core._nextSeq(), 1, 1, P.NewScreen.AUTO_LAST);
-    core._enqueue(async () => {
-      await core._send('R', packet);
-      report('probe: R send returned (check log tail for ACK vs timeout)');
-      await core._send('L', packet);
-      report('probe: L send returned');
-    })
-      .catch((e: any) => report(`probe: EXPERIMENT FAILED — ${e?.message ?? e}`))
-      // Ship the log tail 5s later so we can see the 0x4e ACK/NACK outcome.
-      .then(() => new Promise(r => setTimeout(r, 5000)))
-      .then(() => report(`probe: LOG TAIL\n${_logBuffer.slice(-40).join('\n')}`));
-  }, [bothReadyForProbe]);
+    if (!pairedSerial || pairedIdsJson === '{}') return;
+    _pairedIdsCache = { serial: pairedSerial, ids: JSON.parse(pairedIdsJson) };
+    AsyncStorage.setItem(PAIRED_IDS_KEY(pairedSerial), pairedIdsJson).catch(() => {});
+  }, [pairedSerial, pairedIdsJson]);
 
   // Re-push stored brightness whenever glasses become connected/reconnect.
   const isConnectedForEffect = !!(status?.left.txReady || status?.right.txReady);
