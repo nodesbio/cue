@@ -96,7 +96,15 @@ export class G1Core {
    * being free then execute.
    */
   private _sendQueue: Promise<void> = Promise.resolve();
-  private _nextSendResolve: (() => void) | null = null;
+  /**
+   * Monotonic token for sendText coalescing. Each sendText captures the
+   * current value at enqueue time; when its turn on _sendQueue arrives, it
+   * only sends if no newer sendText has been enqueued since. Field report
+   * 2026-11-04: glasses were 28 min / ~380 lines behind the app because the
+   * queue was an unbounded FIFO and each text frame waits up to 25 s for an
+   * R-side ACK — every scroll tick was faithfully replayed in order.
+   */
+  private _textGen = 0;
   /**
    * Per-side connect queues. Each side serialises its own _connectLens calls
    * independently. A shared queue meant R's reconnect blocked on L's (and
@@ -379,7 +387,7 @@ export class G1Core {
       // enter_silent_mode blanks the panel without invalidating that cache, so
       // re-sending the same frame after Power On renders nothing. Dirty the
       // cache with a blank frame; the caller's real frame queues behind it.
-      await this.sendText(' ');
+      await this._enqueue(() => this._sendBoth(P.text(' ', this._nextSeq(), 1, 1, P.NewScreen.TEXT)));
     }
     this.status.poweredOff = !on;
     this._log(`[G1] _setPowered(${on}) done — poweredOff=${!on}`);
@@ -496,7 +504,12 @@ export class G1Core {
     // isLastPage is kept for callers but no longer selects the screen byte.
     void isLastPage;
     const ns = newScreen ?? P.NewScreen.TEXT;
+    const myGen = ++this._textGen;
     return this._enqueue(async () => {
+      if (myGen !== this._textGen) {
+        this._log(`[G1] sendText line=${curLine} superseded (gen ${myGen} < ${this._textGen}) — skipped`);
+        return;
+      }
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
       this._log(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
