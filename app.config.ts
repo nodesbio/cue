@@ -45,6 +45,17 @@ const config: ExpoConfig = {
     'expo-router',
     'expo-secure-store',
     [
+      'expo-share-intent',
+      {
+        iosActivationRules: {
+          NSExtensionActivationSupportsText: true,
+          NSExtensionActivationSupportsWebURLWithMaxCount: 1,
+          NSExtensionActivationSupportsFileWithMaxCount: 1,
+        },
+        androidIntentFilters: ['text/*'],
+      },
+    ],
+    [
       'react-native-ble-plx',
       {
         isBackgroundEnabled: true,
