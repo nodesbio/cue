@@ -335,6 +335,19 @@ export class G1Core {
   }
 
   /**
+   * "Power off" — the G1 has no off state (firmware decomp has no power-down
+   * path in the BLE dispatcher; only the case stops it). Silent mode ON
+   * (03 0C) suspends the display thread and drops to standby, which is the
+   * closest thing. Send to both arms, then disconnect so we don't immediately
+   * wake them back up with a reconnect-init silent(false).
+   */
+  async powerOff(): Promise<void> {
+    const sides = (['L', 'R'] as Side[]).filter(s => this.txChars[s]);
+    await Promise.allSettled(sides.map(s => this._send(s, P.silent(true))));
+    await this.disconnect();
+  }
+
+  /**
    * Disconnect a single lens and stop any pending reconnect timer for it.
    * The other lens is left untouched. Does NOT reset pairedSerial — a
    * subsequent reconnectSide() call will re-scan and reconnect just that side.

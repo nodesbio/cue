@@ -40,6 +40,7 @@ function makeStubCore(): G1Core {
     // Connection
     connect:              async () => {},
     disconnect:           async () => {},
+    powerOff:             async () => {},
     disconnectSide:       async () => {},
     reconnectSide:        () => {},
     reconnectDropped:     async () => {},

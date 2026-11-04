@@ -138,6 +138,10 @@ export default function SettingsScreen() {
             <Pressable style={[s.btn, s.btnDanger]} onPress={handleDisconnect}>
               <Text style={[s.btnText, { color: '#fff' }]}>Disconnect All</Text>
             </Pressable>
+            {/* Silent mode ON + disconnect. The G1 has no true power-off; this blanks the display and drops to standby. */}
+            <Pressable style={[s.btn, s.btnDanger]} onPress={() => void core.powerOff()}>
+              <Text style={[s.btnText, { color: '#fff' }]}>Power Off Glasses</Text>
+            </Pressable>
           </>
         ) : isAutoConnecting ? (
           /* ── Auto-reconnect in flight — don't flash the pair UI ── */
