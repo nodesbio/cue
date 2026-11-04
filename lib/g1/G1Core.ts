@@ -492,7 +492,7 @@ export class G1Core {
     const ns = newScreen ?? P.NewScreen.TEXT;
     return this._enqueue(async () => {
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
-      this._log(`[G1] sendText seq=${packet[2]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
+      this._log(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
     });
   }
