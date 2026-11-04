@@ -320,6 +320,11 @@ export class G1Core {
     clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
     clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
     for (const side of ['L', 'R'] as Side[]) {
+      // Invalidate the onDisconnected handler BEFORE cancelConnection. iOS
+      // fires it during the cancel, and without this it would call
+      // _scheduleReconnect after we've already cleared the timers above —
+      // so every user-initiated disconnect reconnected itself ~1s later.
+      this._connGen[side]++;
       this.rxSubs[side]?.remove();
       this.rxSubs[side] = undefined;
       const dev = this.devices[side];
@@ -357,6 +362,7 @@ export class G1Core {
     clearTimeout(this._reconnectTimers[side]);
     this._reconnectTimers[side] = undefined;
     this._connectQueue[side] = Promise.resolve(); // flush any queued attempts
+    this._connGen[side]++; // stale-out onDisconnected so cancelConnection doesn't reschedule (see disconnect())
     this.rxSubs[side]?.remove();
     this.rxSubs[side] = undefined;
     const dev = this.devices[side];

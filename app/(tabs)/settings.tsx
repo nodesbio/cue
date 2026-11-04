@@ -158,7 +158,7 @@ export default function SettingsScreen() {
             </View>
             <Pressable style={s.btn} onPress={handleConnectPress}>
               <Text style={s.btnText}>
-                {pairedSerial ? `Reconnect · ${pairedSerial}` : 'Pair G1 Glasses'}
+                {pairedSerial ? `Power On / Connect · ${pairedSerial}` : 'Pair G1 Glasses'}
               </Text>
             </Pressable>
             {pairedSerial && (
