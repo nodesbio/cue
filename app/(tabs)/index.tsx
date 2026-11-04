@@ -121,7 +121,7 @@ export default function TeleprompterScreen() {
     // dashboard never gets a chance to settle visibly.
     if (event.name === 'dashboard_open' || event.name === 'dashboard_close' || event.name === 'ai_start') {
       const s = snapRef.current;
-      if (s) {
+      if (s && !core.status.poweredOff) {
         void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
       }
       return;
@@ -198,14 +198,16 @@ export default function TeleprompterScreen() {
     // No cleanup: singleton must outlive StrictMode unmount.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-send on reconnect (glasses may have restarted)
+  // Re-send on reconnect (glasses may have restarted) and on Power On —
+  // silent(false) resumes the display thread but shows nothing until we push.
+  const poweredOff = status?.poweredOff ?? false;
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || poweredOff) return;
     const s = snapRef.current;
     if (s) {
       void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
     }
-  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [connected, poweredOff]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep battery levels in the engine status bar
   useEffect(() => {
