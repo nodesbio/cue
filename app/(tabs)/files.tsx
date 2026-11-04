@@ -27,17 +27,22 @@ import {
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useFocusEffect } from 'expo-router';
 import {
   listScripts,
   saveScript,
   deleteScript,
+  exportBackup,
+  parseBackup,
+  restoreBackup,
   updateScript,
   touchScript,
   reorderScripts,
   type ScriptEntry,
 } from '@/lib/scripts/ScriptStore';
-import { type TeleprompterEngine } from '@/lib/teleprompter/TeleprompterEngine';
+import { getEngine } from '@/lib/teleprompter/engine';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -317,14 +322,35 @@ export default function FilesScreen() {
 
   useFocusEffect(useCallback(() => { refresh(); }, []));
 
+  // ── Backup / restore ────────────────────────────────────────────────────
+  async function handleBackup() {
+    const backup = await exportBackup();
+    if (backup.scripts.length === 0) { Alert.alert('Nothing to back up'); return; }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const file = new File(Paths.cache, `cue-scripts-${stamp}.json`);
+    file.write(JSON.stringify(backup, null, 2));
+    await Sharing.shareAsync(file.uri, { mimeType: 'application/json', UTI: 'public.json' });
+  }
+
+  async function handleRestore() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/json', 'public.json'],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    try {
+      const backup = parseBackup(await FileSystem.readAsStringAsync(result.assets[0].uri));
+      const { added, updated } = await restoreBackup(backup);
+      refresh();
+      Alert.alert('Restored', `${added} added, ${updated} updated.`);
+    } catch (e) {
+      Alert.alert('Restore failed', (e as Error).message);
+    }
+  }
+
   // ── Load ────────────────────────────────────────────────────────────────
   function handleLoad(entry: ScriptEntry) {
-    const eng = (globalThis as any).__cueEngine as TeleprompterEngine | undefined;
-    if (!eng) {
-      Alert.alert('Not ready', 'Open the Teleprompter tab first to initialise the engine.');
-      return;
-    }
-    eng.loadScript(entry.text);
+    getEngine().loadScript(entry.text);
     setLoadedId(entry.id);
     touchScript(entry.id).then(() => {
       setList([
@@ -441,6 +467,15 @@ export default function FilesScreen() {
           <Pressable style={s.headerBtn} onPress={handleImport}>
             <Text style={s.headerBtnTxt}>+ Import</Text>
           </Pressable>
+          <Pressable style={s.headerBtn} onPress={() =>
+            Alert.alert('Backup', undefined, [
+              { text: 'Export all…', onPress: handleBackup },
+              { text: 'Restore from file…', onPress: handleRestore },
+              { text: 'Cancel', style: 'cancel' },
+            ])
+          }>
+            <Text style={s.headerBtnTxt}>⋯</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -451,7 +486,7 @@ export default function FilesScreen() {
           <Text style={s.emptyIcon}>📄</Text>
           <Text style={s.emptyHeading}>No saved scripts</Text>
           <Text style={s.emptySub}>
-            Create a new script, import a .txt file, or save from the Teleprompter tab.
+            Create a new script or import a .txt file.
           </Text>
         </View>
       ) : (

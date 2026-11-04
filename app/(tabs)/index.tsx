@@ -8,24 +8,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Animated,
-  Keyboard,
   PanResponder,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableWithoutFeedback,
   useWindowDimensions,
   View,
 } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
-import { saveScript } from '@/lib/scripts/ScriptStore';
 import {
   TeleprompterEngine,
   EngineSnapshot,
@@ -35,6 +29,7 @@ import {
   SPEED_TURBO,
   SPEED_STEP,
 } from '@/lib/teleprompter/TeleprompterEngine';
+import { getEngine } from '@/lib/teleprompter/engine';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,19 +38,6 @@ function speedLabel(s: number): string {
   if (s >= SPEED_NORMAL) return 'Normal';
   if (s >= SPEED_FAST)   return 'Fast';
   return 'Turbo';
-}
-
-// ── Module-level singleton ─────────────────────────────────────────────────
-// One engine instance for the lifetime of this JS module.
-// Fast Refresh replaces the module — module.hot.dispose kills the old engine's
-// timers before the new module instance starts, preventing orphaned setIntervals.
-let _engine: TeleprompterEngine | null = null;
-
-if (typeof module !== 'undefined' && (module as NodeModule & { hot?: { dispose: (cb: () => void) => void } }).hot) {
-  (module as NodeModule & { hot: { dispose: (cb: () => void) => void } }).hot.dispose(() => {
-    _engine?.destroy();
-    _engine = null;
-  });
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -70,8 +52,6 @@ export default function TeleprompterScreen() {
   const engineRef = useRef<TeleprompterEngine | null>(null);
 
   const [snap, setSnap] = useState<EngineSnapshot | null>(null);
-  const [scriptText, setScriptText] = useState('');
-  const [editMode, setEditMode] = useState(false);
   const [loop, setLoop] = useState(false);
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
@@ -193,9 +173,7 @@ export default function TeleprompterScreen() {
   // Fast Refresh tears down the old module (and its _engine) via module.hot.dispose
   // before this runs, so there is never more than one live engine at a time.
   useEffect(() => {
-    if (!_engine) {
-      _engine = new TeleprompterEngine({ onFrame: () => {}, onStateChange: () => {} });
-    }
+    const _engine = getEngine();
     engineRef.current = _engine;
 
     // Re-wire every mount so closures (core, setSnap, connectedRef) are always
@@ -214,9 +192,6 @@ export default function TeleprompterScreen() {
     });
 
     setSnap(_engine.getSnapshot());
-    // Expose engine globally so the Files tab can load scripts without a
-    // circular import on the singleton.
-    (global as any).__cueEngine = _engine;
     // No cleanup: singleton must outlive StrictMode unmount.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -236,31 +211,6 @@ export default function TeleprompterScreen() {
       status?.right.batteryPct ?? null,
     );
   }, [status?.left.batteryPct, status?.right.batteryPct]);
-
-  const handleLoad = useCallback(() => {
-    if (!scriptText.trim()) return;
-    engineRef.current?.loadScript(scriptText);
-    setEditMode(false);
-    Keyboard.dismiss();
-  }, [scriptText]);
-
-  const handleSave = useCallback(async () => {
-    if (!scriptText.trim()) return;
-    const name = `Script ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-    await saveScript(name, scriptText).catch(() => {});
-  }, [scriptText]);
-
-  const handlePickFile = useCallback(async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ['text/plain', 'text/*', 'public.plain-text'],
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    const text = await FileSystem.readAsStringAsync(result.assets[0].uri);
-    setScriptText(text);
-    engineRef.current?.loadScript(text);
-    setEditMode(false);
-  }, []);
 
   const handleToggle = useCallback(() => {
     const isPlaying = engineRef.current?.getSnapshot().state === 'playing';
@@ -377,8 +327,7 @@ export default function TeleprompterScreen() {
   const hudLines = (engineRef.current?.getFrameAt(snap.topIndex) ?? '').split('\n');
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <SafeAreaView style={s.root}>
+    <SafeAreaView style={s.root}>
 
         {/* ── Header — hidden in fullscreen mode ─────────────────────── */}
         {!hudFullscreen && (
@@ -438,53 +387,7 @@ export default function TeleprompterScreen() {
           </Text>
         </Animated.View>
 
-        {!hudFullscreen && <ScrollView style={s.scrollView} contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-
-          {/* ── Script Editor ─────────────────────────────────────────── */}
-          <View style={s.scriptSection}>
-            <View style={s.scriptHeader}>
-              <Text style={s.sectionTitle}>Script</Text>
-              <View style={s.scriptHeaderActions}>
-                <Pressable onPress={handlePickFile}>
-                  <Text style={s.editToggle}>📄 File</Text>
-                </Pressable>
-                {scriptText.trim().length > 0 && (
-                  <Pressable onPress={handleSave}>
-                    <Text style={s.editToggle}>💾 Save</Text>
-                  </Pressable>
-                )}
-                <Pressable onPress={() => setEditMode(e => !e)}>
-                  <Text style={s.editToggle}>{editMode ? 'Cancel' : 'Paste'}</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {editMode ? (
-              <>
-                <TextInput
-                  style={s.scriptInput}
-                  multiline
-                  autoFocus
-                  value={scriptText}
-                  onChangeText={setScriptText}
-                  placeholder="Paste or type your script here…"
-                  placeholderTextColor="#444"
-                  textAlignVertical="top"
-                />
-                <Pressable
-                  style={[s.loadBtn, !scriptText.trim() && s.ctrlDisabled]}
-                  onPress={handleLoad}
-                  disabled={!scriptText.trim()}
-                >
-                  <Text style={s.loadBtnText}>Load Script →</Text>
-                </Pressable>
-              </>
-            ) : (
-              <Text style={s.scriptPreview} numberOfLines={4}>
-                {scriptText || '(using default script — tap Edit to load your own)'}
-              </Text>
-            )}
-          </View>
+        {!hudFullscreen && <ScrollView style={s.scrollView} contentContainerStyle={s.scroll}>
 
           {/* ── Progress ─────────────────────────────────────────────── */}
           {hasScript && (
@@ -560,8 +463,7 @@ export default function TeleprompterScreen() {
           </Pressable>
 
         </ScrollView>}
-      </SafeAreaView>
-    </TouchableWithoutFeedback>
+    </SafeAreaView>
   );
 }
 
@@ -645,16 +547,4 @@ const s = StyleSheet.create({
   toggleThumbOn:    { backgroundColor: '#fff', alignSelf: 'flex-end' },
   loopLabel:        { color: '#888', fontSize: 14 },
 
-  // Script editor
-  scriptSection:    { gap: 12 },
-  scriptHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  scriptHeaderActions: { flexDirection: 'row', gap: 16 },
-  sectionTitle:     { color: '#fff', fontSize: 18, fontWeight: '600' },
-  editToggle:       { color: '#22c55e', fontSize: 14 },
-  scriptInput:      { backgroundColor: '#141414', borderRadius: 12, padding: 16, color: '#fff',
-                       fontSize: 14, lineHeight: 22, minHeight: 180 },
-  scriptPreview:    { color: '#444', fontSize: 13, lineHeight: 20 },
-  loadBtn:          { backgroundColor: '#22c55e', borderRadius: 12, paddingVertical: 14,
-                       alignItems: 'center', marginTop: 4 },
-  loadBtnText:      { color: '#000', fontSize: 16, fontWeight: '700' },
 });

@@ -124,3 +124,59 @@ export async function deleteScript(id: string): Promise<void> {
   await AsyncStorage.removeItem(entryKey(id));
   await writeIndex(ids.filter(i => i !== id));
 }
+
+// ── Backup / restore ────────────────────────────────────────────────────────
+
+export const BACKUP_VERSION = 1;
+
+export interface ScriptBackup {
+  app: 'cue';
+  version: typeof BACKUP_VERSION;
+  exportedAt: number;
+  scripts: ScriptEntry[];
+}
+
+/** Serialise the whole library, in list order. */
+export async function exportBackup(): Promise<ScriptBackup> {
+  return { app: 'cue', version: BACKUP_VERSION, exportedAt: Date.now(), scripts: await listScripts() };
+}
+
+/** Throws with a human-readable message if the JSON isn't a Cue backup. */
+export function parseBackup(json: string): ScriptBackup {
+  let data: unknown;
+  try { data = JSON.parse(json); } catch { throw new Error('Not a JSON file.'); }
+  const b = data as Partial<ScriptBackup>;
+  if (b?.app !== 'cue' || !Array.isArray(b.scripts)) throw new Error('Not a Cue backup file.');
+  if (b.version !== BACKUP_VERSION) throw new Error(`Backup version ${b.version} is not supported.`);
+  for (const e of b.scripts) {
+    if (typeof e?.id !== 'string' || typeof e.name !== 'string' || typeof e.text !== 'string') {
+      throw new Error('Backup contains a malformed script.');
+    }
+  }
+  return b as ScriptBackup;
+}
+
+/**
+ * Merge a backup into the library. Scripts whose id already exists are
+ * overwritten only if the backup copy is newer; new ids are appended below
+ * the current list. Returns counts for the confirmation toast.
+ */
+export async function restoreBackup(backup: ScriptBackup): Promise<{ added: number; updated: number }> {
+  const ids = await readIndex();
+  const current = new Map((await listScripts()).map(e => [e.id, e]));
+  let added = 0, updated = 0;
+  for (const e of backup.scripts) {
+    const cur = current.get(e.id);
+    if (cur) {
+      if (cur.updatedAt >= e.updatedAt) continue;
+      updated++;
+    } else {
+      ids.push(e.id);
+      added++;
+    }
+    current.set(e.id, e);
+    await AsyncStorage.setItem(entryKey(e.id), JSON.stringify(e));
+  }
+  await writeIndex(ids);
+  return { added, updated };
+}
