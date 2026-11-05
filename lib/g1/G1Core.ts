@@ -1646,6 +1646,11 @@ export class G1Core {
     // and writeCharacteristicWithResponse has no built-in deadline, which would
     // block _sendQueue indefinitely and freeze all subsequent sends.
     const WRITE_TIMEOUT_MS = 3000;
+    // Sync telemetry (OP_TEXT only): write duration and ACK latency per side,
+    // keyed by seq so L/R lines for the same frame can be paired in a log.
+    const isText = data[0] === P.OP_TEXT;
+    const seq = data[1];
+    const t0 = Date.now();
     try {
       await Promise.race([
         dev.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, b64),
@@ -1670,10 +1675,13 @@ export class G1Core {
       return;
     }
 
+    const tWritten = Date.now();
+    if (isText) this._log(`[G1] text seq=${seq} [${side}] written +${tWritten - t0}ms`);
     onWritten?.();
     if (!awaitAck || !ackPromise) return;
 
     const ok = await ackPromise;
+    if (isText) this._log(`[G1] text seq=${seq} [${side}] ${ok ? 'ack' : 'nack'} +${Date.now() - tWritten}ms after write`);
     if (!ok) {
       this._log(`[G1] _send [${side}] NACK op=0x${opHex}`);
       if (data[0] === P.OP_TEXT) {
@@ -1748,10 +1756,14 @@ export class G1Core {
     // intermediate frames so both lenses land on the same line.
     let rWritten!: () => void;
     const rWrittenP = new Promise<void>((r) => { rWritten = r; });
+    const t0 = Date.now();
     const left = this._send('L', data);
     const right = this._send('R', data, true, rWritten);
     right.catch((e) => this._log(`[G1] _sendBoth [R] background send error: ${e?.message ?? e}`));
     await Promise.all([left, rWrittenP]);
+    if (data[0] === P.OP_TEXT) {
+      this._log(`[G1] text seq=${data[1]} barrier released +${Date.now() - t0}ms (L ack ∧ R written)`);
+    }
   }
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
