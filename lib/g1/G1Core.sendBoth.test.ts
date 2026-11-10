@@ -70,7 +70,7 @@ describe('G1Core OP_TEXT ACK handling', () => {
     const { anyCore, writes, ack } = makeReadyCore();
     const p = anyCore._sendBoth(TEXT);
     await flush();
-    expect(writes).toEqual(['L', 'R']);     // both written back-to-back, L first
+    expect(writes).toEqual(['R', 'L']);     // R first so slave holds the seq before master's ESB sync
     ack('L', P.OP_TEXT);
     await expect(p).resolves.toBeUndefined(); // R never ACKed, queue not blocked
   });

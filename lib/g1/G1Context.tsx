@@ -13,6 +13,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { G1Core, G1Status, EventHandler } from './G1Core';
 import { smartRemoteManager } from './SmartRemoteManager';
 import { startDevBridge } from './devBridge';
+import { saveBattery } from './batteryStore';
 
 // Detect whether the native BLE module is available (absent in Expo Go).
 function isBleAvailable(): boolean {
@@ -221,6 +222,15 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
     const s = global.__g1Core!.status;
     return !(s.left.connected || s.right.connected || s.left.txReady || s.right.txReady);
   });
+
+  // Remember last-known battery per serial so the scan screen can show it
+  // before connecting (advertisement has no battery byte).
+  const batL = status?.left.batteryPct ?? null;
+  const batR = status?.right.batteryPct ?? null;
+  useEffect(() => {
+    if (!pairedSerial) return;
+    saveBattery(pairedSerial, batL, batR).catch(() => {});
+  }, [pairedSerial, batL, batR]);
 
   useEffect(() => {
     // Start SmartRemote listener once on mount.

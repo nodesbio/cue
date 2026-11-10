@@ -11,6 +11,8 @@ import * as P from './packets';
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type Side = 'L' | 'R';
+/** Listener for the shared BLE scan (see `_subscribeScan`). */
+type ScanListener = (error: BleError | null, device: Device | null) => void;
 
 export interface LensState {
   device: Device | null;
@@ -74,6 +76,8 @@ function base64ToUint8(b64: string): Uint8Array {
 
 export class G1Core {
   private manager: BleManager;
+  /** Last time `[G1 MFR RAW]` was logged per `${serial}${side}` (scan research throttle). */
+  private _mfrLogAt: Record<string, number> = {};
   private devices: Partial<Record<Side, Device>> = {};
   private txChars: Partial<Record<Side, Characteristic>> = {};
   private rxSubs: Partial<Record<Side, Subscription>> = {};
@@ -225,7 +229,53 @@ export class G1Core {
     this.onLog?.(line);
   }
 
+  // ── Shared scan owner ─────────────────────────────────────────────────────
+  //
+  // `BleManager.startDeviceScan` / `stopDeviceScan` are global: a second
+  // startDeviceScan replaces the first callback, and any stopDeviceScan kills
+  // whoever is scanning. Four independent scanners (streaming scan screen,
+  // connect()'s _scan, the reconnect-timer scan, scanDebug) used to each own
+  // the radio, so the reconnect loop routinely clobbered the scan screen and
+  // vice-versa (#scan-sync). Now exactly one startDeviceScan runs while ≥1
+  // listener is subscribed; listeners never touch the radio directly.
+
+  private _scanListeners = new Set<ScanListener>();
+
+  /**
+   * Subscribe to the shared BLE scan. The radio starts on the first subscriber
+   * and stops when the last one unsubscribes. Returns an idempotent unsubscribe.
+   * On a scan error every listener is notified once and the set is cleared so
+   * the next subscriber restarts the radio.
+   */
+  private async _subscribeScan(listener: ScanListener): Promise<() => void> {
+    await this._ensureBleReady();
+    this._scanListeners.add(listener);
+    if (this._scanListeners.size === 1) {
+      this._log(`[G1] scan radio ON`);
+      this.manager.startDeviceScan(null, { allowDuplicates: true }, (error, device) => {
+        if (error) {
+          this._log(`[G1] scan error: ${error.message} — notifying ${this._scanListeners.size} listener(s)`);
+          const ls = [...this._scanListeners];
+          this._scanListeners.clear();
+          for (const l of ls) l(error, null);
+          return;
+        }
+        if (!device) return;
+        for (const l of [...this._scanListeners]) l(null, device);
+      });
+    }
+    return () => {
+      if (!this._scanListeners.delete(listener)) return;
+      if (this._scanListeners.size === 0) {
+        this._log(`[G1] scan radio OFF`);
+        this.manager.stopDeviceScan();
+      }
+    };
+  }
+
   // ── Public API ────────────────────────────────────────────────────────────
+
+  private _streamingUnsub?: () => void;
 
   /**
    * Start a continuous BLE scan for G1 pairs, calling `onUpdate` each time a
@@ -235,40 +285,86 @@ export class G1Core {
   async startStreamingScan(
     onUpdate: (pairs: Record<string, Partial<Record<Side, Device>> & { serial?: string; firmware?: string }>) => void,
   ): Promise<void> {
+    this.stopStreamingScan();
     const pairs: Record<string, Partial<Record<Side, Device>> & { serial?: string; firmware?: string }> = {};
-    await this._ensureBleReady();
-    this.manager.startDeviceScan(
-      null,
-      { allowDuplicates: true },
-      (_err, device) => {
-        if (!device?.name?.includes('G1')) return;
-        const parsed = this._parseManufacturerData(device);
-        if (!parsed) return;
-        const { side, serial, firmware } = parsed;
-        if (!pairs[serial]) pairs[serial] = { serial, firmware };
-        pairs[serial][side] = device;
-        onUpdate({ ...pairs });
-      },
-    );
+    this._streamingUnsub = await this._subscribeScan((_err, device) => {
+      if (!device?.name?.includes('G1')) return;
+      const parsed = this._parseManufacturerData(device);
+      if (!parsed) return;
+      const { side, serial, firmware } = parsed;
+      if (!pairs[serial]) pairs[serial] = { serial, firmware };
+      pairs[serial][side] = device;
+      onUpdate({ ...pairs });
+    });
   }
 
   /** Stop a streaming scan started with `startStreamingScan`. */
   stopStreamingScan(): void {
-    this.manager.stopDeviceScan();
+    this._streamingUnsub?.();
+    this._streamingUnsub = undefined;
+  }
+
+  /**
+   * Briefly connect to an advertising R lens, read battery, and disconnect.
+   * Used by the scan screen to pick the fuller of two pairs BEFORE pairing —
+   * the advertisement carries no battery byte (firmware ble_ancs.c:856-864),
+   * so this is the only way to get a live number without fully connecting.
+   *
+   * Protocol (firmware ble_cmd.h:50 BLE_CMD_DEVICE_INFO_GET, ble_proto.c:3238):
+   *   TX  2C 01
+   *   RX  2C 66 [pct] [pct2] [voltage] [current] [temp] [fw ver ×14]
+   * data[2] is what the existing connected path uses as the lens's own level,
+   * so that's what we return. data[3] is logged for research — on the master
+   * it is probably the slave's level via ESB, but that's unverified.
+   *
+   * Deliberately bypasses _connectLensInner: no init handshake, no status
+   * mutation, no onDisconnected → no reconnect loop. Refuses to run while a
+   * real connect is in flight so it can't race the per-side queue for the
+   * same peripheral.
+   */
+  async probeBattery(device: Device, timeoutMs = 8000): Promise<{ pct: number; raw: number[] }> {
+    if (this.isReconnecting) throw new Error('probeBattery: connect in flight');
+    const tag = `[G1] probeBattery ${device.name ?? device.id}`;
+    let sub: Subscription | undefined;
+    let connected: Device | undefined;
+    try {
+      connected = await device.connect({ autoConnect: false, timeout: timeoutMs });
+      const disc = await connected.discoverAllServicesAndCharacteristics();
+      const raw = await new Promise<Uint8Array>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('probeBattery: no 0x2C reply')), timeoutMs);
+        sub = disc.monitorCharacteristicForService(P.UART_SVC, P.UART_RX, (err, ch) => {
+          if (err || !ch?.value) return;
+          const data = base64ToUint8(ch.value);
+          if (data[0] !== P.OP_BATTERY) return;
+          clearTimeout(t);
+          resolve(data);
+        });
+        disc.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, uint8ToBase64(P.batteryRequest()))
+          .catch(e => { clearTimeout(t); reject(e); });
+      });
+      const hex = Array.from(raw).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      this._log(`${tag} ok pct=${raw[2]} data[3]=${raw[3]} raw: ${hex}`);
+      return { pct: raw[2], raw: Array.from(raw) };
+    } catch (e: any) {
+      this._log(`${tag} failed: ${e?.message ?? e}`);
+      throw e;
+    } finally {
+      sub?.remove();
+      if (connected) {
+        try { await connected.cancelConnection(); } catch {}
+      }
+    }
   }
 
   /** Scan and return all discovered pairs (channel → {L,R} device). */
   async scanPairs(durationMs = 8000): Promise<Record<string, Partial<Record<Side, Device>>>> {
-    await this._ensureBleReady();
-    return new Promise((resolve) => {
-      const pairs: Record<string, Partial<Record<Side, Device>>> = {};
-      const timeout = setTimeout(() => {
-        this.manager.stopDeviceScan();
-        resolve(pairs);
-      }, durationMs);
-
-      this.manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
-        if (error || !device?.name) return;
+    const pairs: Record<string, Partial<Record<Side, Device>>> = {};
+    return new Promise(async (resolve) => {
+      const finish = () => { clearTimeout(timeout); unsub(); resolve(pairs); };
+      const timeout = setTimeout(finish, durationMs);
+      const unsub = await this._subscribeScan((error, device) => {
+        if (error) { finish(); return; }
+        if (!device?.name) return;
         const side = this._parseSide(device);
         if (!side) return;
         const ch = this._parseChannel(device);
@@ -277,7 +373,7 @@ export class G1Core {
         pairs[ch][side] = device;
         // Resolve early if we have 2+ complete pairs
         const complete = Object.values(pairs).filter(p => p.L && p.R).length;
-        if (complete >= 2) { clearTimeout(timeout); this.manager.stopDeviceScan(); resolve(pairs); }
+        if (complete >= 2) finish();
       });
     });
   }
@@ -647,20 +743,13 @@ export class G1Core {
     });
   }
 
-  // FIXME: stopDeviceScan() is global on the shared BleManager — calling scanPairs/
-  // startStreamingScan while connect() is scanning will cancel the pairing scan.
-  // Callers must ensure connect() is not in flight before calling these methods.
   /** Scan all BLE devices and return rich debug info per device. */
   async scanDebug(durationMs = 8000): Promise<string[]> {
-    await this._ensureBleReady();
     const found: string[] = [];
     const seen = new Set<string>();
-    return new Promise((resolve) => {
-      const t = setTimeout(() => {
-        this.manager.stopDeviceScan();
-        resolve(found);
-      }, durationMs);
-      this.manager.startDeviceScan(null, { allowDuplicates: false }, (_err, device) => {
+    return new Promise(async (resolve) => {
+      const t = setTimeout(() => { unsub(); resolve(found); }, durationMs);
+      const unsub = await this._subscribeScan((_err, device) => {
         if (!device?.name) return;
         if (seen.has(device.id)) return;
         seen.add(device.id);
@@ -787,47 +876,43 @@ export class G1Core {
   }
 
   private async _scan(channel?: string): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       let settled = false;
-      const done = (fn: () => void | Promise<void>) => { if (settled) return; settled = true; fn(); };
+      const done = (fn: () => void | Promise<void>) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        unsub();
+        fn();
+      };
       const found: Partial<Record<Side, Device>> = {};
       const timeout = setTimeout(() => {
-        this.manager.stopDeviceScan();
         done(() => reject(new Error('G1 glasses not found. Make sure they are on and in range.')));
       }, SCAN_TIMEOUT_MS);
 
-      this.manager.startDeviceScan(
-        null,
-        { allowDuplicates: true },
-        async (error, device) => {
-          if (error) { clearTimeout(timeout); done(() => reject(error)); return; }
-          if (!device?.name) return;
+      const unsub = await this._subscribeScan((error, device) => {
+        if (error) { done(() => reject(error)); return; }
+        if (!device?.name) return;
 
-          const side = this._parseSide(device);
-          if (!side) return;
-          if (found[side]) return;
-          if (!this._matchesPair(device, side)) return;
-          this._learnPairedId(device, side);
+        const side = this._parseSide(device);
+        if (!side) return;
+        if (found[side]) return;
+        if (!this._matchesPair(device, side)) return;
+        this._learnPairedId(device, side);
 
-          found[side] = device;
+        found[side] = device;
 
-          if (found.L && found.R) {
-            // Both lenses found — connect in parallel via per-side queues.
-            clearTimeout(timeout);
-            this.manager.stopDeviceScan();
+        if (found.L && found.R) {
+          // Both lenses found — connect in parallel via per-side queues.
+          done(() => this._connectFound(found).then(resolve, reject));
+        } else {
+          // One lens found — give the other a short window to advertise before
+          // resolving with one. _connectFound schedules the missing side.
+          setTimeout(() => {
             done(() => this._connectFound(found).then(resolve, reject));
-          } else {
-            // One lens found — give the other a short window to advertise before
-            // resolving with one. _connectFound schedules the missing side.
-            setTimeout(() => {
-              if (settled) return;
-              clearTimeout(timeout);
-              this.manager.stopDeviceScan();
-              done(() => this._connectFound(found).then(resolve, reject));
-            }, 1500);
-          }
-        },
-      );
+          }, 1500);
+        }
+      });
     });
   }
 
@@ -1286,18 +1371,17 @@ export class G1Core {
         // treat it like an active connect and don't start a competing scan.
         this._connectingOnSide[side] = true;
         try {
-          await this._ensureBleReady();
-          const found = await new Promise<Device | null>((resolve) => {
-            const t = setTimeout(() => { this.manager.stopDeviceScan(); resolve(null); }, 5000);
-            this.manager.startDeviceScan(null, { allowDuplicates: true }, (_err, device) => {
+          const found = await new Promise<Device | null>(async (resolve) => {
+            const finish = (d: Device | null) => { clearTimeout(t); unsub(); resolve(d); };
+            const t = setTimeout(() => finish(null), 5000);
+            const unsub = await this._subscribeScan((error, device) => {
+              if (error) { finish(null); return; }
               if (!device?.name) return;
               // Same pair filter as the main scan — this unfiltered path was
               // the one that grabbed the other set's lens during reconnect.
               if (this._parseSide(device) === side && this._matchesPair(device, side)) {
                 this._learnPairedId(device, side);
-                clearTimeout(t);
-                this.manager.stopDeviceScan();
-                resolve(device);
+                finish(device);
               }
             });
           });
@@ -1754,15 +1838,23 @@ export class G1Core {
     // scroll (field report 2026-11-04). Awaiting R's write caps R's lag at one
     // write (≤3 s via WRITE_TIMEOUT_MS) and lets sendText coalescing drop the
     // intermediate frames so both lenses land on the same line.
+    //
+    // Order: R write FIRST, then L. Firmware main.c:214 — the slave (R) drops
+    // the master's ESB frame-sync with "slave recv wrong up package" when its
+    // own BLE-received seq (esb_up_id) doesn't match the seq L is syncing, and
+    // L only emits the deferred 0x4e ACK after that sync (threads.c:2183).
+    // Issuing L and R concurrently let L's display thread sync before R had
+    // the packet → R rejected the sync and stayed one line behind. Writing R
+    // first costs one write RTT (~15-50 ms) and closes that window.
     let rWritten!: () => void;
     const rWrittenP = new Promise<void>((r) => { rWritten = r; });
     const t0 = Date.now();
-    const left = this._send('L', data);
     const right = this._send('R', data, true, rWritten);
     right.catch((e) => this._log(`[G1] _sendBoth [R] background send error: ${e?.message ?? e}`));
-    await Promise.all([left, rWrittenP]);
+    await rWrittenP;
+    await this._send('L', data);
     if (data[0] === P.OP_TEXT) {
-      this._log(`[G1] text seq=${data[1]} barrier released +${Date.now() - t0}ms (L ack ∧ R written)`);
+      this._log(`[G1] text seq=${data[1]} barrier released +${Date.now() - t0}ms (R written → L ack)`);
     }
   }
 
