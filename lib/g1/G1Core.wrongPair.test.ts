@@ -11,6 +11,8 @@
  * side S holds a different peripheral Y, must evict Y and proceed to X.
  */
 
+jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+
 jest.mock('react-native-ble-plx', () => ({
   BleManager: jest.fn().mockImplementation(() => ({
     onStateChange: jest.fn(),

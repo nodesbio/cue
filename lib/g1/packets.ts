@@ -193,8 +193,18 @@ export function text(
 
 // ── Info requests ──────────────────────────────────────────────────────────
 
-export function batteryRequest(): Uint8Array {
-  return u8(OP_BATTERY, 0x01);
+/**
+ * 0x2C device-info/battery request. data[1] is the PHONE PLATFORM, not a
+ * sub-command: firmware ble_proto.c:3238 sets phone_is_ios = (data[1]==2).
+ * threads.c:2992 arms a 30 s no-RX disconnect watchdog only when
+ * !phone_is_ios — always sending 0x01 from an iPhone opted us into that
+ * watchdog (the ~31 s R drops the heartbeat experiment was masking).
+ * Caller passes the platform so this module stays free of RN imports.
+ */
+export const PHONE_ANDROID = 0x01;
+export const PHONE_IOS = 0x02;
+export function batteryRequest(phone: number = PHONE_ANDROID): Uint8Array {
+  return u8(OP_BATTERY, phone);
 }
 
 export function firmwareInfoRequest(): Uint8Array {

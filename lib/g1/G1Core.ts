@@ -7,6 +7,10 @@
 import { BleManager, Device, State, Characteristic, Subscription, BleError, BleErrorCode } from 'react-native-ble-plx';
 import { encode as btoa } from 'base-64';
 import * as P from './packets';
+import { Platform } from 'react-native';
+
+/** Platform byte for 0x2C — see P.batteryRequest. */
+const PHONE = Platform.OS === 'ios' ? P.PHONE_IOS : P.PHONE_ANDROID;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -339,7 +343,7 @@ export class G1Core {
           clearTimeout(t);
           resolve(data);
         });
-        disc.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, uint8ToBase64(P.batteryRequest()))
+        disc.writeCharacteristicWithResponseForService(P.UART_SVC, P.UART_TX, uint8ToBase64(P.batteryRequest(PHONE)))
           .catch(e => { clearTimeout(t); reject(e); });
       });
       const hex = Array.from(raw).map(b => b.toString(16).padStart(2, '0')).join(' ');
@@ -659,7 +663,7 @@ export class G1Core {
   }
 
   async requestBattery(): Promise<void> {
-    await this._sendBoth(P.batteryRequest());
+    await this._sendBoth(P.batteryRequest(PHONE));
   }
 
   async exitToDashboard(): Promise<void> {
@@ -1276,7 +1280,7 @@ export class G1Core {
     this.reconnectAttempts[side] = 0;
 
     // Request battery level after connect
-    setTimeout(() => this._send(side, P.batteryRequest()), 500);
+    setTimeout(() => this._send(side, P.batteryRequest(PHONE)), 500);
 
     // Watch for disconnection.
     // Capture the generation counter at registration time. If _connectLens
@@ -1877,8 +1881,8 @@ export class G1Core {
       this._send('L', hb, false).catch(() => {});
       this._send('R', hb, false).catch(() => {});
       if (++this._hbCount % 4 === 0) {
-        await this._send('L', P.batteryRequest());
-        await this._send('R', P.batteryRequest());
+        await this._send('L', P.batteryRequest(PHONE));
+        await this._send('R', P.batteryRequest(PHONE));
       }
     }, HEARTBEAT_INTERVAL_MS);
   }

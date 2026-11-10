@@ -11,6 +11,8 @@
  * BLE is mocked at the module boundary; we drive _send/_onNotify directly.
  */
 
+jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+
 jest.mock('react-native-ble-plx', () => ({
   BleManager: jest.fn().mockImplementation(() => ({
     onStateChange: jest.fn(),
