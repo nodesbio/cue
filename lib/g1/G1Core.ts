@@ -289,8 +289,8 @@ export class G1Core {
    *  firmware "Even AI listening / Release to Finish Recording" HUD on reload
    *  even though seq=0 TEXT was written+acked by BOTH lenses — so some firmware
    *  frame (ai_start 0x17 / record 0x18, or an undecoded op) must be reaching L
-   *  that we currently don't log. Revert to false once captured. */
-  public verbose = true;
+   *  that we currently don't log. Set true to capture raw RX frames. */
+  public verbose = false;
 
   constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler; onLog?: (line: string) => void }) {
     this.manager = new BleManager();

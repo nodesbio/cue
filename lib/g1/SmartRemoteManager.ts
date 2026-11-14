@@ -50,6 +50,19 @@ class SmartRemoteManager {
   addEventHandler(h: EventHandler): void    { this.handlers.add(h); }
   removeEventHandler(h: EventHandler): void { this.handlers.delete(h); }
 
+  /** Timestamped log: `[SmartRemoteManager HH:MM:SS.mmm] ...`. Millisecond
+   *  precision is required to measure the inter-lens / key-repeat gap that
+   *  sizes PRESS_DEDUP_MS. */
+  private _log(msg: string): void {
+    const d = new Date();
+    const t =
+      `${String(d.getHours()).padStart(2, '0')}:` +
+      `${String(d.getMinutes()).padStart(2, '0')}:` +
+      `${String(d.getSeconds()).padStart(2, '0')}.` +
+      `${String(d.getMilliseconds()).padStart(3, '0')}`;
+    console.log(`[SmartRemoteManager ${t}] ${msg}`);
+  }
+
   start(): void {
     if (this.running || Platform.OS !== 'ios') return;
 
@@ -82,8 +95,23 @@ class SmartRemoteManager {
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { createAudioPlayer } = require('expo-audio');
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { createAudioPlayer, setAudioModeAsync } = require('expo-audio');
+      // Keep the silent loop playing when the screen locks, and own the
+      // media keys non-mixably. Per expo-audio docs, lock-screen remote
+      // controls require interruptionMode: 'doNotMix' AND the session must
+      // stay active in the background (shouldPlayInBackground). Without this
+      // iOS deactivates the loop on lock → Cue loses "Now Playing app"
+      // status → SmartRemote presses are dropped/batched on the lock screen.
+      // Fire-and-forget is safe: the mode applies to the session, and the
+      // loop lives for the whole SmartRemote session.
+      setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'doNotMix',
+        shouldRouteThroughEarpiece: false,
+      }).catch((e: unknown) =>
+        console.warn('[SmartRemoteManager] setAudioModeAsync failed:', e),
+      );
       this.player = createAudioPlayer(require('../../assets/silence.mp3'));
       this.player.loop = true;
       this.player.play();
@@ -105,14 +133,14 @@ class SmartRemoteManager {
     MusicControl.enableControl(Command.play,            true);
     MusicControl.enableControl(Command.pause,           true);
 
-    MusicControl.on(Command.nextTrack,       () => { console.log('[SmartRemoteManager] nextTrack → single_tap');       this._emit('single_tap'); });
-    MusicControl.on(Command.previousTrack,   () => { console.log('[SmartRemoteManager] previousTrack → double_tap');   this._emit('double_tap'); });
-    MusicControl.on(Command.togglePlayPause, () => { console.log('[SmartRemoteManager] togglePlayPause → triple_tap'); this._emit('triple_tap'); });
-    MusicControl.on(Command.play,            () => { console.log('[SmartRemoteManager] play → triple_tap');            this._emit('triple_tap'); });
-    MusicControl.on(Command.pause,           () => { console.log('[SmartRemoteManager] pause → triple_tap');           this._emit('triple_tap'); });
+    MusicControl.on(Command.nextTrack,       () => { this._log('nextTrack → single_tap');       this._emit('single_tap'); });
+    MusicControl.on(Command.previousTrack,   () => { this._log('previousTrack → double_tap');   this._emit('double_tap'); });
+    MusicControl.on(Command.togglePlayPause, () => { this._log('togglePlayPause → triple_tap'); this._emit('triple_tap'); });
+    MusicControl.on(Command.play,            () => { this._log('play → triple_tap');            this._emit('triple_tap'); });
+    MusicControl.on(Command.pause,           () => { this._log('pause → triple_tap');           this._emit('triple_tap'); });
 
     this.running = true;
-    console.log('[SmartRemoteManager] Media key interception active.');
+    this._log('Media key interception active.');
   }
 
   stop(): void {
@@ -123,11 +151,25 @@ class SmartRemoteManager {
       const mod = require('react-native-music-control');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const MusicControl: any = mod?.default ?? null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Command: any = mod?.Command ?? null;
       if (!MusicControl) return;
       if (this.player) {
         this.player.pause();
         this.player.release();
         this.player = null;
+      }
+      // Unregister command handlers. MusicControl.on() APPENDS listeners and
+      // never dedups; without this, a second start() (e.g. Fast Refresh re-runs
+      // the mount effect while the module-level singleton survives the reload)
+      // leaves the old handlers registered, so one press fires N times. The
+      // PRESS_DEDUP_MS gate only hides this when the duplicates land <250ms
+      // apart — it does NOT fix the stacked-handler root cause.
+      if (Command) {
+        for (const c of [Command.nextTrack, Command.previousTrack,
+                         Command.togglePlayPause, Command.play, Command.pause]) {
+          MusicControl.off(c);
+        }
       }
       MusicControl.updatePlayback({ state: MusicControl.STATE_STOPPED });
       MusicControl.resetNowPlaying();
@@ -144,7 +186,7 @@ class SmartRemoteManager {
     const now = Date.now();
     const last = this.lastEmitAt[name] ?? 0;
     if (now - last < PRESS_DEDUP_MS) {
-      console.log(`[SmartRemoteManager] deduped repeat ${name} (${now - last}ms)`);
+      this._log(`deduped repeat ${name} (${now - last}ms)`);
       return;
     }
     this.lastEmitAt[name] = now;
