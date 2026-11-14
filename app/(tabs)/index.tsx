@@ -130,6 +130,26 @@ export default function TeleprompterScreen() {
   const dedupRef   = useRef<{ name: string; until: number }>({ name: '', until: 0 });
   const handleToggleRef = useRef<() => void>(() => {});
 
+  // ── Double-press-play → force resync ──────────────────────────────────
+  // The R-first send barrier closed the systematic "R one line behind"
+  // desync, but an occasional R frame still flushes to CoreBluetooth without
+  // the firmware rendering it (the "R-ACK MISS" path in G1Core._sendBoth) —
+  // leaving L and R on different lines with no signal we can auto-detect.
+  // Give the operator a manual escape hatch: two deliberate play presses
+  // within RESYNC_WINDOW_MS re-push the engine's current frame to BOTH
+  // lenses (same snapRef→sendText primitive the reconnect/takeover handlers
+  // use), forcing them back onto the same line. DEDUP_MS (300) already
+  // collapses the hardware's 2-3x burst into one logical press, so a count
+  // reaching 2 here is a genuine second press, not burst echo.
+  const RESYNC_WINDOW_MS = 600;
+  const playPressRef = useRef<{ count: number; until: number }>({ count: 0, until: 0 });
+  const forceResync = useCallback(() => {
+    const s = snapRef.current;
+    if (!s || core.status.poweredOff) return;
+    core.note(`[index] MANUAL RESYNC (double-play) → re-push line=${s.topIndex + 1}/${s.totalLines} ${core.syncSnapshot}`);
+    void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+  }, [core]);
+
   useG1Event((event) => {
     // G1 glasses emit from both arms — only handle the right side to avoid
     // doubles. SmartRemote events carry no side and pass through.
@@ -171,10 +191,23 @@ export default function TeleprompterScreen() {
       engineRef.current?.prev();
       return;
     }
-    // triple_tap = SmartRemote play/pause button. Route through handleToggle
-    // so manualPauseRef stays in sync — a remote pause must also block head
-    // gestures, exactly like a UI pause.
+    // triple_tap = SmartRemote play/pause button.
+    //   1 press  → toggle play/pause (through handleToggle so manualPauseRef
+    //              stays in sync — a remote pause must block head gestures
+    //              exactly like a UI pause).
+    //   2 presses within RESYNC_WINDOW_MS → force a lens resync, and UNDO the
+    //              first press's toggle so a deliberate double-tap leaves the
+    //              play state unchanged (its only effect is the resync).
     if (isTriTap) {
+      const pp = playPressRef.current;
+      pp.count = now < pp.until ? pp.count + 1 : 1;
+      pp.until = now + RESYNC_WINDOW_MS;
+      if (pp.count >= 2) {
+        pp.count = 0;              // consume the gesture; a 3rd press starts fresh
+        handleToggleRef.current(); // undo the 1st press's toggle (net: no state change)
+        forceResync();
+        return;
+      }
       handleToggleRef.current();
       return;
     }

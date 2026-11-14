@@ -26,7 +26,12 @@ function ShareIntentHandler() {
       resetShareIntent();
       if (!text?.trim()) return;
       deposit(text);
-      router.navigate('/(tabs)');
+      // Navigate to Compose, not the index tab: the Inbox drain lives in
+      // compose.tsx (drain on mount + subscribe for warm deposits). Routing to
+      // /(tabs) [index] could leave shared text sitting in the Inbox unconsumed
+      // until the user manually opened Compose. compose.loadScript already
+      // pushes the text to the engine, so the teleprompter is primed on return.
+      router.navigate('/(tabs)/compose');
     })();
   }, [hasShareIntent]);
 

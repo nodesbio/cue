@@ -24,7 +24,13 @@ const config: ExpoConfig = {
         'Cue connects to your Even Realities G1 glasses to display text on the HUD.',
       NSBluetoothPeripheralUsageDescription:
         'Cue connects to your Even Realities G1 glasses to display text on the HUD.',
-      UIBackgroundModes: ['bluetooth-central'],
+      // audio: keeps the SmartRemoteManager silent-loop AVAudioSession alive
+      //   when the phone is locked/backgrounded. Without it iOS suspends the
+      //   session on lock, reclaims MPRemoteCommandCenter media keys (SmartRemote
+      //   stops controlling the teleprompter) AND suspends the JS runtime (scroll
+      //   timer freezes). Required for lock-screen operation. See SmartRemoteManager.ts.
+      // bluetooth-central/peripheral: BLE writes to the G1 glasses survive lock.
+      UIBackgroundModes: ['bluetooth-central', 'bluetooth-peripheral', 'audio'],
     },
   },
   android: {
