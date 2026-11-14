@@ -7,7 +7,7 @@
  * receive touches when the row is in the revealed state (pointerEvents).
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -48,6 +48,11 @@ import { getEngine } from '@/lib/teleprompter/engine';
 
 const ROW_HEIGHT       = 76;
 const SWIPE_THRESHOLD  = 60;
+/** Horizontal movement (px) required before the row's swipe-to-reveal pan
+ *  claims the touch. Must be high enough that tap jitter never crosses it,
+ *  or the parent pan steals the responder and cancels the child Pressable's
+ *  onPress (dropped script taps). */
+const SWIPE_ACTIVATE_PX = 14;
 const ACTION_WIDTH     = 160; // 2 × 80 px buttons
 const DRAG_ACTIVATE_MS = 250;
 
@@ -178,7 +183,7 @@ interface RowProps {
   onDragStart: (id: string, pageY: number) => void;
 }
 
-function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
+const ScriptRow = memo(function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
   const tx        = useRef(new Animated.Value(0)).current;
   const revealed  = useRef(false);
   const [renaming, setRenaming] = useState(false);
@@ -209,8 +214,17 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
 
   const pan = useRef(
     PanResponder.create({
+      // Claim the gesture ONLY on a deliberate horizontal swipe. The old 6px
+      // threshold was crossed by ordinary finger jitter during a tap, so the
+      // parent pan grabbed the responder mid-press and RN cancelled the child
+      // Pressable's onPress — the tap produced onPressIn but never onPress, and
+      // no [files] handleLoad ENTER. Field repro 2026-11-xx: ~2 of 3 script
+      // taps silently dropped. Require 14px horizontal AND clearly more
+      // horizontal than vertical (2× margin) so taps fall through to onLoad.
+      // See RN docs: parent onMoveShouldSetPanResponder returning true mid-touch
+      // cancels a child Pressable press.
       onMoveShouldSetPanResponder: (_e, gs) =>
-        Math.abs(gs.dx) > 6 && Math.abs(gs.dx) > Math.abs(gs.dy),
+        Math.abs(gs.dx) > SWIPE_ACTIVATE_PX && Math.abs(gs.dx) > Math.abs(gs.dy) * 2,
       onPanResponderMove: (_e, gs) => {
         const base = revealed.current ? -ACTION_WIDTH : 0;
         tx.setValue(Math.min(0, Math.max(-ACTION_WIDTH, base + gs.dx)));
@@ -290,14 +304,14 @@ function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDrag
       </Animated.View>
     </View>
   );
-}
+});
 
 // ── FilesScreen ──────────────────────────────────────────────────────────────
 
 export default function FilesScreen() {
   const [scripts,    setScripts]    = useState<ScriptEntry[]>([]);
   const [loading,    setLoading]    = useState(true);
-  const [loadedId,   setLoadedId]   = useState<string | null>(null);
+  const [loadedId,   _setLoadedId]  = useState<string | null>(null);
   const [editEntry,  setEditEntry]  = useState<ScriptEntry | null>(null);
   const [showNew,    setShowNew]    = useState(false);
 
@@ -313,6 +327,14 @@ export default function FilesScreen() {
   function setList(next: ScriptEntry[]) {
     scriptsRef.current = next;
     setScripts(next);
+  }
+
+  // loadedId mirrored into a ref so stable (empty-dep) callbacks can read the
+  // current value without re-subscribing on every load.
+  const loadedIdRef = useRef<string | null>(null);
+  function setLoadedId(next: string | null) {
+    loadedIdRef.current = next;
+    _setLoadedId(next);
   }
 
   function refresh() {
@@ -349,16 +371,24 @@ export default function FilesScreen() {
   }
 
   // ── Load ────────────────────────────────────────────────────────────────
-  function handleLoad(entry: ScriptEntry) {
+  const handleLoad = useCallback((entry: ScriptEntry) => {
     getEngine().loadScript(entry.text);
+    // setLoadedId flips the badge on exactly two rows — cheap, do it now so
+    // the UI responds immediately.
     setLoadedId(entry.id);
+    // The list REORDER (move loaded script to top) re-reconciles every row and
+    // re-creates each row's PanResponder — a synchronous storm long enough to
+    // drop the user's next tap (#files-hang). Defer it past the current gesture
+    // frame so taps keep dispatching; the reorder is cosmetic, not urgent.
     touchScript(entry.id).then(() => {
-      setList([
-        { ...scriptsRef.current.find(s => s.id === entry.id)!, openedAt: Date.now() },
-        ...scriptsRef.current.filter(s => s.id !== entry.id),
-      ]);
+      requestAnimationFrame(() => {
+        setList([
+          { ...scriptsRef.current.find(s => s.id === entry.id)!, openedAt: Date.now() },
+          ...scriptsRef.current.filter(s => s.id !== entry.id),
+        ]);
+      });
     });
-  }
+  }, []);
 
   // ── New ─────────────────────────────────────────────────────────────────
   async function handleNewSave(name: string, text: string) {
@@ -390,7 +420,7 @@ export default function FilesScreen() {
   }
 
   // ── Delete ──────────────────────────────────────────────────────────────
-  function handleDelete(id: string) {
+  const handleDelete = useCallback((id: string) => {
     Alert.alert('Delete script', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -398,20 +428,20 @@ export default function FilesScreen() {
         onPress: async () => {
           await deleteScript(id);
           setList(scriptsRef.current.filter(s => s.id !== id));
-          if (loadedId === id) setLoadedId(null);
+          if (loadedIdRef.current === id) setLoadedId(null);
         },
       },
     ]);
-  }
+  }, []);
 
   // ── Rename ──────────────────────────────────────────────────────────────
-  async function handleRename(id: string, name: string) {
+  const handleRename = useCallback(async (id: string, name: string) => {
     await updateScript(id, { name });
     setList(scriptsRef.current.map(s => s.id === id ? { ...s, name } : s));
-  }
+  }, []);
 
   // ── Drag ────────────────────────────────────────────────────────────────
-  function handleDragStart(id: string, pageY: number) {
+  const handleDragStart = useCallback((id: string, pageY: number) => {
     const idx = scriptsRef.current.findIndex(s => s.id === id);
     if (idx === -1) return;
     dragId.current      = id;
@@ -420,7 +450,7 @@ export default function FilesScreen() {
     dragGhostY.setValue(pageY - listTopY.current - ROW_HEIGHT / 2);
     setDragging(true);
     setDragOverIdx(idx);
-  }
+  }, [dragGhostY]);
 
   const overlayHandlers = {
     onStartShouldSetResponder: () => true,
