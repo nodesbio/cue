@@ -28,11 +28,24 @@ import type { EventHandler } from './G1Core';
 
 interface G1Event { name: string; raw?: number[] }
 
+/**
+ * Minimum gap (ms) between two logical events of the SAME kind. A single
+ * physical SmartRemote press can surface as multiple MPRemoteCommandCenter
+ * callbacks (e.g. togglePlayPause + play on one tap, or BLE HID key repeat),
+ * which double-toggles the engine and feels unresponsive. Collapsing repeats
+ * within this window to one event is the "sensitivity" knob — tune live over
+ * the wired dev client. 250ms is below human double-press cadence (~400ms+)
+ * so intentional rapid presses still register.
+ */
+const PRESS_DEDUP_MS = 250;
+
 class SmartRemoteManager {
   private handlers = new Set<EventHandler>();
   private running = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private player: any = null;
+  /** Last emit time per logical event name, for same-event dedup. */
+  private lastEmitAt: Record<string, number> = {};
 
   addEventHandler(h: EventHandler): void    { this.handlers.add(h); }
   removeEventHandler(h: EventHandler): void { this.handlers.delete(h); }
@@ -125,6 +138,16 @@ class SmartRemoteManager {
   }
 
   private _emit(name: string): void {
+    // Collapse same-event repeats within PRESS_DEDUP_MS. play/pause/toggle all
+    // map to triple_tap, so a single press that fires toggle+play would emit
+    // twice; keying on the LOGICAL name (not the raw command) dedups that too.
+    const now = Date.now();
+    const last = this.lastEmitAt[name] ?? 0;
+    if (now - last < PRESS_DEDUP_MS) {
+      console.log(`[SmartRemoteManager] deduped repeat ${name} (${now - last}ms)`);
+      return;
+    }
+    this.lastEmitAt[name] = now;
     const event = { name } as Parameters<EventHandler>[0];
     this.handlers.forEach(h => h(event));
   }
