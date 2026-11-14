@@ -59,6 +59,9 @@ export type StatusHandler = (status: G1Status) => void;
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const HEARTBEAT_INTERVAL_MS = 8_000;
+// Skip the periodic battery poll if a text frame was sent within this window —
+// the poll shares the send queue and desyncs L/R mid-scroll (see heartbeat).
+const BATTERY_POLL_QUIET_MS = 10_000;
 const SCAN_TIMEOUT_MS = 12_000;
 // Faster cap — 30 s is too long during a live session. Keeps retrying at 10 s.
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 10000];
@@ -165,6 +168,20 @@ export class G1Core {
    */
   private _lastSilentAt: Record<Side, number> = { L: 0, R: 0 };
   /**
+   * Per-side wall-clock of the last OP_TEXT (0x4e) write issued in the CURRENT
+   * connection cycle. Zeroed on _onDisconnected. Used to reject ghost text ACKs:
+   * iOS replays a 0x4e notification buffered from the previous session on the
+   * fresh RX subscription, and because the text ACK waiter is keyed `${side}4e`
+   * (no seq), that stale frame would otherwise resolve the seq=0 waiter in ~3ms.
+   * The real render never lands and the lens shows stale content (blank, or a
+   * leftover Even-AI HUD). Confirmed on-device 2026-11: seq=0 L-ack was +3ms
+   * (ghost) while the next live frame seq=1 L-acked at +1592ms (real display
+   * thread) and rendered. A genuine 0x4e ACK can only follow a write we issued,
+   * so any ACK arriving while this is 0 — or predating the write — is a ghost.
+   * Same defence as the OP_SILENT `_lastSilentAt !== 0` gate (Bug #10).
+   */
+  private _lastTextWriteAt: Record<Side, number> = { L: 0, R: 0 };
+  /**
    * Timestamp (ms) of the last received OP_SILENT (0x03) ACK from the glass,
    * per side. If a successful ACK arrived within the last SILENT_ACK_REUSE_MS,
    * _connectLens skips the 12-second _sendForResult wait (the glass already
@@ -182,6 +199,60 @@ export class G1Core {
    * fault (see LensState.displayIdle). We now surface it instead.
    */
   private _textNackCount: Record<Side, number> = { L: 0, R: 0 };
+  /**
+   * Telemetry (lens-sync skew triage). For each OP_TEXT seq we record the
+   * arrival time of each side's ACK; when both have arrived we log the signed
+   * skew = (L ack time − R ack time). Positive ⇒ R acked first ⇒ R leads.
+   *
+   * This replaces the earlier "master-detection" EMA, which was disproven by a
+   * tethered run (2026-11-xx): both sides ack within ~30ms at ~1000ms, no
+   * seconds-deferred master exists in this firmware, and the inferred-master
+   * flag flapped every frame on sub-2% EMA noise. The real symptom is a
+   * STRUCTURAL one-line lead (field obs: R=148, L=147 w/ 🔼 on L) caused by the
+   * R-first write + L-only barrier. This skew tracker quantifies that lead per
+   * frame so a barrier fix can be proven, not guessed.
+   *
+   * ⚠ CAVEAT (2026-11, proven): this metric does NOT measure true L-vs-R
+   * DISPLAY-RENDER skew. R's 0x4e text ACK fires on a FIXED ~810ms firmware
+   * timer (observed dead-constant 806–822ms across all frames, independent of
+   * content/timing — it is a cadence, not a render-confirm). So the skew here
+   * is L's variable render-ack paired against R's fixed metronome — an
+   * aliasing artifact, bidirectional and ~zero-mean (±40ms typ, ±80ms tail).
+   * The G1 firmware exposes NO render-confirm frame for either lens (R emits
+   * only 0x25 keepalive + the 810ms-timer 0x4e), so true render skew is
+   * UNOBSERVABLE in software and cannot be barriered on. The visible
+   * line-transition blip is intrinsic two-radio display jitter, not a bug.
+   * Do NOT "fix the skew" by tuning against this number — it's a proxy proven
+   * disconnected from the target. Keep only as a coarse liveness signal.
+   */
+  private _textAckAt: Record<Side, Map<number, number>> = { L: new Map(), R: new Map() };
+  /** PROBE (Bug B triage): seqs R has text-acked, pruned by the R-ACK-MISS
+   *  probe in _sendBoth. Separate from _textAckAt so skew-pairing deletes don't
+   *  create false "R never acked" readings. Telemetry-only. */
+  private _rAckedSeqs: Set<number> = new Set();
+  private _skewSamples = 0;
+  private _skewMeanMs = 0; // running mean of signed (L−R) ack skew
+  /** Last OP_TEXT frame handed to _sendBoth — read by the USER MARK handler so
+   *  a human-observed desync is stamped with the exact in-flight line/seq. */
+  private _lastSent: { seq: number; line: number; total: number; at: number } | null = null;
+
+  /**
+   * One-line sync snapshot for the devBridge USER MARK handler. Pairs a
+   * human-observed desync with the machine state at that instant: the frame in
+   * flight, the current ack-skew mean, and per-side NACK counts (a NACK on one
+   * side only = the dropped-frame asymmetry that would cause a real ±1 line
+   * counter divergence). Both lenses always receive the SAME line/seq, so any
+   * genuine divergence must come from a one-sided drop — this surfaces it.
+   */
+  get syncSnapshot(): string {
+    const s = this._lastSent;
+    const age = s ? Date.now() - s.at : -1;
+    return (
+      `lastFrame=${s ? `seq=${s.seq} line=${s.line}/${s.total} (${age}ms ago)` : 'none'} ` +
+      `skewMean=${this._skewMeanMs >= 0 ? '+' : ''}${this._skewMeanMs.toFixed(0)}ms(n=${this._skewSamples}) ` +
+      `nack{L:${this._textNackCount.L},R:${this._textNackCount.R}}`
+    );
+  }
   /**
    * #27: resolver for "first RX frame from this side", armed while a lens is
    * asleep during init. Resolved by _onNotify (wake) or _onDisconnected (abort).
@@ -212,8 +283,14 @@ export class G1Core {
 
   /** When true, raw RX frames and routine heartbeat events are included in the log.
    *  Off by default — these account for ~55% of log lines and push lifecycle
-   *  events out of the ring buffer before they can be captured. */
-  public verbose = false;
+   *  events out of the ring buffer before they can be captured.
+   *  TEMP (Even-AI-listening-on-L triage, 2026-11): forced ON to capture every
+   *  raw RX frame on both lenses during connect. The left lens showed the
+   *  firmware "Even AI listening / Release to Finish Recording" HUD on reload
+   *  even though seq=0 TEXT was written+acked by BOTH lenses — so some firmware
+   *  frame (ai_start 0x17 / record 0x18, or an undecoded op) must be reaching L
+   *  that we currently don't log. Revert to false once captured. */
+  public verbose = true;
 
   constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler; onLog?: (line: string) => void }) {
     this.manager = new BleManager();
@@ -226,6 +303,10 @@ export class G1Core {
   removeEventHandler(h: EventHandler): void { this.eventHandlers.delete(h); }
   setStatusCallback(cb: StatusHandler): void { this.onStatusChange = cb; }
   setLogCallback(cb: (line: string) => void): void { this.onLog = cb; }
+
+  /** Public log passthrough so app-layer code (screens) can emit into the same
+   *  HUD log ring as core BLE logs. Routes through _log → onLog sink. */
+  note(line: string): void { this._log(line); }
 
   private _log(...args: unknown[]): void {
     const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
@@ -611,6 +692,7 @@ export class G1Core {
         return;
       }
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
+      this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
       this._log(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
     });
@@ -1340,6 +1422,11 @@ export class G1Core {
     // _lastSilentAt[side] !== 0, which is only true after _connectLensInner
     // (or _sendSilent) has written the command.
     this._lastSilentAt[side] = 0;
+    // Disarm the OP_TEXT ghost-ACK gate too: any 0x4e delivered on the next
+    // connection before we re-write text is a stale buffered frame and must be
+    // rejected (see _lastTextWriteAt). Without this reset the gate would stay
+    // armed from the dead connection and admit the very ghost we guard against.
+    this._lastTextWriteAt[side] = 0;
     this._scheduleReconnect(side);
   }
 
@@ -1449,6 +1536,19 @@ export class G1Core {
     // Always route battery packets directly to the OP_BATTERY handler below.
     const ackKey = `${side}${op.toString(16).padStart(2, '0')}`;
     const pending = this._pendingAck.get(ackKey);
+    // Ghost-ACK gate (OP_TEXT only): the text ACK waiter is keyed `${side}4e`
+    // with no seq, so a 0x4e buffered by iOS from the previous connection and
+    // replayed on the fresh RX subscription would resolve the seq=0 waiter in
+    // ~3ms — before the firmware has actually rendered — leaving the lens on
+    // stale content. A real 0x4e can only follow a write we issued this cycle.
+    // If _lastTextWriteAt is 0 we have not written text yet, so this ACK is a
+    // ghost: drop it WITHOUT resolving the waiter, so the real ACK (which the
+    // display thread sends ~1.5s later) still lands. Same shape as the
+    // OP_SILENT `_lastSilentAt !== 0` gate below (Bug #10, 2026-09-27).
+    if (pending && op === P.OP_TEXT && this._lastTextWriteAt[side] === 0) {
+      this._log(`[G1] OP_TEXT ghost ACK [${side}] dropped — no text write armed this cycle (stale iOS buffer)`);
+      return;
+    }
     if (pending && op !== P.OP_BATTERY) {
       clearTimeout(pending.timer);
       this._pendingAck.delete(ackKey);
@@ -1706,6 +1806,12 @@ export class G1Core {
     const ackKey = `${side}${opHex}`;
     const b64 = uint8ToBase64(data);
 
+    // Arm the OP_TEXT ghost-ACK gate at the SAME point the waiter is registered
+    // (before the write) — not after. The waiter is registered pre-write to
+    // catch a legitimate fast ACK; arming the gate here means a real ACK racing
+    // the write is admitted, while a ghost ACK (delivered before we ever reach
+    // this send) is still rejected because _lastTextWriteAt is 0 until now.
+    if (awaitAck && data[0] === P.OP_TEXT) this._lastTextWriteAt[side] = Date.now();
     // Register ACK waiter BEFORE the write to prevent the fast-ACK race.
     let ackPromise: Promise<boolean> | null = null;
     if (awaitAck) {
@@ -1769,7 +1875,10 @@ export class G1Core {
     if (!awaitAck || !ackPromise) return;
 
     const ok = await ackPromise;
-    if (isText) this._log(`[G1] text seq=${seq} [${side}] ${ok ? 'ack' : 'nack'} +${Date.now() - tWritten}ms after write`);
+    const tAck = Date.now();
+    const ackLatency = tAck - tWritten;
+    if (isText) this._log(`[G1] text seq=${seq} [${side}] ${ok ? 'ack' : 'nack'} +${ackLatency}ms after write`);
+    if (isText && ok) this._recordTextAckSeq(side, seq, tAck);
     if (!ok) {
       this._log(`[G1] _send [${side}] NACK op=0x${opHex}`);
       if (data[0] === P.OP_TEXT) {
@@ -1781,6 +1890,40 @@ export class G1Core {
       this._textNackCount[side] = 0;
       this._setDisplayIdle(side, false);
     }
+  }
+
+  /**
+   * Lens-sync skew triage (OP_TEXT only). Record this side's ACK arrival time
+   * keyed by seq. When BOTH sides have acked the same seq, log the signed skew
+   *   skew = (L ack time − R ack time)
+   * Positive ⇒ R acked first ⇒ R is ahead; negative ⇒ L ahead. Also tracks a
+   * running mean so a sustained structural lead is obvious at a glance.
+   * Telemetry only — does not alter send behavior.
+   */
+  private _recordTextAckSeq(side: Side, seq: number, ackAt: number): void {
+    // PROBE (Bug B triage): record R text-ACKs in a set the skew pairing never
+    // deletes, so the R-ACK-MISS probe in _sendBoth can distinguish "R never
+    // acked" from "both acked and the skew pairing already cleaned up". The
+    // probe prunes this set itself. Telemetry-only.
+    if (side === 'R') this._rAckedSeqs.add(seq);
+    this._textAckAt[side].set(seq, ackAt);
+    const other: Side = side === 'L' ? 'R' : 'L';
+    const otherAt = this._textAckAt[other].get(seq);
+    if (otherAt === undefined) return; // wait for the pair
+
+    const lAt = side === 'L' ? ackAt : otherAt;
+    const rAt = side === 'R' ? ackAt : otherAt;
+    const skew = lAt - rAt; // >0 ⇒ R acked first ⇒ R leads
+    this._skewSamples++;
+    this._skewMeanMs += (skew - this._skewMeanMs) / this._skewSamples;
+    const lead = skew > 0 ? 'R' : skew < 0 ? 'L' : '=';
+    this._log(
+      `[G1] SKEW seq=${seq} L−R=${skew >= 0 ? '+' : ''}${skew}ms ` +
+      `(${lead} leads) mean=${this._skewMeanMs >= 0 ? '+' : ''}${this._skewMeanMs.toFixed(0)}ms`,
+    );
+    // Drop both entries so the maps don't grow unbounded across a long scroll.
+    this._textAckAt[side].delete(seq);
+    this._textAckAt[other].delete(seq);
   }
 
   /**
@@ -1859,7 +2002,60 @@ export class G1Core {
     await this._send('L', data);
     if (data[0] === P.OP_TEXT) {
       this._log(`[G1] text seq=${data[1]} barrier released +${Date.now() - t0}ms (R written → L ack)`);
+      // ── PROBE (Bug B triage, telemetry-only) ────────────────────────────
+      // The barrier releases on "R written + L ack" but NEVER confirms R
+      // rendered the seq. Field symptom: one load lands on one lens only
+      // (left=old, right=new) and the coalescer never re-sends. R's text ACK
+      // is awaited in the background (right.catch above) and recorded into
+      // _textAckAt['R'] by _recordTextAckSeq. Here we watch that map: if R has
+      // not acked THIS seq within the window, log an explicit R-ACK MISS so we
+      // can confirm the split is "R silently dropped the frame" before changing
+      // the send path. L is awaited above, so an L miss can't happen here.
+      // Does NOT alter behavior — no re-send, no NACK, no state change.
+      const probeSeq = data[1];
+      const probeT0 = Date.now();
+      setTimeout(() => {
+        const rAcked = this._rAckedSeqs.has(probeSeq);
+        this._rAckedSeqs.delete(probeSeq); // probe owns pruning
+        if (!rAcked) {
+          this._log(
+            `[G1] *** R-ACK MISS seq=${probeSeq} +${Date.now() - probeT0}ms — ` +
+            `R write flushed but no text ACK in window; likely one-lens desync. ${this.syncSnapshot}`,
+          );
+        } else {
+          this._log(`[G1] R-ack OK seq=${probeSeq} within +${Date.now() - probeT0}ms`);
+        }
+      }, G1Core.R_ACK_PROBE_MS);
+
+      // Optional blind settle delay (default 0 = no-op). Holds the send queue
+      // before the next frame so a lagging lens can flush/paint, reducing the
+      // visible line-transition skew. See _settleDelayMs / setSettleDelayMs.
+      if (this._settleDelayMs > 0) {
+        await new Promise<void>((r) => setTimeout(r, this._settleDelayMs));
+      }
     }
+  }
+  /** Window after barrier release within which R's text ACK is expected.
+   *  Typical skew tethered is ~30ms; 800ms is generous headroom without
+   *  colliding with R's pathological 15-25s audio-streaming ACK delay. */
+  private static readonly R_ACK_PROBE_MS = 800;
+
+  /** OPTIONAL line-transition settle delay (ms), OFF by default (0).
+   *  After the send barrier releases, hold the queue this long before the
+   *  NEXT frame can go out, giving a lagging lens's radio time to flush/paint
+   *  so both lenses repaint closer together. This is a BLIND UX mitigation for
+   *  the intrinsic two-radio display jitter (see _textAckAt caveat) — the skew
+   *  is unobservable in software, so this cannot be auto-tuned; it's a
+   *  judge-by-eye knob. Trade-off: every line transition is slowed by this
+   *  amount. Set via setSettleDelayMs(). Default 0 = no behavior change. */
+  private _settleDelayMs = 0;
+
+  /** Set the optional line-transition settle delay (see _settleDelayMs).
+   *  0 disables (default). Clamped to [0, 250] — beyond that the scroll feels
+   *  laggy and the coalescer starts dropping user-intended lines. */
+  setSettleDelayMs(ms: number): void {
+    this._settleDelayMs = Math.max(0, Math.min(250, Math.round(ms)));
+    this._log(`[G1] settleDelayMs set to ${this._settleDelayMs}ms`);
   }
 
   // ── Heartbeat ─────────────────────────────────────────────────────────────
@@ -1881,8 +2077,21 @@ export class G1Core {
       this._send('L', hb, false).catch(() => {});
       this._send('R', hb, false).catch(() => {});
       if (++this._hbCount % 4 === 0) {
-        await this._send('L', P.batteryRequest(PHONE));
-        await this._send('R', P.batteryRequest(PHONE));
+        // Defer battery polling while text frames are actively flowing. The
+        // poll shares the per-side _send queue with OP_TEXT; firing it mid-scroll
+        // backs up the queue, forces coalescing to drop frames, and makes L/R
+        // drop *different* lines → visible counter desync (field repro
+        // 2026-11-05, beating at this % 4 cadence). _lastSent.at is stamped by
+        // sendText; if the last text frame is younger than BATTERY_POLL_QUIET_MS
+        // the user is mid-scroll, so skip this cycle — battery re-polls on the
+        // next idle % 4 tick (≤4 × HEARTBEAT_INTERVAL_MS later).
+        const sinceText = this._lastSent ? Date.now() - this._lastSent.at : Infinity;
+        if (sinceText < BATTERY_POLL_QUIET_MS) {
+          this._log(`[G1] battery poll deferred — text active (${sinceText}ms since last frame)`);
+        } else {
+          await this._send('L', P.batteryRequest(PHONE));
+          await this._send('R', P.batteryRequest(PHONE));
+        }
       }
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -1917,6 +2126,9 @@ export class G1Core {
     lens.displayIdle = false; // #26: fresh link, no evidence yet either way
     if (!connected) lens.asleep = false;
     if (!connected) { lens.rssi = null; lens.txReady = false; }
+    // Drop any half-paired skew samples for this side on a link transition so a
+    // reconnect doesn't pair a pre-drop ack with a post-reconnect one.
+    this._textAckAt[side].clear();
     this._emitStatus();
     // Issue #7: restart heartbeat whenever both lenses are now up — covers the
     // single-lens reconnect path (_scheduleReconnect → _connectLens) which never

@@ -77,6 +77,38 @@ describe('G1Core OP_TEXT ACK handling', () => {
     await expect(p).resolves.toBeUndefined(); // R never ACKed, queue not blocked
   });
 
+  it('ghost ACK: a 0x4e with no armed text write is rejected, not resolved', async () => {
+    // Reproduces the on-device bug: iOS replays a 0x4e buffered from the prior
+    // connection on the fresh RX subscription. Because the waiter is keyed
+    // `${side}4e` (no seq), it would resolve the seq=0 waiter in ~3ms and the
+    // real render never lands — the lens shows stale content (blank / old HUD).
+    const { anyCore, ack } = makeReadyCore();
+    // Simulate a fresh connection: no text written yet this cycle.
+    anyCore._lastTextWriteAt = { L: 0, R: 0 };
+    // A ghost 0x4e arrives before any send. It must be dropped silently —
+    // no waiter exists yet, and it must NOT arm anything.
+    ack('L', P.OP_TEXT);
+    expect(anyCore._lastTextWriteAt.L).toBe(0); // gate stays disarmed
+
+    // Now a real send goes out; the gate arms and a real ACK resolves it.
+    const p = anyCore._sendBoth(TEXT);
+    await flush();
+    expect(anyCore._lastTextWriteAt.L).toBeGreaterThan(0); // armed by the write
+    ack('L', P.OP_TEXT);
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it('ghost ACK: gate disarms on disconnect so next cycle rejects stale 0x4e', async () => {
+    const { anyCore, ack } = makeReadyCore();
+    const p = anyCore._sendBoth(TEXT);
+    await flush();
+    ack('L', P.OP_TEXT);
+    await p;
+    expect(anyCore._lastTextWriteAt.L).toBeGreaterThan(0); // armed
+    anyCore._onDisconnected('L');                           // teardown
+    expect(anyCore._lastTextWriteAt.L).toBe(0);             // disarmed for next cycle
+  });
+
   it('#24: R text NACK (timeout) does NOT call _onDisconnected', async () => {
     const { anyCore, ack, onDisconnected } = makeReadyCore();
     const p = anyCore._sendBoth(TEXT);

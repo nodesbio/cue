@@ -76,6 +76,33 @@ export default function TeleprompterScreen() {
   useEffect(() => { snapRef.current = snap; }, [snap]);
   useEffect(() => { connectedRef.current = connected; }, [connected]);
 
+  // ── Reconnect resync ──────────────────────────────────────────────────
+  // While BLE is down the teleprompter keeps scrolling; every onFrame is
+  // silently dropped (connectedRef=false) and the glasses stay frozen on
+  // whatever line each lens last rendered before the drop — which can differ
+  // between L and R, producing the lens desync (confirmed 2026-11: healthy
+  // ACKs, divergent displays, "onFrame DROPPED" during the outage).
+  //
+  // `connected` (= isConnected = left.txReady && right.txReady) only goes
+  // true once BOTH lenses have re-handshaked, so re-pushing here cannot be
+  // dropped by a txReady=false guard. Force both lenses back onto the
+  // engine's current frame — same re-push the display-takeover handler uses
+  // (snapRef.current → sendText). This is the Zoracon-correct fix: it handles
+  // the missing precondition (frames lost during the outage) instead of
+  // silently tolerating it. Fires only on the false→true transition via the
+  // prevConnectedRef edge-detect, so it won't re-fire on unrelated renders.
+  const prevConnectedRef = useRef(false);
+  useEffect(() => {
+    if (connected && !prevConnectedRef.current) {
+      const s = snapRef.current;
+      if (s && !core.status.poweredOff) {
+        core.note(`[index] reconnect resync → re-push line=${s.topIndex + 1}/${s.totalLines}`);
+        void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+      }
+    }
+    prevConnectedRef.current = connected;
+  }, [connected, core]);
+
   // Load gesture preferences (re-read on focus so settings changes apply immediately)
   useEffect(() => {
     AsyncStorage.multiGet(['gesture_nav_enabled', 'gesture_nav_swapped']).then(pairs => {
@@ -178,15 +205,26 @@ export default function TeleprompterScreen() {
   useEffect(() => {
     const _engine = getEngine();
     engineRef.current = _engine;
+    // DIAGNOSTIC: fires whenever the index tab mounts and re-wires callbacks.
+    // If this logs right before a frame finally appears post-switch, the hang
+    // is "index tab was unmounted; frame only sent on remount".
+    core.note('[index] setCallbacks re-wired (index tab mounted)');
 
     // Re-wire every mount so closures (core, setSnap, connectedRef) are always
     // from the live component instance, not a stale StrictMode/Fast-Refresh copy.
     _engine.setCallbacks({
       onFrame: (frame, curLine, totalLines) => {
+        // DIAGNOSTIC (2026-11-05): prove whether the first frame after a
+        // cross-tab loadScript reaches sendText or is dropped here. If the
+        // hang is the stale-closure/guard theory, we'll see "onFrame DROPPED"
+        // at switch time; if it reaches sendText, the hang is elsewhere.
         if (connectedRef.current) {
+          core.note(`[index] onFrame → sendText line=${curLine}/${totalLines}`);
           // _enqueue inside sendText handles errors and serialisation;
           // void is intentional — onFrame is a sync callback.
           void core.sendText(frame, curLine, totalLines, curLine >= totalLines);
+        } else {
+          core.note(`[index] onFrame DROPPED — connectedRef=false line=${curLine}/${totalLines} (stale closure or disconnected)`);
         }
       },
       onStateChange: (s) => {
