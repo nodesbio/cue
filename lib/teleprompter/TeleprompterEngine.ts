@@ -27,6 +27,9 @@ export interface EngineSnapshot {
   loop: boolean;
   /** True when state=playing but auto-scroll is suspended after a prev() — resumes on next next(). */
   timerSuspended: boolean;
+  /** True immediately after a manual resync() — the line is paused and locked.
+   *  Cleared on play()/toggle() resume or any line advance. Drives the [S] HUD glyph. */
+  justSynced: boolean;
   /** The 5-line string currently on the glasses (or ready to send). */
   frame: string;
 }
@@ -67,6 +70,7 @@ export class TeleprompterEngine {
   private timer: ReturnType<typeof setInterval> | null = null;
   private rewindTimer: ReturnType<typeof setInterval> | null = null;
   private loopRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  private justSynced = false;
   private leftBat: number | null = null;
   private rightBat: number | null = null;
   // gestureHint is computed from live state — no timer needed.
@@ -101,6 +105,7 @@ export class TeleprompterEngine {
       // Restart from top
       this.topIndex = 0;
     }
+    this.justSynced = false; // resuming forward scroll clears the sync lock
     this.state = 'playing';
     this._emit('play');
     if (this.secondsPerLine === Infinity) return; // manual mode — no timer
@@ -118,6 +123,24 @@ export class TeleprompterEngine {
   toggle(): void {
     if (this.state === 'playing') this.pause();
     else this.play();
+  }
+
+  /**
+   * Manual resync — the primary action of a single play-button press while
+   * playing (see handlePlayButton in app/(tabs)/index.tsx). Locks the glasses
+   * onto the current line: stops auto-scroll so the line HOLDS — otherwise the
+   * running timer advances a beat later and the glasses "sync then drift"
+   * (field bug). Because the timer is cleared BEFORE the state flips, no later
+   * tick can enqueue a frame that supersedes the caller's re-push — the resync
+   * frame is guaranteed to be the engine's last write until play() resumes.
+   * Sets justSynced so the HUD can show an [S] confirmation glyph. Resuming
+   * (play/toggle) or any advance clears it.
+   */
+  resync(): void {
+    this._clearTimers();
+    if (this.state === 'playing') this.state = 'paused';
+    this.justSynced = true;
+    this._emit('resync');
   }
 
   /** Direction arrow shown next to battery on status line 1.
@@ -243,6 +266,7 @@ export class TeleprompterEngine {
       secondsPerLine: this.secondsPerLine,
       loop: this.loop,
       timerSuspended: this.timerSuspended,
+      justSynced: this.justSynced,
       frame: this._buildFrame(),
     };
   }
@@ -292,6 +316,7 @@ export class TeleprompterEngine {
     // Guard: if a rewind started between when this callback was enqueued and now,
     // discard the stale tick to prevent the forward/rewind oscillation.
     if (this.rewindTimer) return;
+    this.justSynced = false; // any line movement breaks the sync lock
     const lastTop = Math.max(0, this.lines.length - 1);
 
     if (this.topIndex >= lastTop) {
@@ -332,9 +357,11 @@ export class TeleprompterEngine {
     const batL = this.leftBat != null ? `L${this.leftBat}%` : '';
     const batR = this.rightBat != null ? `R${this.rightBat}%` : '';
     const arrow = this._dirArrow();
+    // [S] = manually synced & locked on this line (double-click resync).
+    const sync = this.justSynced ? ' [S]' : '';
     const bat = [batL, batR, arrow].filter(Boolean).join(' ');
     const middle = bat ? ` ${bat}` : '';
-    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot}`;
+    return `${h12}:${mm}${middle} ${playIcon}${cur}/${tot}${sync}`;
   }
 
   private _buildFrame(): string {

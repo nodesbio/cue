@@ -87,6 +87,90 @@ describe('play / pause', () => {
   });
 });
 
+// ── Manual resync (double-click) ───────────────────────────────────────────
+// Root cause of the field bug: double-click re-pushed the frame but left the
+// scroll timer running, so the glasses synced then immediately drifted. A
+// resync must PAUSE so the line holds.
+describe('resync', () => {
+  it('pauses auto-scroll so the synced line holds', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    expect(engine.getSnapshot().state).toBe('playing');
+
+    engine.resync();
+    expect(engine.getSnapshot().state).toBe('paused');
+
+    const lineAtSync = engine.getSnapshot().topIndex;
+    // Advance well past one scroll interval — a running timer would move us.
+    jest.advanceTimersByTime(SPEED_NORMAL * 1000 * 5);
+    expect(engine.getSnapshot().topIndex).toBe(lineAtSync);
+  });
+
+  it('flags justSynced on the snapshot when resynced', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    engine.resync();
+    expect(engine.getSnapshot().justSynced).toBe(true);
+  });
+
+  it('clears justSynced once playback resumes', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    engine.resync();
+    engine.play();
+    expect(engine.getSnapshot().justSynced).toBe(false);
+  });
+
+  it('clears justSynced when the line advances', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    engine.resync();
+    engine.next();
+    expect(engine.getSnapshot().justSynced).toBe(false);
+  });
+
+  it('is a no-op-safe when already paused (still flags synced)', () => {
+    const { engine } = makeEngine();
+    engine.play();
+    engine.pause();
+    engine.resync();
+    expect(engine.getSnapshot().state).toBe('paused');
+    expect(engine.getSnapshot().justSynced).toBe(true);
+  });
+
+  // ── Last-writer invariant ────────────────────────────────────────────────
+  // The field concern: on pause/resync the glasses must END on the resync'd
+  // line, never on a stale frame queued behind it. The transport layer
+  // (G1Core._textGen supersede) guarantees the resync sendText wins over any
+  // queued scroll frame — but ONLY if the engine stops emitting new frames the
+  // instant resync() is called. If a timer tick fired AFTER resync(), it would
+  // enqueue a newer frame that supersedes the re-push (the "sync then drift"
+  // field bug) and defeat the transport guarantee. These tests lock the engine
+  // side of that contract: resync() is the final frame until play() resumes.
+  it('emits no further frames after resync until resumed (last-writer lock)', () => {
+    const { engine, frames } = makeEngine();
+    engine.play();
+    jest.advanceTimersByTime(SPEED_NORMAL * 1000 * 2); // scroll to line 2
+    engine.resync();
+    const frameCountAtResync = frames.length;
+    // A surviving timer would emit at least one more frame here.
+    jest.advanceTimersByTime(SPEED_NORMAL * 1000 * 10);
+    expect(frames.length).toBe(frameCountAtResync);
+  });
+
+  it('resync re-emits the current held line as its final frame', () => {
+    const { engine, frames } = makeEngine();
+    engine.play();
+    jest.advanceTimersByTime(SPEED_NORMAL * 1000 * 2); // on line index 2
+    engine.resync();
+    const heldIndex = engine.getSnapshot().topIndex;
+    // The last frame emitted must be the resync frame for the held line —
+    // this is the exact string app/(tabs)/index.tsx re-pushes to both lenses.
+    expect(frames[frames.length - 1]).toBe(engine.getSnapshot().frame);
+    expect(heldIndex).toBe(2);
+  });
+});
+
 // ── Timer advances topIndex ───────────────────────────────────────────────
 
 describe('auto-advance via timer', () => {

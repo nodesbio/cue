@@ -128,25 +128,43 @@ export default function TeleprompterScreen() {
   const DEDUP_MS = 300;
 
   const dedupRef   = useRef<{ name: string; until: number }>({ name: '', until: 0 });
-  const handleToggleRef = useRef<() => void>(() => {});
+  const handlePlayButtonRef = useRef<() => void>(() => {});
 
   // ── Double-press-play → force resync ──────────────────────────────────
-  // The R-first send barrier closed the systematic "R one line behind"
-  // desync, but an occasional R frame still flushes to CoreBluetooth without
-  // the firmware rendering it (the "R-ACK MISS" path in G1Core._sendBoth) —
-  // leaving L and R on different lines with no signal we can auto-detect.
-  // Give the operator a manual escape hatch: two deliberate play presses
-  // within RESYNC_WINDOW_MS re-push the engine's current frame to BOTH
-  // lenses (same snapRef→sendText primitive the reconnect/takeover handlers
-  // use), forcing them back onto the same line. DEDUP_MS (300) already
-  // collapses the hardware's 2-3x burst into one logical press, so a count
-  // reaching 2 here is a genuine second press, not burst echo.
-  const RESYNC_WINDOW_MS = 600;
-  const playPressRef = useRef<{ count: number; until: number }>({ count: 0, until: 0 });
-  const forceResync = useCallback(() => {
-    const s = snapRef.current;
-    if (!s || core.status.poweredOff) return;
-    core.note(`[index] MANUAL RESYNC (double-play) → re-push line=${s.topIndex + 1}/${s.totalLines} ${core.syncSnapshot}`);
+  // ── The play button is an EXCEPTION signal, not a navigation control ──
+  // First principle: when the app is working, NO button is pressed. The
+  // operator only presses because they want to STOP, or because L/R have
+  // drifted (the rare R-ACK MISS path in G1Core._sendBoth leaves the lenses on
+  // different lines with no signal we can auto-detect). Both intents collapse
+  // to one action:
+  //
+  //   playing → resync(): pause-and-hold AND re-push the current frame to both
+  //             lenses, atomically. Stopping and re-aligning are the same act —
+  //             a press while playing can't mean anything else.
+  //   paused  → resume play.
+  //
+  // This deletes the old double-press/RESYNC_WINDOW apparatus entirely: there
+  // is no longer a timing window to disambiguate "pause" from "resync", so
+  // there is nothing to mis-size. Resync is now free (it rides the pause the
+  // operator was already making) and zero-latency. "Resync without stopping"
+  // is intentionally gone — pressing the button already accepts the stop;
+  // resuming is a second, untimed press.
+  const handlePlayButton = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine || core.status.poweredOff) return;
+    const playing = engine.getSnapshot().state === 'playing';
+    if (!playing) {
+      manualPauseRef.current = false;
+      engine.play();
+      return;
+    }
+    // Playing → pause-and-resync. resync() stops the scroll timer AND flags
+    // justSynced so the rebuilt frame carries the [S] glyph; we then re-push
+    // that frame to BOTH lenses so any R-ACK MISS drift is corrected.
+    manualPauseRef.current = true;
+    engine.resync();
+    const s = engine.getSnapshot();
+    core.note(`[index] PLAY-BUTTON pause+resync → re-push line=${s.topIndex + 1}/${s.totalLines} ${core.syncSnapshot}`);
     void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
   }, [core]);
 
@@ -177,6 +195,14 @@ export default function TeleprompterScreen() {
     if (!isUp && !isDown && !isTap && !isDblTap && !isTriTap) return;
 
     // ── Dedup ────────────────────────────────────────────────────────────
+    // triple_tap is EXCLUDED: it's already de-bursted at the source by
+    // SmartRemoteManager.PRESS_DEDUP_MS (250ms, tuned below human double-press
+    // cadence so deliberate rapid presses pass through). Re-deduping here with
+    // SmartRemoteManager.PRESS_DEDUP_MS (250ms) is the primary echo guard; this
+    // index-level window is a harmless second line. With the double-press
+    // apparatus gone, triple_tap is now a single idempotent action (pause+resync
+    // or resume) so it can be deduped like every other event — there is no
+    // second press to protect.
     const now = Date.now();
     if (event.name === dedupRef.current.name && now < dedupRef.current.until) return;
     dedupRef.current = { name: event.name, until: now + DEDUP_MS };
@@ -191,24 +217,11 @@ export default function TeleprompterScreen() {
       engineRef.current?.prev();
       return;
     }
-    // triple_tap = SmartRemote play/pause button.
-    //   1 press  → toggle play/pause (through handleToggle so manualPauseRef
-    //              stays in sync — a remote pause must block head gestures
-    //              exactly like a UI pause).
-    //   2 presses within RESYNC_WINDOW_MS → force a lens resync, and UNDO the
-    //              first press's toggle so a deliberate double-tap leaves the
-    //              play state unchanged (its only effect is the resync).
+    // triple_tap = SmartRemote play/pause button. A single press is the whole
+    // interface: playing → pause-and-resync, paused → resume. See
+    // handlePlayButton for the first-principle rationale.
     if (isTriTap) {
-      const pp = playPressRef.current;
-      pp.count = now < pp.until ? pp.count + 1 : 1;
-      pp.until = now + RESYNC_WINDOW_MS;
-      if (pp.count >= 2) {
-        pp.count = 0;              // consume the gesture; a 3rd press starts fresh
-        handleToggleRef.current(); // undo the 1st press's toggle (net: no state change)
-        forceResync();
-        return;
-      }
-      handleToggleRef.current();
+      handlePlayButtonRef.current();
       return;
     }
 
@@ -289,12 +302,7 @@ export default function TeleprompterScreen() {
     );
   }, [status?.left.batteryPct, status?.right.batteryPct]);
 
-  const handleToggle = useCallback(() => {
-    const isPlaying = engineRef.current?.getSnapshot().state === 'playing';
-    manualPauseRef.current = isPlaying;
-    engineRef.current?.toggle();
-  }, []);
-  handleToggleRef.current = handleToggle;
+  handlePlayButtonRef.current = handlePlayButton;
   const handleNext   = useCallback(() => engineRef.current?.next(),   []);
   const handlePrev   = useCallback(() => engineRef.current?.prev(),   []);
 
@@ -491,7 +499,7 @@ export default function TeleprompterScreen() {
 
             <Pressable
               style={[s.ctrlBtn, s.ctrlPrimary, !hasScript && s.ctrlDisabled]}
-              onPress={handleToggle}
+              onPress={handlePlayButton}
               disabled={!hasScript}
             >
               <Text style={s.ctrlPlayIcon}>{playing ? '⏸' : '▶'}</Text>
