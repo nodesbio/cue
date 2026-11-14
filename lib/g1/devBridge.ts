@@ -20,13 +20,19 @@ type Cmd =
   | { id: number; cmd: 'clear' }
   | { id: number; cmd: 'dashboard' }
   | { id: number; cmd: 'status' }
-  | { id: number; cmd: 'logs'; tail?: number };
+  | { id: number; cmd: 'logs'; tail?: number }
+  // Human-timestamped desync marker. The Mac-side `hud.mjs watch` fires this
+  // the instant the operator sees the lenses drift, so the moment is recorded
+  // on the APP's clock (interleaved with BLE events, no cross-machine skew)
+  // rather than reconstructed from log timestamps after the fact.
+  | { id: number; cmd: 'mark'; label?: string };
 
 type Deps = { core: G1Core; getLogs: () => string[]; log: (m: string) => void };
 
 let ws: WebSocket | null = null;
 let retry: ReturnType<typeof setTimeout> | null = null;
 let started = false;
+let _markSeq = 0;
 
 function hostFromMetro(): string | null {
   const uri = Constants.expoConfig?.hostUri;
@@ -41,6 +47,15 @@ async function run(c: Cmd, d: Deps): Promise<unknown> {
     case 'dashboard': await d.core.exitToDashboard(); return 'ok';
     case 'status':    return d.core.status;
     case 'logs':      return d.getLogs().slice(-(c.tail ?? 40));
+    case 'mark': {
+      _markSeq += 1;
+      const label = (c.label ?? 'DESYNC').toUpperCase();
+      const bar = '='.repeat(10);
+      // Fire into the same _log pipeline as every BLE event so it lands in
+      // Metro AND the saved cue-logs-*.txt at the exact app-clock instant.
+      d.log(`${bar} USER MARK #${_markSeq} ${label} ${bar} ${d.core.syncSnapshot}`);
+      return `mark #${_markSeq} (${label})`;
+    }
   }
 }
 

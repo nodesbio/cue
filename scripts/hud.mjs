@@ -5,6 +5,8 @@
  *   node scripts/hud.mjs serve              # start bridge; leave running
  *   node scripts/hud.mjs text "hello"
  *   node scripts/hud.mjs test | clear | dashboard | status | logs [n]
+ *   node scripts/hud.mjs mark [label]       # one-shot desync marker
+ *   node scripts/hud.mjs watch [label]      # hold terminal; SPACE/ENTER = mark, q = quit
  *
  * `serve` holds the WebSocket the phone connects to (port 8910) and exposes
  * a local HTTP control port (8911) the one-shot commands post to.
@@ -54,8 +56,39 @@ if (cmd === 'serve') {
   }).listen(CTL_PORT, '127.0.0.1');
 
   console.log(`[hud] listening ws:${WS_PORT} ctl:${CTL_PORT} — waiting for phone`);
+} else if (cmd === 'watch') {
+  // Hold the terminal in raw mode; each SPACE or ENTER fires a `mark` the
+  // instant you press it. Nothing is typed, so there's no per-mark latency —
+  // critical for timestamping the exact moment the lenses visibly desync.
+  const label = rest.filter((a) => !a.startsWith('-')).join(' ') || 'DESYNC';
+  const stdin = process.stdin;
+  if (!stdin.isTTY) { console.error('[hud] watch needs an interactive terminal (TTY)'); process.exit(1); }
+  let n = 0;
+  const fire = async () => {
+    const t = new Date().toISOString().slice(11, 23);
+    const res = await fetch(`http://127.0.0.1:${CTL_PORT}/`, {
+      method: 'POST', body: JSON.stringify({ cmd: 'mark', label }),
+    }).catch(() => null);
+    if (!res) { console.error('[hud] bridge not running — start it with: node scripts/hud.mjs serve'); return; }
+    const msg = await res.json().catch(() => ({ ok: false, error: 'bad response' }));
+    n += 1;
+    console.log(msg.ok ? `  ✓ mark #${n} @ ${t} (${label})` : `  ✗ ${msg.error}`);
+  };
+  console.log(`[hud] WATCH mode — press SPACE or ENTER at each desync, 'q' to quit. label="${label}"`);
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding('utf8');
+  stdin.on('data', (key) => {
+    if (key === 'q' || key === '\u0003') { // q or Ctrl-C
+      stdin.setRawMode(false);
+      console.log(`[hud] watch ended — ${n} marks fired`);
+      process.exit(0);
+    }
+    if (key === ' ' || key === '\r' || key === '\n') fire();
+  });
 } else {
   const payload = { cmd };
+  if (cmd === 'mark') payload.label = rest.join(' ') || undefined;
   if (cmd === 'text') {
     // optional leading --ns=0x51 to override the newScreen byte
     const nsArg = rest.find((a) => a.startsWith('--ns='));
