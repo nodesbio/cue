@@ -285,6 +285,25 @@ export class G1Core {
   // (never reset mid-session — a capture spans one connection).
   private _ackLatMax: Record<Side, number> = { L: 0, R: 0 };
   private _ackLatPrev: Record<Side, number | undefined> = { L: undefined, R: undefined };
+
+  // ── Closed-loop skew corrector ──────────────────────────────────────────
+  // Field logs (cue-logs-2026-11-15T19-16-51) showed L/R ack latency diverging
+  // under iOS background radio throttling and RATCHETING: once the per-frame
+  // skew grows past ~100ms it never recovers on its own, even back in the
+  // foreground. The bug is hysteretic, so we can't pace our way out of it —
+  // we detect sustained divergence and re-anchor both lenses (same effect as
+  // the manual PLAY-BUTTON pause+resync). This is correction, not prevention.
+  private static readonly SKEW_RESYNC_THRESHOLD_MS = 150;
+  private static readonly SKEW_RESYNC_BREACH_COUNT = 3;
+  /** Consecutive paired frames whose |skew| exceeded the threshold. Reset on
+   *  any in-bounds frame OR after a resync fires, so the detector re-arms. */
+  private _skewBreachStreak = 0;
+  /** Invoked with the triggering seq when sustained divergence is detected.
+   *  The HUD wires this to the same re-anchor the play button performs. */
+  private _onSkewResync: ((seq: number) => void) | null = null;
+  setSkewResyncHandler(fn: ((seq: number) => void) | null): void {
+    this._onSkewResync = fn;
+  }
   /** Last OP_TEXT frame handed to _sendBoth — read by the USER MARK handler so
    *  a human-observed desync is stamped with the exact in-flight line/seq. */
   private _lastSent: { seq: number; line: number; total: number; at: number } | null = null;
@@ -2178,6 +2197,24 @@ export class G1Core {
     const skew = lAt - rAt; // >0 ⇒ R acked first ⇒ R leads
     this._skewSamples++;
     this._skewMeanMs += (skew - this._skewMeanMs) / this._skewSamples;
+
+    // Closed-loop corrector: count consecutive frames over the divergence
+    // threshold; a transient one-frame spike resets the streak, sustained
+    // divergence trips a resync. Reset the streak after firing so it re-arms.
+    if (Math.abs(skew) >= G1Core.SKEW_RESYNC_THRESHOLD_MS) {
+      this._skewBreachStreak++;
+      if (this._skewBreachStreak >= G1Core.SKEW_RESYNC_BREACH_COUNT) {
+        this._skewBreachStreak = 0;
+        this._log(
+          `[G1] SKEW-RESYNC seq=${seq} |skew|=${Math.abs(skew)}ms ≥ ` +
+          `${G1Core.SKEW_RESYNC_THRESHOLD_MS}ms for ` +
+          `${G1Core.SKEW_RESYNC_BREACH_COUNT} frames → re-anchoring lenses`,
+        );
+        this._onSkewResync?.(seq);
+      }
+    } else {
+      this._skewBreachStreak = 0;
+    }
     const lead = skew > 0 ? 'R' : skew < 0 ? 'L' : '=';
     // Root-cause attribution: pull each side's write-accept vs ack-latency split.
     // L=write/ack  R=write/ack lets a reader see at a glance whether R's skew

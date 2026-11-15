@@ -119,6 +119,25 @@ export default function TeleprompterScreen() {
     });
   }, [connected, pairedSerial, core]);
 
+  // ── Auto skew corrector ───────────────────────────────────────────────
+  // G1Core detects sustained L/R ack-skew divergence (iOS background radio
+  // throttling ratchets the lenses apart and they never recover on their own —
+  // field log cue-logs-2026-11-15T19-16-51). On detection it calls back here
+  // to re-anchor. Unlike the PLAY-BUTTON path this does NOT pause: the operator
+  // didn't ask to stop, so we re-push the engine's CURRENT frame to both lenses
+  // in place, snapping them back together while scrolling continues. The
+  // re-push rides G1Core's pace gate, so it can't outrun the slow lens.
+  useEffect(() => {
+    core.setSkewResyncHandler((seq) => {
+      const engine = engineRef.current;
+      if (!engine || core.status.poweredOff) return;
+      const s = engine.getSnapshot();
+      core.note(`[index] AUTO-RESYNC (skew) trip@seq=${seq} → re-push line=${s.topIndex + 1}/${s.totalLines} ${core.syncSnapshot}`);
+      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+    });
+    return () => core.setSkewResyncHandler(null);
+  }, [core]);
+
   // Load gesture preferences (re-read on focus so settings changes apply immediately)
   useEffect(() => {
     AsyncStorage.multiGet(['gesture_nav_enabled', 'gesture_nav_swapped']).then(pairs => {
