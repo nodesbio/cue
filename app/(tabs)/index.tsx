@@ -20,6 +20,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
+import { loadCalibration } from '@/lib/g1/calibrationStore';
 import {
   TeleprompterEngine,
   EngineSnapshot,
@@ -43,7 +44,7 @@ function speedLabel(s: number): string {
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function TeleprompterScreen() {
-  const { core, status, isConnected: connected, isPartiallyConnected: partiallyConnected } = useG1();
+  const { core, status, isConnected: connected, isPartiallyConnected: partiallyConnected, pairedSerial } = useG1();
   const { width: screenWidth } = useWindowDimensions();
   const screenWidthRef = useRef(screenWidth);
   useEffect(() => { screenWidthRef.current = screenWidth; }, [screenWidth]);
@@ -102,6 +103,21 @@ export default function TeleprompterScreen() {
     }
     prevConnectedRef.current = connected;
   }, [connected, core]);
+
+  // ── Calibrated scroll pace ──────────────────────────────────────────────
+  // Consume the per-pair calibration (Settings → Calibrate). The stored paceMs
+  // is the slowest safe inter-frame interval across both lenses' failure layers
+  // (L render ~8 f/s, R link ~16 f/s); G1Core enforces it as a minimum gap
+  // between TEXT frames so bursts (loop restart, rapid next/prev, rewind,
+  // reconnect re-push) can't outrun the slower lens and reopen the skew.
+  // Re-applied on each connect since the ceiling drifts with battery. No stored
+  // calibration ⇒ pace 0 (unthrottled, prior behaviour) — never worse than before.
+  useEffect(() => {
+    if (!connected || !pairedSerial) return;
+    void loadCalibration(pairedSerial).then(cal => {
+      core.setScrollPaceMs(cal?.paceMs ?? 0);
+    });
+  }, [connected, pairedSerial, core]);
 
   // Load gesture preferences (re-read on focus so settings changes apply immediately)
   useEffect(() => {

@@ -7,7 +7,7 @@
 import { BleManager, Device, State, Characteristic, Subscription, BleError, BleErrorCode } from 'react-native-ble-plx';
 import { encode as btoa } from 'base-64';
 import * as P from './packets';
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 
 /** Platform byte for 0x2C — see P.batteryRequest. */
 const PHONE = Platform.OS === 'ios' ? P.PHONE_IOS : P.PHONE_ANDROID;
@@ -90,6 +90,10 @@ export class G1Core {
   private rxSubs: Partial<Record<Side, Subscription>> = {};
   private seq = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** Count of routine 0x25 heartbeat RX frames since the last non-heartbeat
+   *  frame, per side. Dumped (then reset) when a real frame arrives, so the
+   *  heartbeat rate stays visible without spamming the HUD ring buffer. */
+  private _hbRxCount: Record<Side, number> = { L: 0, R: 0 };
   private reconnectAttempts: Partial<Record<Side, number>> = { L: 0, R: 0 };
   private destroyed = false;
   /** Mutex: if a connect/scan is already in flight, callers share the same promise. */
@@ -107,6 +111,18 @@ export class G1Core {
    * being free then execute.
    */
   private _sendQueue: Promise<void> = Promise.resolve();
+  /**
+   * Minimum gap (ms) enforced between consecutive TEXT frame commits — the
+   * per-pair calibrated scroll pace (see calibrationStore.ts). The two lenses
+   * fail at different layers above this rate (L render-freezes ~8 f/s, R link-
+   * drops ~16 f/s), so bursts faster than the slower lens can commit cause the
+   * skew the Calibrate feature exists to kill. Enforced in _enqueue for text
+   * ops only; 0 = uncalibrated / no throttle (connect & battery packets never
+   * gated). Set via setScrollPaceMs from the stored calibration at HUD start.
+   */
+  private _scrollPaceMs = 0;
+  /** Wall-clock of the last gated text frame, for the inter-frame gap. */
+  private _lastPacedSendAt = 0;
   /**
    * Monotonic token for sendText coalescing. Each sendText captures the
    * current value at enqueue time; when its turn on _sendQueue arrives, it
@@ -226,6 +242,23 @@ export class G1Core {
    * disconnected from the target. Keep only as a coarse liveness signal.
    */
   private _textAckAt: Record<Side, Map<number, number>> = { L: new Map(), R: new Map() };
+  /** Root-cause triage (telemetry-only): per-(side,seq) timing breakdown so the
+   *  SKEW line can attribute lag to its SOURCE. writeMs = time the radio took to
+   *  ACCEPT the write (CoreBluetooth queue drain — high ⇒ iOS BLE radio
+   *  starvation / power-save, the standalone-vs-tethered suspect). ackLatMs =
+   *  write-accepted → firmware text-ACK (high ⇒ firmware render / ESB
+   *  master→slave sync lag, independent of iOS). Splitting these two is what
+   *  distinguishes "R radio throttled" from "R firmware slow". */
+  private _textAckTiming: Record<Side, Map<number, { writeMs: number; ackLatMs: number }>> = {
+    L: new Map(),
+    R: new Map(),
+  };
+  /** Current foreground/background/inactive state, tracked live so every SKEW
+   *  and ACK-MISS line is stamped with it. The standalone "falls apart in the
+   *  wild" report predicts skew spikes should correlate with 'background' /
+   *  'inactive' (screen dim, pocketed); if skew is flat across states the root
+   *  is NOT iOS power-save. Telemetry-only — never gates send behavior. */
+  private _appState: AppStateStatus = AppState?.currentState ?? 'active';
   /** PROBE (Bug B triage): seqs R has text-acked, pruned by the R-ACK-MISS
    *  probe in _sendBoth. Separate from _textAckAt so skew-pairing deletes don't
    *  create false "R never acked" readings. Telemetry-only. */
@@ -235,8 +268,23 @@ export class G1Core {
    *  the _sendBoth comment — but a field [S]-split that goes L-stale would
    *  disprove that. Track both sides so the probe reports WHICH lens dropped. */
   private _lAckedSeqs: Set<number> = new Set();
+  /** Optional harness tap, fired on every raw text-ACK (side, seq) before the
+   *  skew-pairing delete. Registered by the lens-race BLE-skip ledger. */
+  private _onTextAckRaw: ((side: Side, seq: number) => void) | null = null;
+  /** Register/clear the raw text-ACK tap. Pass null to unregister. Harness-only
+   *  — does not affect send/render behaviour. */
+  setTextAckObserver(fn: ((side: Side, seq: number) => void) | null): void {
+    this._onTextAckRaw = fn;
+  }
   private _skewSamples = 0;
   private _skewMeanMs = 0; // running mean of signed (L−R) ack skew
+  // Climb-vs-jitter telemetry: rolling max ackLatency per side (does the
+  // baseline rise over a session ⇒ firmware degradation?) and the previous
+  // frame's ackLatency per side (frame-to-frame Δa ⇒ transient jitter spike).
+  // Both telemetry-only; persist for the core's lifetime like _skewMeanMs
+  // (never reset mid-session — a capture spans one connection).
+  private _ackLatMax: Record<Side, number> = { L: 0, R: 0 };
+  private _ackLatPrev: Record<Side, number | undefined> = { L: undefined, R: undefined };
   /** Last OP_TEXT frame handed to _sendBoth — read by the USER MARK handler so
    *  a human-observed desync is stamped with the exact in-flight line/seq. */
   private _lastSent: { seq: number; line: number; total: number; at: number } | null = null;
@@ -255,7 +303,7 @@ export class G1Core {
     return (
       `lastFrame=${s ? `seq=${s.seq} line=${s.line}/${s.total} (${age}ms ago)` : 'none'} ` +
       `skewMean=${this._skewMeanMs >= 0 ? '+' : ''}${this._skewMeanMs.toFixed(0)}ms(n=${this._skewSamples}) ` +
-      `nack{L:${this._textNackCount.L},R:${this._textNackCount.R}}`
+      `nack{L:${this._textNackCount.L},R:${this._textNackCount.R}} app=${this._appState}`
     );
   }
   /**
@@ -310,6 +358,15 @@ export class G1Core {
     if (opts?.onEvent) this.eventHandlers.add(opts.onEvent);
     this.onStatusChange = opts?.onStatusChange;
     this.onLog = opts?.onLog;
+    // Root-cause triage (telemetry-only): track fg/bg/inactive so SKEW lines
+    // are stamped with it. Logged on transition so the moment the OS throttles
+    // the radio is visible in the timeline next to the skew it (dis)proves.
+    AppState?.addEventListener?.('change', (next) => {
+      if (next !== this._appState) {
+        this._log(`[G1] APPSTATE ${this._appState} → ${next}`);
+        this._appState = next;
+      }
+    });
   }
 
   addEventHandler(h: EventHandler): void    { this.eventHandlers.add(h); }
@@ -687,8 +744,32 @@ export class G1Core {
    * with the new task. This keeps the glasses showing the most recent frame
    * without letting the queue grow unboundedly during rapid scrolling.
    */
-  private _enqueue(fn: () => Promise<void>): Promise<void> {
-    const run = this._sendQueue.then(() => fn()).catch((e) => {
+  /**
+   * Apply the per-pair calibrated scroll pace (ms/frame). Call once at HUD
+   * start with the stored calibration's paceMs (or 0 to disable throttling).
+   * Enforced as a minimum gap between consecutive TEXT frames in _enqueue.
+   */
+  setScrollPaceMs(ms: number): void {
+    this._scrollPaceMs = Math.max(0, ms | 0);
+    this._log(`[G1] scroll pace set to ${this._scrollPaceMs}ms/frame (${this._scrollPaceMs ? (1000 / this._scrollPaceMs).toFixed(1) + ' f/s' : 'disabled'})`);
+  }
+
+  private _enqueue(fn: () => Promise<void>, paced = false): Promise<void> {
+    const run = this._sendQueue.then(async () => {
+      // Pace gate: for TEXT frames, hold until at least _scrollPaceMs has
+      // elapsed since the previous paced frame. This throttles bursts (loop
+      // restart, rapid next()/prev(), rewind) to the rate the SLOWER lens can
+      // commit — without it, the coalescer still fires frames back-to-back and
+      // L freezes / R drops. Non-paced ops (connect, battery) are never gated.
+      if (paced && this._scrollPaceMs > 0) {
+        const since = Date.now() - this._lastPacedSendAt;
+        if (since < this._scrollPaceMs) {
+          await new Promise(r => setTimeout(r, this._scrollPaceMs - since));
+        }
+        this._lastPacedSendAt = Date.now();
+      }
+      return fn();
+    }).catch((e) => {
       // Log real errors; swallow only disconnect noise.
       const code = (e as BleError)?.errorCode;
       if (code !== BleErrorCode.DeviceDisconnected && code !== BleErrorCode.OperationCancelled) {
@@ -731,7 +812,65 @@ export class G1Core {
       this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
       this._trace(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
-    });
+    }, /* paced */ true);
+  }
+
+  /**
+   * HARNESS-ONLY: send one text frame to ONE lens and resolve on BLE
+   * write-acceptance (OS writeWithResponse completed), NOT on firmware ACK.
+   *
+   * Bypasses the _sendBoth R-first ESB-sync barrier on purpose: the lens-race
+   * harness drives L and R as two independent, flat-out loops to measure each
+   * link's sustained write throughput and the L/R delta. Gating on the firmware
+   * text ACK would be invalid here — R's 0x4e ACK is a FIXED ~810ms firmware
+   * timer (see field notes near _rAckedSeqs), so an ACK-gated race would rig R
+   * to lose by construction regardless of real link speed. Write-acceptance is
+   * the honest per-lens throughput signal and is the layer the field desync
+   * ("R's CoreBluetooth write queue grew one frame per tick") actually lives in.
+   *
+   * This WILL desync the two displays while running — it is a throughput probe,
+   * not a correctness path. Callers must resync (exitToDashboard + re-push)
+   * after the run. Do NOT use outside the harness.
+   */
+  /**
+   * READY phase for the lens race: prime ONE lens into the TEXT-accept display
+   * state before the flat-out raw-_send loops. The normal sendText/_sendBoth
+   * path works on both lenses, but the race's raw per-side _send (below) skips
+   * whatever that enqueued path does to make the firmware COMMIT a 0x71 TEXT
+   * screen. Symptom (runs through 2026-11-15T18:30): L buffers+ACKs all frames
+   * (status 0x01) but never commits a page and emits exit_to_dashboard (0xf5)
+   * ~1/s — the documented "firmware rejects the current screen" state (see
+   * packets.ts NewScreen doc) — so L shows nothing while R renders.
+   *
+   * This sends a single TEXT frame through the ENQUEUED, ACK-AWAITED path for
+   * just this side (same mechanics as sendText) and resolves once the lens text-
+   * ACKs it, i.e. once that lens is in TEXT-accept. Returns true if ACK landed
+   * within the window (SET confirmed), false if it timed out (still not ready).
+   */
+  async racePrimeSide(side: Side, str: string, seq: number): Promise<boolean> {
+    const packet = P.text(str, seq, 1, 1, P.NewScreen.TEXT);
+    const ack = await this._sendForResult(side, packet, 3000)
+      .catch(() => false);
+    this._trace(`[G1] racePrimeSide [${side}] seq=${seq} primed=${!!ack}`);
+    return !!ack;
+  }
+
+  async raceSendTextToSide(side: Side, str: string, seq: number): Promise<void> {
+    // Explicit per-side seq — the caller owns a SEPARATE counter per lens so
+    // each firmware receives a clean contiguous 1..N stream. Using the shared
+    // _nextSeq() here (prior bug, run 2026-11-15T18:17) interleaved the two
+    // loops onto one counter (L got even, R got odd), so neither lens received
+    // a coherent sequence and L buffered+ACK'd every frame but never committed a
+    // page to the display — "L shows nothing". seq is masked to the 1-byte
+    // packet field by P.text; the harness keeps it in 0..255.
+    const packet = P.text(str, seq, 1, 1, P.NewScreen.TEXT);
+    let written!: () => void;
+    const writtenP = new Promise<void>((r) => { written = r; });
+    // awaitAck=false → no ACK wait; onWritten fires in _send's finally on
+    // write-acceptance (or WRITE_TIMEOUT_MS if the radio stalls — a result too).
+    const p = this._send(side, packet, false, written);
+    p.catch((e) => this._warn(`[G1] raceSendTextToSide [${side}] send error: ${e?.message ?? e}`));
+    await writtenP;
   }
 
   /**
@@ -1541,6 +1680,25 @@ export class G1Core {
     else this._pendingAck.set(ackKey, [waiter]);
   }
 
+  // Finds the waiter in a key's queue whose seq matches `seq`. Used only for
+  // OP_TEXT, whose firmware ACK echoes the originating seq at payload byte[2]
+  // (verified against device frames: `4e <result> <seq> <chunk> …`, and the
+  // decomp FUN_0007f41e(seq→field[4], result→field[6])). FIFO-head resolution
+  // was wrong for TEXT: with R not gating the send queue (#25), multiple R
+  // TEXT frames sit in-flight, so an ACK for seq=N could resolve seq=N-k's
+  // waiter and absorb that frame's queue-wait into its reported ackLatency —
+  // inflating `a` by queue depth, not true firmware render time. Seq-matching
+  // makes `a` a true per-frame latency. Returns undefined if no waiter matches
+  // (ACK for an already-timed-out frame) — caller then drops it, not the head.
+  private _findAckWaiterBySeq(
+    ackKey: string,
+    seq: number,
+  ): { resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout>; seq: number } | undefined {
+    const q = this._pendingAck.get(ackKey);
+    if (!q) return undefined;
+    return q.find((w) => w.seq === seq);
+  }
+
   // Removes a specific waiter from its queue (by identity, not position — the
   // timeout/write-error paths must evict their own waiter, which may not be the
   // head). Deletes the map entry once the queue drains so `has()`/size stay honest.
@@ -1583,7 +1741,28 @@ export class G1Core {
     this._resolveWake(side); // #27: any frame from a sleeping lens means it woke
 
     const op = data[0];
-    this._trace(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
+    // Harness-scoped raw text-ACK tap. Placed at the RX DECODE site (not in
+    // _recordTextAckSeq) because the lens-race uses raceSendTextToSide →
+    // _send(awaitAck=false): no ACK waiter is registered, so the waiter-match
+    // block below is skipped and _recordTextAckSeq never runs. This sees EVERY
+    // 0x4e ACK on the radio regardless of waiter state. data[2] = echoed seq.
+    // No-op unless the harness registered an observer.
+    if (op === P.OP_TEXT && this._onTextAckRaw) this._onTextAckRaw(side, data[2]);
+    // Routine 0x25 heartbeat RX carries no per-frame diagnostic value and
+    // arrives ~continuously from both lenses — ~98% of all RX volume. Logging
+    // each one floods the 1000-line HUD ring and evicts SKEW/ACK lines before
+    // they can be read (skew capture 2026-11-15: 987/1000 lines were 0x25,
+    // every SKEW line lost). Count them instead; dump the count on any
+    // non-heartbeat frame so the rate is still visible when triaging.
+    if (op === P.OP_HEARTBEAT) {
+      this._hbRxCount[side]++;
+    } else {
+      if (this._hbRxCount.L || this._hbRxCount.R) {
+        this._trace(`[G1 RX] 0x25 heartbeats since last frame: L=${this._hbRxCount.L} R=${this._hbRxCount.R}`);
+        this._hbRxCount.L = 0; this._hbRxCount.R = 0;
+      }
+      this._trace(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
+    }
 
     // ── Protocol-level ACK ────────────────────────────────────────────────
     // The firmware echoes the command opcode in data[0] and puts the result
@@ -1610,6 +1789,25 @@ export class G1Core {
     // OP_SILENT `_lastSilentAt !== 0` gate below (Bug #10, 2026-09-27).
     if (pending && op === P.OP_TEXT && this._lastTextWriteAt[side] === 0) {
       this._warn(`[G1] OP_TEXT ghost ACK [${side}] dropped — no text write armed this cycle (stale iOS buffer)`);
+      return;
+    }
+    // OP_TEXT resolves by echoed seq (byte[2]), NOT FIFO head — see
+    // _findAckWaiterBySeq. The ghost gate above already peeked the head; a
+    // real ACK past that gate carries a seq we can match exactly. An ACK whose
+    // seq matches no in-flight waiter is for a frame that already timed out —
+    // drop it (do NOT fall through and resolve some other seq's waiter).
+    if (op === P.OP_TEXT && pending) {
+      const ackSeq = data[2];
+      const target = this._findAckWaiterBySeq(ackKey, ackSeq);
+      if (!target) {
+        this._warn(`[G1] OP_TEXT ACK [${side}] seq=${ackSeq} has no in-flight waiter — dropped (late/timed-out)`);
+        return;
+      }
+      clearTimeout(target.timer);
+      this._dequeueAckWaiter(ackKey, target);
+      const status = data[1];
+      const ok = status === P.R_STATUS_OK || status === P.R_STATUS_OK2;
+      target.resolve(ok);
       return;
     }
     if (pending && op !== P.OP_BATTERY) {
@@ -1934,7 +2132,7 @@ export class G1Core {
     const tAck = Date.now();
     const ackLatency = tAck - tWritten;
     if (isText) this._trace(`[G1] text seq=${seq} [${side}] ${ok ? 'ack' : 'nack'} +${ackLatency}ms after write`);
-    if (isText && ok) this._recordTextAckSeq(side, seq, tAck);
+    if (isText && ok) this._recordTextAckSeq(side, seq, tAck, tWritten - t0, ackLatency);
     if (!ok) {
       this._warn(`[G1] _send [${side}] NACK op=0x${opHex}`);
       if (data[0] === P.OP_TEXT) {
@@ -1956,7 +2154,13 @@ export class G1Core {
    * running mean so a sustained structural lead is obvious at a glance.
    * Telemetry only — does not alter send behavior.
    */
-  private _recordTextAckSeq(side: Side, seq: number, ackAt: number): void {
+  private _recordTextAckSeq(
+    side: Side,
+    seq: number,
+    ackAt: number,
+    writeMs: number,
+    ackLatMs: number,
+  ): void {
     // PROBE (Bug B triage): record R text-ACKs in a set the skew pairing never
     // deletes, so the R-ACK-MISS probe in _sendBoth can distinguish "R never
     // acked" from "both acked and the skew pairing already cleaned up". The
@@ -1964,6 +2168,7 @@ export class G1Core {
     if (side === 'R') this._rAckedSeqs.add(seq);
     if (side === 'L') this._lAckedSeqs.add(seq);
     this._textAckAt[side].set(seq, ackAt);
+    this._textAckTiming[side].set(seq, { writeMs, ackLatMs });
     const other: Side = side === 'L' ? 'R' : 'L';
     const otherAt = this._textAckAt[other].get(seq);
     if (otherAt === undefined) return; // wait for the pair
@@ -1974,13 +2179,35 @@ export class G1Core {
     this._skewSamples++;
     this._skewMeanMs += (skew - this._skewMeanMs) / this._skewSamples;
     const lead = skew > 0 ? 'R' : skew < 0 ? 'L' : '=';
+    // Root-cause attribution: pull each side's write-accept vs ack-latency split.
+    // L=write/ack  R=write/ack lets a reader see at a glance whether R's skew
+    // comes from the RADIO (R.write >> L.write ⇒ iOS starvation) or the
+    // FIRMWARE (R.ack >> L.ack ⇒ render/ESB-sync lag). Stamped with app state.
+    const lt = this._textAckTiming.L.get(seq);
+    const rt = this._textAckTiming.R.get(seq);
+    // Per-side climb/jitter: rolling max (baseline) and Δa vs previous frame.
+    // max↑ over a run ⇒ session-wide firmware degradation (timer re-handshake);
+    // large +Δa that max doesn't track ⇒ transient render hitch (reactive).
+    const climb = (s: Side, t?: { writeMs: number; ackLatMs: number }) => {
+      if (!t) return '—';
+      const prev = this._ackLatPrev[s];
+      const d = prev === undefined ? 0 : t.ackLatMs - prev;
+      this._ackLatPrev[s] = t.ackLatMs;
+      if (t.ackLatMs > this._ackLatMax[s]) this._ackLatMax[s] = t.ackLatMs;
+      return `w${t.writeMs}/a${t.ackLatMs}/Δ${d >= 0 ? '+' : ''}${d}/max${this._ackLatMax[s]}`;
+    };
+    const lFmt = climb('L', lt);
+    const rFmt = climb('R', rt);
     this._log(
       `[G1] SKEW seq=${seq} L−R=${skew >= 0 ? '+' : ''}${skew}ms ` +
-      `(${lead} leads) mean=${this._skewMeanMs >= 0 ? '+' : ''}${this._skewMeanMs.toFixed(0)}ms`,
+      `(${lead} leads) mean=${this._skewMeanMs >= 0 ? '+' : ''}${this._skewMeanMs.toFixed(0)}ms ` +
+      `L[${lFmt}] R[${rFmt}] app=${this._appState}`,
     );
     // Drop both entries so the maps don't grow unbounded across a long scroll.
     this._textAckAt[side].delete(seq);
     this._textAckAt[other].delete(seq);
+    this._textAckTiming[side].delete(seq);
+    this._textAckTiming[other].delete(seq);
   }
 
   /**
@@ -2189,6 +2416,7 @@ export class G1Core {
     // Drop any half-paired skew samples for this side on a link transition so a
     // reconnect doesn't pair a pre-drop ack with a post-reconnect one.
     this._textAckAt[side].clear();
+    this._textAckTiming[side].clear();
     this._emitStatus();
     // Issue #7: restart heartbeat whenever both lenses are now up — covers the
     // single-lens reconnect path (_scheduleReconnect → _connectLens) which never

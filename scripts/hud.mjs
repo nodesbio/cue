@@ -86,6 +86,33 @@ if (cmd === 'serve') {
     }
     if (key === ' ' || key === '\r' || key === '\n') fire();
   });
+} else if (cmd === 'monitor') {
+  // Near-realtime SKEW tail. The bridge is request/response (no server push),
+  // so we poll the `logs` snapshot on a short interval and print only lines
+  // we haven't seen yet — de-duped by exact string so a slow render that
+  // repeats a tail line isn't printed twice. Default: SKEW + USER MARK lines;
+  // pass `all` to see every new log line.
+  const showAll = rest.includes('all');
+  const intervalMs = Number(rest.find((a) => /^\d+$/.test(a))) || 1000;
+  const seen = new Set();
+  let primed = false;
+  const keep = (l) => showAll || /\bSKEW\b|USER MARK/.test(l);
+  console.log(`[hud] MONITOR — poll ${intervalMs}ms, ${showAll ? 'all lines' : 'SKEW + marks only'}, Ctrl-C to quit`);
+  const tick = async () => {
+    const res = await fetch(`http://127.0.0.1:${CTL_PORT}/`, {
+      method: 'POST', body: JSON.stringify({ cmd: 'logs', tail: 200 }),
+    }).catch(() => null);
+    if (!res) { console.error('[hud] bridge not running — start: node scripts/hud.mjs serve'); return; }
+    const msg = await res.json().catch(() => null);
+    if (!msg?.ok || !Array.isArray(msg.result)) return;
+    const fresh = msg.result.filter((l) => !seen.has(l));
+    msg.result.forEach((l) => seen.add(l));
+    // On first poll, prime the seen-set silently so we don't dump history.
+    if (!primed) { primed = true; return; }
+    fresh.filter(keep).forEach((l) => console.log(l));
+  };
+  setInterval(tick, intervalMs);
+  tick();
 } else {
   const payload = { cmd };
   if (cmd === 'mark') payload.label = rest.join(' ') || undefined;

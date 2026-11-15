@@ -55,8 +55,11 @@ function makeReadyCore() {
   anyCore.status.left.connected = true;  anyCore.status.left.txReady = true;
   anyCore.status.right.connected = true; anyCore.status.right.txReady = true;
   const onDisconnected = jest.spyOn(anyCore, '_onDisconnected');
-  const ack = (side: Side, op: number, status = OK_STATUS) =>
-    anyCore._onNotify(side, null, { value: toB64([op, status]) });
+  // OP_TEXT ACKs resolve by echoed seq (byte[2], see _findAckWaiterBySeq), not
+  // FIFO head. TEXT below is seq=0 (byte[1]=0x00), so seq defaults to 0; all
+  // call sites target that single in-flight frame. Non-text ops ignore byte[2].
+  const ack = (side: Side, op: number, seq = 0, status = OK_STATUS) =>
+    anyCore._onNotify(side, null, { value: toB64([op, status, seq]) });
   return { core, anyCore, writes, ack, onDisconnected, statusLog };
 }
 
