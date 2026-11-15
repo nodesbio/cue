@@ -9,6 +9,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { G1Core, G1Status, EventHandler } from './G1Core';
 import { smartRemoteManager } from './SmartRemoteManager';
@@ -97,14 +98,23 @@ function _addLog(line: string) {
   _logListeners.forEach(fn => fn());
 }
 
-// Build stamp — appVersionSource=remote means app.json's buildNumber is NOT
-// what's in the binary; nativeBuildVersion is the real CFBundleVersion.
-// Without this, a shared log can't be matched to an EAS build/commit (the
-// 2026-10-25 logs were triaged against a fix that wasn't in that binary).
-// runtimeVersion may be a policy object ({ policy: 'appVersion' }) rather than
-// a string — rendered "[object Object]" in the 2026-11-04 log. Only print strings.
+// Build stamp — must let a shared field log be matched to the exact binary
+// that produced it (the 2026-10-25 logs were triaged against a fix that
+// wasn't in that build; the 2026-11-15 log stamped "cue ? (?)").
+//
+// Watkins: Constants.nativeAppVersion/nativeBuildVersion are DEPRECATED and
+// resolve to undefined in this SDK — that's why the 11-15 log showed "? (?)".
+// expo-application reads CFBundleShortVersionString/CFBundleVersion straight
+// from the binary's Info.plist, so it can't go stale.
+//
+// But version+build alone don't distinguish field builds: CFBundleVersion is
+// "1" on every local `expo run` and never increments. The git SHA is the only
+// thing that actually identifies the build. We bake it in at bundle time via
+// EXPO_PUBLIC_GIT_SHA (set by the rebuild script); absent ⇒ "nocommit", which
+// is itself a signal that the stamp wiring was bypassed.
 const _rtv = Constants.expoConfig?.runtimeVersion;
-const BUILD_STAMP = `cue ${Constants.nativeAppVersion ?? '?'} (${Constants.nativeBuildVersion ?? '?'}) ${typeof _rtv === 'string' ? _rtv : ''}`.trim();
+const _sha = process.env.EXPO_PUBLIC_GIT_SHA || 'nocommit';
+const BUILD_STAMP = `cue ${Application.nativeApplicationVersion ?? '?'} (${Application.nativeBuildVersion ?? '?'}) ${_sha}${typeof _rtv === 'string' ? ` rtv=${_rtv}` : ''}`.trim();
 _addLog(`[BUILD] ${BUILD_STAMP}`);
 
 /** Returns the full log buffer as a single newline-joined string (for sharing). */
