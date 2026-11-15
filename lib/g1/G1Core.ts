@@ -276,8 +276,23 @@ export class G1Core {
   setTextAckObserver(fn: ((side: Side, seq: number) => void) | null): void {
     this._onTextAckRaw = fn;
   }
-  private _skewSamples = 0;
-  private _skewMeanMs = 0; // running mean of signed (L−R) ack skew
+  // Windowed mean of signed (L−R) ack skew. A LIFETIME mean (the original
+  // impl) was useless for triage: in the 2026-11-15T19-37 log it read -190ms
+  // for 100+ frames while the INSTANTANEOUS skew was oscillating -9ms↔-288ms
+  // and recovering between spikes — the ancient samples dominated and hid
+  // current health. A rolling window reflects the lens state *now*, which is
+  // what a human reading a mid-session capture needs. Telemetry-only; the
+  // corrector itself keys off instantaneous |skew|, never the mean.
+  private static readonly SKEW_MEAN_WINDOW = 20;
+  private _skewWindow: number[] = [];
+  private get _skewMeanMs(): number {
+    const w = this._skewWindow;
+    if (w.length === 0) return 0;
+    return w.reduce((a, b) => a + b, 0) / w.length;
+  }
+  private get _skewSamples(): number {
+    return this._skewWindow.length;
+  }
   // Climb-vs-jitter telemetry: rolling max ackLatency per side (does the
   // baseline rise over a session ⇒ firmware degradation?) and the previous
   // frame's ackLatency per side (frame-to-frame Δa ⇒ transient jitter spike).
@@ -287,12 +302,16 @@ export class G1Core {
   private _ackLatPrev: Record<Side, number | undefined> = { L: undefined, R: undefined };
 
   // ── Closed-loop skew corrector ──────────────────────────────────────────
-  // Field logs (cue-logs-2026-11-15T19-16-51) showed L/R ack latency diverging
-  // under iOS background radio throttling and RATCHETING: once the per-frame
-  // skew grows past ~100ms it never recovers on its own, even back in the
-  // foreground. The bug is hysteretic, so we can't pace our way out of it —
-  // we detect sustained divergence and re-anchor both lenses (same effect as
-  // the manual PLAY-BUTTON pause+resync). This is correction, not prevention.
+  // Field logs show L/R ack latency diverging under iOS background radio
+  // throttling. The 2026-11-15T19-37 capture (first with this corrector live)
+  // refined the model: instantaneous skew OSCILLATES hard in background
+  // (-9ms↔-320ms) rather than ratcheting monotonically — it spikes past
+  // threshold and recovers between spikes. The corrector fired 28× there,
+  // caught the sustained excursions, and the operator reported stability
+  // "really good". So this is correction of a transient-but-frequent
+  // divergence, not a one-way ratchet. We detect a SUSTAINED breach (not a
+  // single spike) and re-anchor both lenses (same effect as the manual
+  // PLAY-BUTTON pause+resync). Keyed off instantaneous |skew|, not the mean.
   private static readonly SKEW_RESYNC_THRESHOLD_MS = 150;
   private static readonly SKEW_RESYNC_BREACH_COUNT = 3;
   /** Consecutive paired frames whose |skew| exceeded the threshold. Reset on
@@ -2195,8 +2214,8 @@ export class G1Core {
     const lAt = side === 'L' ? ackAt : otherAt;
     const rAt = side === 'R' ? ackAt : otherAt;
     const skew = lAt - rAt; // >0 ⇒ R acked first ⇒ R leads
-    this._skewSamples++;
-    this._skewMeanMs += (skew - this._skewMeanMs) / this._skewSamples;
+    this._skewWindow.push(skew);
+    if (this._skewWindow.length > G1Core.SKEW_MEAN_WINDOW) this._skewWindow.shift();
 
     // Closed-loop corrector: count consecutive frames over the divergence
     // threshold; a transient one-frame spike resets the streak, sustained
