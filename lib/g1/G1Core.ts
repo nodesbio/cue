@@ -230,6 +230,11 @@ export class G1Core {
    *  probe in _sendBoth. Separate from _textAckAt so skew-pairing deletes don't
    *  create false "R never acked" readings. Telemetry-only. */
   private _rAckedSeqs: Set<number> = new Set();
+  /** Bug B directionality probe (telemetry-only): L text-ACKs, mirror of
+   *  _rAckedSeqs. The barrier awaits L's ack so an L miss "can't" happen per
+   *  the _sendBoth comment — but a field [S]-split that goes L-stale would
+   *  disprove that. Track both sides so the probe reports WHICH lens dropped. */
+  private _lAckedSeqs: Set<number> = new Set();
   private _skewSamples = 0;
   private _skewMeanMs = 0; // running mean of signed (L−R) ack skew
   /** Last OP_TEXT frame handed to _sendBoth — read by the USER MARK handler so
@@ -265,10 +270,15 @@ export class G1Core {
    * sends on different opcodes (e.g. heartbeat and battery) don't clobber each
    * other's resolvers. We register BEFORE the write to avoid a race on fast ACK.
    */
-  private _pendingAck: Map<string, {
+  // FIFO queue of in-flight ACK waiters per key ("<side><opHex>"). BLE
+  // notifications arrive in-order per characteristic, so the oldest waiter
+  // is resolved first. A queue (not a single slot) lets two TEXT sends on
+  // the same side be in-flight concurrently without one evicting the other.
+  private _pendingAck: Map<string, Array<{
     resolve: (ok: boolean) => void;
     timer: ReturnType<typeof setTimeout>;
-  }> = new Map();
+    seq: number;
+  }>> = new Map();
 
   public status: G1Status = {
     left:  { device: null, connected: false, txReady: false, displayIdle: false, asleep: false, batteryPct: null, rssi: null },
@@ -1494,6 +1504,31 @@ export class G1Core {
     }, delay);
   }
 
+  // ── ACK waiter queue (FIFO per ackKey) ──────────────────────────────────
+  // Appends a waiter to the tail of its key's queue, creating the queue lazily.
+  private _enqueueAckWaiter(
+    ackKey: string,
+    waiter: { resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout>; seq: number },
+  ): void {
+    const q = this._pendingAck.get(ackKey);
+    if (q) q.push(waiter);
+    else this._pendingAck.set(ackKey, [waiter]);
+  }
+
+  // Removes a specific waiter from its queue (by identity, not position — the
+  // timeout/write-error paths must evict their own waiter, which may not be the
+  // head). Deletes the map entry once the queue drains so `has()`/size stay honest.
+  private _dequeueAckWaiter(
+    ackKey: string,
+    waiter: { resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout>; seq: number },
+  ): void {
+    const q = this._pendingAck.get(ackKey);
+    if (!q) return;
+    const i = q.indexOf(waiter);
+    if (i !== -1) q.splice(i, 1);
+    if (q.length === 0) this._pendingAck.delete(ackKey);
+  }
+
   // ── Notifications ─────────────────────────────────────────────────────────
 
   private _onNotify(side: Side, error: Error | null, char: Characteristic | null): void {
@@ -1535,7 +1570,11 @@ export class G1Core {
     // data[1]=0x66 is a battery-specific status byte, not a protocol ACK.
     // Always route battery packets directly to the OP_BATTERY handler below.
     const ackKey = `${side}${op.toString(16).padStart(2, '0')}`;
-    const pending = this._pendingAck.get(ackKey);
+    // FIFO: the oldest in-flight waiter for this key is the one this ACK
+    // belongs to (BLE notifications are in-order per characteristic). Peek
+    // without removing yet — the ghost-ACK gate below may drop this packet.
+    const queue = this._pendingAck.get(ackKey);
+    const pending = queue && queue.length > 0 ? queue[0] : undefined;
     // Ghost-ACK gate (OP_TEXT only): the text ACK waiter is keyed `${side}4e`
     // with no seq, so a 0x4e buffered by iOS from the previous connection and
     // replayed on the fresh RX subscription would resolve the seq=0 waiter in
@@ -1551,7 +1590,7 @@ export class G1Core {
     }
     if (pending && op !== P.OP_BATTERY) {
       clearTimeout(pending.timer);
-      this._pendingAck.delete(ackKey);
+      this._dequeueAckWaiter(ackKey, pending);
       const status = data[1];
       const ok = status === P.R_STATUS_OK || status === P.R_STATUS_OK2;
       // Track silent ACK receipt so _connectLens can skip the 12s wait on
@@ -1579,7 +1618,7 @@ export class G1Core {
     // Clean up any battery ACK waiter — it resolves successfully since we got a response.
     if (op === P.OP_BATTERY && pending) {
       clearTimeout(pending.timer);
-      this._pendingAck.delete(ackKey);
+      this._dequeueAckWaiter(ackKey, pending);
       pending.resolve(true);
     }
 
@@ -1716,12 +1755,14 @@ export class G1Core {
    * time out sequentially and produce a cascade of false-alarm log lines.
    */
   private _drainAckWaiters(side: Side): void {
-    for (const [key, waiter] of this._pendingAck.entries()) {
+    for (const [key, queue] of this._pendingAck.entries()) {
       if (key.startsWith(side)) {
-        clearTimeout(waiter.timer);
-        waiter.resolve(false);
+        for (const waiter of queue) {
+          clearTimeout(waiter.timer);
+          waiter.resolve(false);
+        }
         this._pendingAck.delete(key);
-        this._log(`[G1] _drainAckWaiters: cancelled stale waiter key=${key}`);
+        this._log(`[G1] _drainAckWaiters: cancelled ${queue.length} stale waiter(s) key=${key}`);
       }
     }
   }
@@ -1739,20 +1780,15 @@ export class G1Core {
     const ackKey = `${side}${opHex}`;
     const b64 = uint8ToBase64(data);
 
-    const stale = this._pendingAck.get(ackKey);
-    if (stale) {
-      clearTimeout(stale.timer);
-      this._pendingAck.delete(ackKey);
-      stale.resolve(false); // don't orphan the previous awaiter
-    }
-
+    let waiterRef: { resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout>; seq: number } | undefined;
     const ackPromise = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
-        this._pendingAck.delete(ackKey);
+        if (waiterRef) this._dequeueAckWaiter(ackKey, waiterRef);
         this._log(`[G1] _sendForResult [${side}] ACK timeout op=0x${opHex} after ${timeoutMs}ms`);
         resolve(false);
       }, timeoutMs);
-      this._pendingAck.set(ackKey, { resolve, timer });
+      waiterRef = { resolve, timer, seq: -1 };
+      this._enqueueAckWaiter(ackKey, waiterRef);
     });
 
     try {
@@ -1761,8 +1797,7 @@ export class G1Core {
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('write timeout')), 3000)),
       ]);
     } catch (e: any) {
-      const waiter = this._pendingAck.get(ackKey);
-      if (waiter) { clearTimeout(waiter.timer); this._pendingAck.delete(ackKey); }
+      if (waiterRef) { clearTimeout(waiterRef.timer); this._dequeueAckWaiter(ackKey, waiterRef); }
       const be = e as BleError;
       this._log(
         `[G1] _sendForResult [${side}] WRITE failed op=0x${opHex} ` +
@@ -1814,25 +1849,23 @@ export class G1Core {
     if (awaitAck && data[0] === P.OP_TEXT) this._lastTextWriteAt[side] = Date.now();
     // Register ACK waiter BEFORE the write to prevent the fast-ACK race.
     let ackPromise: Promise<boolean> | null = null;
+    let ackWaiter: { resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout>; seq: number } | undefined;
     if (awaitAck) {
-      // If a previous send on this same opcode timed out without being cleaned
-      // up, evict it now rather than letting two resolvers compete.
-      const stale = this._pendingAck.get(ackKey);
-      if (stale) {
-        clearTimeout(stale.timer);
-        this._pendingAck.delete(ackKey);
-        this._log(`[G1] _send [${side}] evicted stale ACK waiter op=0x${opHex}`);
-      }
+      // FIFO enqueue (no eviction): two TEXT sends on the same side can be
+      // in-flight concurrently. The previous bug evicted seq=N's waiter when
+      // seq=N+1 registered, so N+1 stole N's ACK and N reported ACK MISS.
+      // Queueing lets each send await its own ACK, resolved oldest-first.
       ackPromise = new Promise<boolean>((resolve) => {
         const ackTimeout = data[0] === P.OP_TEXT
           ? G1Core.ACK_TIMEOUT_TEXT_MS
           : G1Core.ACK_TIMEOUT_DEFAULT_MS;
         const timer = setTimeout(() => {
-          this._pendingAck.delete(ackKey);
-          this._log(`[G1] _send [${side}] ACK timeout op=0x${opHex} after ${ackTimeout}ms`);
+          if (ackWaiter) this._dequeueAckWaiter(ackKey, ackWaiter);
+          this._log(`[G1] _send [${side}] ACK timeout op=0x${opHex} seq=${data[1]} after ${ackTimeout}ms`);
           resolve(false);
         }, ackTimeout);
-        this._pendingAck.set(ackKey, { resolve, timer });
+        ackWaiter = { resolve, timer, seq: data[1] };
+        this._enqueueAckWaiter(ackKey, ackWaiter);
       });
     }
 
@@ -1851,10 +1884,11 @@ export class G1Core {
         new Promise<never>((_, rej) => setTimeout(() => rej(new Error('write timeout')), WRITE_TIMEOUT_MS)),
       ]);
     } catch (e: any) {
-      // Clean up the ACK waiter we registered above.
-      if (awaitAck) {
-        const waiter = this._pendingAck.get(ackKey);
-        if (waiter) { clearTimeout(waiter.timer); this._pendingAck.delete(ackKey); }
+      // Clean up the specific ACK waiter we registered above (not the oldest
+      // in the FIFO — another in-flight send may own that one).
+      if (awaitAck && ackWaiter) {
+        clearTimeout(ackWaiter.timer);
+        this._dequeueAckWaiter(ackKey, ackWaiter);
       }
       const code = (e as BleError)?.errorCode;
       if (code === BleErrorCode.DeviceDisconnected || code === BleErrorCode.OperationCancelled) return;
@@ -1906,6 +1940,7 @@ export class G1Core {
     // acked" from "both acked and the skew pairing already cleaned up". The
     // probe prunes this set itself. Telemetry-only.
     if (side === 'R') this._rAckedSeqs.add(seq);
+    if (side === 'L') this._lAckedSeqs.add(seq);
     this._textAckAt[side].set(seq, ackAt);
     const other: Side = side === 'L' ? 'R' : 'L';
     const otherAt = this._textAckAt[other].get(seq);
@@ -2016,14 +2051,17 @@ export class G1Core {
       const probeT0 = Date.now();
       setTimeout(() => {
         const rAcked = this._rAckedSeqs.has(probeSeq);
+        const lAcked = this._lAckedSeqs.has(probeSeq);
         this._rAckedSeqs.delete(probeSeq); // probe owns pruning
-        if (!rAcked) {
+        this._lAckedSeqs.delete(probeSeq);
+        if (!rAcked || !lAcked) {
+          const miss = !rAcked && !lAcked ? 'BOTH' : !rAcked ? 'R' : 'L';
           this._log(
-            `[G1] *** R-ACK MISS seq=${probeSeq} +${Date.now() - probeT0}ms — ` +
-            `R write flushed but no text ACK in window; likely one-lens desync. ${this.syncSnapshot}`,
+            `[G1] *** ACK MISS side=${miss} seq=${probeSeq} +${Date.now() - probeT0}ms — ` +
+            `write flushed but no text ACK in window; likely one-lens desync. ${this.syncSnapshot}`,
           );
         } else {
-          this._log(`[G1] R-ack OK seq=${probeSeq} within +${Date.now() - probeT0}ms`);
+          this._log(`[G1] ack OK seq=${probeSeq} (L+R) within +${Date.now() - probeT0}ms`);
         }
       }, G1Core.R_ACK_PROBE_MS);
 
