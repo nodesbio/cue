@@ -291,16 +291,19 @@ export class G1Core {
   private onStatusChange?: StatusHandler;
   private onLog?: (line: string) => void;
 
-  /** When true, raw RX frames and routine heartbeat events are included in the log.
-   *  Off by default — these account for ~55% of log lines and push lifecycle
-   *  events out of the ring buffer before they can be captured.
-   *  TEMP (Even-AI-listening-on-L triage, 2026-11): forced ON to capture every
-   *  raw RX frame on both lenses during connect. The left lens showed the
-   *  firmware "Even AI listening / Release to Finish Recording" HUD on reload
-   *  even though seq=0 TEXT was written+acked by BOTH lenses — so some firmware
-   *  frame (ai_start 0x17 / record 0x18, or an undecoded op) must be reaching L
-   *  that we currently don't log. Set true to capture raw RX frames. */
+  /** Master trace toggle. When false (default), `_trace()` lines are dropped:
+   *  raw RX frames, per-seq text write/ACK timing, routine heartbeat events,
+   *  and raw battery/MFR byte dumps — ~55% of log volume. Keeping them off by
+   *  default stops lifecycle events from being pushed out of the HUD ring
+   *  buffer before they can be read. `_log`/`_warn` are always emitted.
+   *  Flip on (via `setVerbose(true)`) when triaging a specific frame-level bug. */
   public verbose = false;
+
+  /** Toggle verbose trace logging at runtime (e.g. from a dev-menu switch). */
+  setVerbose(on: boolean): void {
+    this.verbose = on;
+    this._log(`[G1] verbose logging ${on ? 'ON' : 'OFF'}`);
+  }
 
   constructor(opts?: { onEvent?: EventHandler; onStatusChange?: StatusHandler; onLog?: (line: string) => void }) {
     this.manager = new BleManager();
@@ -318,9 +321,32 @@ export class G1Core {
    *  HUD log ring as core BLE logs. Routes through _log → onLog sink. */
   note(line: string): void { this._log(line); }
 
+  private _fmt(args: unknown[]): string {
+    return args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  }
+
+  /** Always emitted: lifecycle, connect/disconnect, user-initiated actions. */
   private _log(...args: unknown[]): void {
-    const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+    const line = this._fmt(args);
     console.log(line);
+    this.onLog?.(line);
+  }
+
+  /** Verbose-only: per-frame RX dumps, per-seq timing, raw battery/MFR bytes.
+   *  Gated behind `verbose` — these account for ~55% of log volume and push
+   *  lifecycle events out of the HUD ring buffer before they can be read.
+   *  No-ops (and skips string building) when verbose is off. */
+  private _trace(...args: unknown[]): void {
+    if (!this.verbose) return;
+    const line = this._fmt(args);
+    console.log(line);
+    this.onLog?.(line);
+  }
+
+  /** Always emitted, tagged so warnings stand out in a quiet (non-verbose) log. */
+  private _warn(...args: unknown[]): void {
+    const line = `⚠️ ${this._fmt(args)}`;
+    console.warn(line);
     this.onLog?.(line);
   }
 
@@ -349,7 +375,7 @@ export class G1Core {
       this._log(`[G1] scan radio ON`);
       this.manager.startDeviceScan(null, { allowDuplicates: true }, (error, device) => {
         if (error) {
-          this._log(`[G1] scan error: ${error.message} — notifying ${this._scanListeners.size} listener(s)`);
+          this._warn(`[G1] scan error: ${error.message} — notifying ${this._scanListeners.size} listener(s)`);
           const ls = [...this._scanListeners];
           this._scanListeners.clear();
           for (const l of ls) l(error, null);
@@ -438,10 +464,10 @@ export class G1Core {
           .catch(e => { clearTimeout(t); reject(e); });
       });
       const hex = Array.from(raw).map(b => b.toString(16).padStart(2, '0')).join(' ');
-      this._log(`${tag} ok pct=${raw[2]} data[3]=${raw[3]} raw: ${hex}`);
+      this._trace(`${tag} ok pct=${raw[2]} data[3]=${raw[3]} raw: ${hex}`);
       return { pct: raw[2], raw: Array.from(raw) };
     } catch (e: any) {
-      this._log(`${tag} failed: ${e?.message ?? e}`);
+      this._warn(`${tag} failed: ${e?.message ?? e}`);
       throw e;
     } finally {
       sub?.remove();
@@ -666,7 +692,7 @@ export class G1Core {
       // Log real errors; swallow only disconnect noise.
       const code = (e as BleError)?.errorCode;
       if (code !== BleErrorCode.DeviceDisconnected && code !== BleErrorCode.OperationCancelled) {
-        this._log('[G1] send error:', e?.message ?? e);
+        this._warn('[G1] send error:', e?.message ?? e);
       }
     });
     this._sendQueue = run;
@@ -698,12 +724,12 @@ export class G1Core {
     const myGen = ++this._textGen;
     return this._enqueue(async () => {
       if (myGen !== this._textGen) {
-        this._log(`[G1] sendText line=${curLine} superseded (gen ${myGen} < ${this._textGen}) — skipped`);
+        this._trace(`[G1] sendText line=${curLine} superseded (gen ${myGen} < ${this._textGen}) — skipped`);
         return;
       }
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
       this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
-      this._log(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
+      this._trace(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
     });
   }
@@ -913,7 +939,7 @@ export class G1Core {
           // we ended up with one lens from each set. Only accept a peripheral
           // whose id we've previously verified against the paired serial.
           if (!this._matchesPair(device, side)) {
-            this._log(`[G1] _resumeAlreadyConnected: ${device.name ?? device.id} [${side}] is not the paired ${this._pairedSerial} — skipped`);
+            this._trace(`[G1] _resumeAlreadyConnected: ${device.name ?? device.id} [${side}] is not the paired ${this._pairedSerial} — skipped`);
             continue;
           }
           found[side] = device;
@@ -931,12 +957,12 @@ export class G1Core {
       for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
         const connected = await this.manager.connectedDevices([P.UART_SVC]);
-        this._log(`[G1] connectedDevices attempt ${attempt + 1}/${POLL_ATTEMPTS} returned ${connected.length}: ${connected.map(d => `${d.name ?? 'noname'}[${d.id}] mfr=${d.manufacturerData ?? 'null'}`).join(', ')}`);
+        this._trace(`[G1] connectedDevices attempt ${attempt + 1}/${POLL_ATTEMPTS} returned ${connected.length}: ${connected.map(d => `${d.name ?? 'noname'}[${d.id}] mfr=${d.manufacturerData ?? 'null'}`).join(', ')}`);
         const batch = parseBatch(connected);
         // Merge — keep any side already found in a prior attempt.
         found = { ...batch.found, ...found };
         if (found.L && found.R) break;
-        this._log(`[G1] _resumeAlreadyConnected attempt ${attempt + 1}: found L=${!!found.L} R=${!!found.R} — ${found.L && found.R ? 'done' : 'waiting'}`);
+        this._trace(`[G1] _resumeAlreadyConnected attempt ${attempt + 1}: found L=${!!found.L} R=${!!found.R} — ${found.L && found.R ? 'done' : 'waiting'}`);
       }
 
       if (found.L && found.R) {
@@ -947,7 +973,7 @@ export class G1Core {
           await this._connectFound(found);
           return true;
         } catch (e: any) {
-          this._log(`[G1] _resumeAlreadyConnected failed: ${e?.message ?? e} — falling through to scan`);
+          this._warn(`[G1] _resumeAlreadyConnected failed: ${e?.message ?? e} — falling through to scan`);
           return false;
         }
       }
@@ -961,12 +987,12 @@ export class G1Core {
           await this._connectFound(found);
           return true;
         } catch (e: any) {
-          this._log(`[G1] _resumeAlreadyConnected single-side failed: ${e?.message ?? e} — falling through to scan`);
+          this._warn(`[G1] _resumeAlreadyConnected single-side failed: ${e?.message ?? e} — falling through to scan`);
           return false;
         }
       }
     } catch (e: any) {
-      console.warn('[G1] _resumeAlreadyConnected failed:', e?.message ?? e);
+      this._warn('[G1] _resumeAlreadyConnected failed:', e?.message ?? e);
     }
     return false;
   }
@@ -1034,7 +1060,7 @@ export class G1Core {
           // (name contains "G1"). Samsung TVs, Quest headsets, etc. all have mfr
           // data — logging every one pollutes the log and buries real signal.
           if (device.name?.includes('G1')) {
-            this._log(`[G1] _parseManufacturerData: unknown side byte 0x${buf[0].toString(16).padStart(2,'0')} for "${device.name}" — falling through to name parse`);
+            this._warn(`[G1] _parseManufacturerData: unknown side byte 0x${buf[0].toString(16).padStart(2,'0')} for "${device.name}" — falling through to name parse`);
           }
           // Fall through to name-based parsing below rather than guessing.
           throw new Error('unknown side byte');
@@ -1230,7 +1256,7 @@ export class G1Core {
         // scan found the real H290028 R. The old guard saw "an R is up" and
         // skipped — so we held the stranger forever and every 0x4e text
         // timed out. The live sub is for the WRONG peripheral: drop it.
-        this._log(`[G1] _connectLensInner [${side}] held ${held.name ?? held.id} ≠ target ${device.name ?? device.id} — dropping wrong lens`);
+        this._warn(`[G1] _connectLensInner [${side}] held ${held.name ?? held.id} ≠ target ${device.name ?? device.id} — dropping wrong lens`);
         this.rxSubs[side]!.remove();
         this.rxSubs[side] = undefined;
         this.txChars[side] = undefined;
@@ -1238,7 +1264,7 @@ export class G1Core {
         this._lastSilentAckAt[side] = 0;
         this._setConnected(side, false);
         try { await held.cancelConnection(); } catch (e: any) {
-          this._log(`[G1] _connectLensInner [${side}] cancelConnection on wrong lens failed: ${e?.message ?? e}`);
+          this._warn(`[G1] _connectLensInner [${side}] cancelConnection on wrong lens failed: ${e?.message ?? e}`);
         }
       } else if (txReady) {
         this._log(`[G1] _connectLensInner [${side}] skipped — RX subscription already live and txReady`);
@@ -1557,9 +1583,7 @@ export class G1Core {
     this._resolveWake(side); // #27: any frame from a sleeping lens means it woke
 
     const op = data[0];
-    if (this.verbose) {
-      this._log(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
-    }
+    this._trace(`[G1 RX ${side}] op=0x${op.toString(16).padStart(2,'0')} len=${data.length} raw=${Array.from(data).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
 
     // ── Protocol-level ACK ────────────────────────────────────────────────
     // The firmware echoes the command opcode in data[0] and puts the result
@@ -1585,7 +1609,7 @@ export class G1Core {
     // display thread sends ~1.5s later) still lands. Same shape as the
     // OP_SILENT `_lastSilentAt !== 0` gate below (Bug #10, 2026-09-27).
     if (pending && op === P.OP_TEXT && this._lastTextWriteAt[side] === 0) {
-      this._log(`[G1] OP_TEXT ghost ACK [${side}] dropped — no text write armed this cycle (stale iOS buffer)`);
+      this._warn(`[G1] OP_TEXT ghost ACK [${side}] dropped — no text write armed this cycle (stale iOS buffer)`);
       return;
     }
     if (pending && op !== P.OP_BATTERY) {
@@ -1612,7 +1636,7 @@ export class G1Core {
       const status = data[1];
       if (status === P.R_STATUS_OK || status === P.R_STATUS_OK2) {
         this._lastSilentAckAt[side] = Date.now();
-        this._log(`[G1] OP_SILENT late ACK [${side}] — recorded for next _connectLens`);
+        this._trace(`[G1] OP_SILENT late ACK [${side}] — recorded for next _connectLens`);
       }
     }
     // Clean up any battery ACK waiter — it resolves successfully since we got a response.
@@ -1634,12 +1658,13 @@ export class G1Core {
       const event = P.parseEvent(data, side);
       if (event) {
         // Routine housekeeping events fire every ~47s (status_ping, battery,
-        // charging). Log them only in verbose mode — they account for ~45% of
-        // ring-buffer lines and push lifecycle events out before capture.
+        // charging). Trace-only — they account for ~45% of ring-buffer lines
+        // and push lifecycle events out before capture. Non-routine events
+        // (e.g. display takeover, taps) are always logged.
         const isRoutine = event.name === 'status_ping' || event.name === 'battery' || event.name === 'charging';
-        if (!isRoutine || this.verbose) {
-          this._log(`[G1 EVENT ${side}] subcmd=0x${event.subcmd.toString(16).padStart(2,'0')} name="${event.name}"`);
-        }
+        const line = `[G1 EVENT ${side}] subcmd=0x${event.subcmd.toString(16).padStart(2,'0')} name="${event.name}"`;
+        if (isRoutine) this._trace(line);
+        else this._log(line);
         // op=0x11 ('status_ping') — fires after every battery poll response
         // (0x2c) as a routine firmware heartbeat. Confirmed from log correlation:
         // f5 11 always arrives within ~300ms of a 0x2c battery packet on R.
@@ -1690,9 +1715,7 @@ export class G1Core {
     }
 
     if (op === P.OP_BATTERY) {
-      if (this.verbose) {
-        this._log(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
-      }
+      this._trace(`[G1] BATTERY raw [${side}]:`, Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' '));
       // resp[2] = battery % (confirmed from raw log). Each glass reports its own.
       const level = data[2] ?? 0;
       if (side === 'L') this.status.left.batteryPct = level;
@@ -1731,11 +1754,11 @@ export class G1Core {
     // resolving it false and triggering an unnecessary reconnect. (Bug #10.)
     const st = side === 'L' ? this.status.left : this.status.right;
     if (!st.txReady) {
-      this._log(`[G1] _sendSilent [${side}] suppressed — init in progress (txReady=false)`);
+      this._trace(`[G1] _sendSilent [${side}] suppressed — init in progress (txReady=false)`);
       return;
     }
     if (this.status.poweredOff) {
-      this._log(`[G1] _sendSilent [${side}] suppressed — user powered off`);
+      this._trace(`[G1] _sendSilent [${side}] suppressed — user powered off`);
       return;
     }
     this._lastSilentAt[side] = Date.now();
@@ -1762,7 +1785,7 @@ export class G1Core {
           waiter.resolve(false);
         }
         this._pendingAck.delete(key);
-        this._log(`[G1] _drainAckWaiters: cancelled ${queue.length} stale waiter(s) key=${key}`);
+        this._trace(`[G1] _drainAckWaiters: cancelled ${queue.length} stale waiter(s) key=${key}`);
       }
     }
   }
@@ -1784,7 +1807,7 @@ export class G1Core {
     const ackPromise = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         if (waiterRef) this._dequeueAckWaiter(ackKey, waiterRef);
-        this._log(`[G1] _sendForResult [${side}] ACK timeout op=0x${opHex} after ${timeoutMs}ms`);
+        this._warn(`[G1] _sendForResult [${side}] ACK timeout op=0x${opHex} after ${timeoutMs}ms`);
         resolve(false);
       }, timeoutMs);
       waiterRef = { resolve, timer, seq: -1 };
@@ -1833,7 +1856,7 @@ export class G1Core {
     const dev = this.devices[side];
     if (!ch || !dev) {
       const opHex = data[0].toString(16).padStart(2, '0');
-      this._log(`[G1] _send [${side}] DROP op=0x${opHex} — txChars=${!!ch} dev=${!!dev} txReady=${side === 'L' ? this.status.left.txReady : this.status.right.txReady}`);
+      this._warn(`[G1] _send [${side}] DROP op=0x${opHex} — txChars=${!!ch} dev=${!!dev} txReady=${side === 'L' ? this.status.left.txReady : this.status.right.txReady}`);
       return;
     }
 
@@ -1861,7 +1884,7 @@ export class G1Core {
           : G1Core.ACK_TIMEOUT_DEFAULT_MS;
         const timer = setTimeout(() => {
           if (ackWaiter) this._dequeueAckWaiter(ackKey, ackWaiter);
-          this._log(`[G1] _send [${side}] ACK timeout op=0x${opHex} seq=${data[1]} after ${ackTimeout}ms`);
+          this._warn(`[G1] _send [${side}] ACK timeout op=0x${opHex} seq=${data[1]} after ${ackTimeout}ms`);
           resolve(false);
         }, ackTimeout);
         ackWaiter = { resolve, timer, seq: data[1] };
@@ -1893,31 +1916,30 @@ export class G1Core {
       const code = (e as BleError)?.errorCode;
       if (code === BleErrorCode.DeviceDisconnected || code === BleErrorCode.OperationCancelled) return;
       if (e?.message === 'write timeout') {
-        this._log(`[G1] _send [${side}] write stalled >3s op=0x${opHex} — dropping`);
+        this._warn(`[G1] _send [${side}] write stalled >3s op=0x${opHex} — dropping`);
         return;
       }
-      console.warn(
-        `[G1] _send [${side}] write failed code=${code ?? '?'} reason=${(e as BleError)?.reason ?? '—'}:`,
-        e?.message ?? e,
+      this._warn(
+        `[G1] _send [${side}] write failed code=${code ?? '?'} reason=${(e as BleError)?.reason ?? '—'}: ${e?.message ?? e}`,
       );
       return;
     }
 
     const tWritten = Date.now();
-    if (isText) this._log(`[G1] text seq=${seq} [${side}] written +${tWritten - t0}ms`);
+    if (isText) this._trace(`[G1] text seq=${seq} [${side}] written +${tWritten - t0}ms`);
     onWritten?.();
     if (!awaitAck || !ackPromise) return;
 
     const ok = await ackPromise;
     const tAck = Date.now();
     const ackLatency = tAck - tWritten;
-    if (isText) this._log(`[G1] text seq=${seq} [${side}] ${ok ? 'ack' : 'nack'} +${ackLatency}ms after write`);
+    if (isText) this._trace(`[G1] text seq=${seq} [${side}] ${ok ? 'ack' : 'nack'} +${ackLatency}ms after write`);
     if (isText && ok) this._recordTextAckSeq(side, seq, tAck);
     if (!ok) {
-      this._log(`[G1] _send [${side}] NACK op=0x${opHex}`);
+      this._warn(`[G1] _send [${side}] NACK op=0x${opHex}`);
       if (data[0] === P.OP_TEXT) {
         this._textNackCount[side]++;
-        this._log(`[G1] _send [${side}] consecutive text NACKs=${this._textNackCount[side]}`);
+        this._warn(`[G1] _send [${side}] consecutive text NACKs=${this._textNackCount[side]}`);
         this._setDisplayIdle(side, true);
       }
     } else if (data[0] === P.OP_TEXT) {
@@ -2032,11 +2054,11 @@ export class G1Core {
     const rWrittenP = new Promise<void>((r) => { rWritten = r; });
     const t0 = Date.now();
     const right = this._send('R', data, true, rWritten);
-    right.catch((e) => this._log(`[G1] _sendBoth [R] background send error: ${e?.message ?? e}`));
+    right.catch((e) => this._warn(`[G1] _sendBoth [R] background send error: ${e?.message ?? e}`));
     await rWrittenP;
     await this._send('L', data);
     if (data[0] === P.OP_TEXT) {
-      this._log(`[G1] text seq=${data[1]} barrier released +${Date.now() - t0}ms (R written → L ack)`);
+      this._trace(`[G1] text seq=${data[1]} barrier released +${Date.now() - t0}ms (R written → L ack)`);
       // ── PROBE (Bug B triage, telemetry-only) ────────────────────────────
       // The barrier releases on "R written + L ack" but NEVER confirms R
       // rendered the seq. Field symptom: one load lands on one lens only
@@ -2056,12 +2078,12 @@ export class G1Core {
         this._lAckedSeqs.delete(probeSeq);
         if (!rAcked || !lAcked) {
           const miss = !rAcked && !lAcked ? 'BOTH' : !rAcked ? 'R' : 'L';
-          this._log(
+          this._warn(
             `[G1] *** ACK MISS side=${miss} seq=${probeSeq} +${Date.now() - probeT0}ms — ` +
             `write flushed but no text ACK in window; likely one-lens desync. ${this.syncSnapshot}`,
           );
         } else {
-          this._log(`[G1] ack OK seq=${probeSeq} (L+R) within +${Date.now() - probeT0}ms`);
+          this._trace(`[G1] ack OK seq=${probeSeq} (L+R) within +${Date.now() - probeT0}ms`);
         }
       }, G1Core.R_ACK_PROBE_MS);
 
@@ -2125,7 +2147,7 @@ export class G1Core {
         // next idle % 4 tick (≤4 × HEARTBEAT_INTERVAL_MS later).
         const sinceText = this._lastSent ? Date.now() - this._lastSent.at : Infinity;
         if (sinceText < BATTERY_POLL_QUIET_MS) {
-          this._log(`[G1] battery poll deferred — text active (${sinceText}ms since last frame)`);
+          this._trace(`[G1] battery poll deferred — text active (${sinceText}ms since last frame)`);
         } else {
           await this._send('L', P.batteryRequest(PHONE));
           await this._send('R', P.batteryRequest(PHONE));
