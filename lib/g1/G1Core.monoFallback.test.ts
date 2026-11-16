@@ -1,30 +1,26 @@
 /**
- * Mono-fallback: legible-mono beats garbled-stereo.
+ * Mono-fallback: legible-mono beats garbled-stereo — at ANY offset.
  *
- * FIELD EVIDENCE (cue-logs-2026-11-16T03-58-37-901Z.txt):
- *   On a DEGRADED link (205 NACK, 87 ACK-timeouts all at the 2000ms max, 7
- *   disconnects, L lens dropped for ~22s) instantaneous skew spent most of the
- *   session >400ms and spiked to ~8000ms (L showing text 8s behind R). The
- *   operator's report: "barely usable... I have to close one eye physically to
- *   read one of the two lenses." The two eyes cannot fuse a >~200ms text
- *   offset, so a skewed STEREO image is unreadable — worse than one clean MONO
- *   image.
- *
- *   The skew CORRECTOR made it worse here: the frame after each AUTO-RESYNC
- *   showed skew GROWING (+187→+609→+1478ms), because re-pushing adds frames to
- *   an already-choked link. The corrector's precondition (healthy link, minor
- *   recoverable skew) was not met.
+ * FIELD EVIDENCE (cue-logs-2026-11-16T03-58-37-901Z.txt) + operator:
+ *   On a degraded link skew spent most of a session >400ms and spiked to
+ *   ~8000ms; the skew CORRECTOR made it worse (re-push on a choked link grew
+ *   skew +187→+1478ms). Operator verdict: "the doubling is bad at ANY offset —
+ *   1 lens clean is much better than any offset." So mono-clean is the
+ *   PREFERRED state, not a last resort: we enter mono fast on any perceptible
+ *   skew and resume stereo only when the link proves it can hold skew
+ *   imperceptibly tight.
  *
  * BEHAVIOR UNDER TEST:
- *   1. When skew is sustained BEYOND what re-push can fix (|windowed mean| over
- *      SKEW_MONO_THRESHOLD_MS for SKEW_MONO_BREACH_COUNT paired frames), the
- *      core enters MONO mode: it blanks the LAGGARD lens and drives text to the
- *      HEALTHIER lens only. Laggard = the side whose ACKs arrive later =
- *      sign of the windowed skew mean (mean>0 ⇒ L lags ⇒ keep R).
- *   2. In mono mode _sendBoth drives ONLY the mono side (via the existing
- *      single-lens _send path) and does NOT run the dual-lens R-first barrier.
- *   3. When the link recovers (|skew| back under threshold for a sustained
- *      window), mono mode clears and both lenses resume.
+ *   1. Enter mono FAST: |windowed mean| >= SKEW_MONO_THRESHOLD_MS (40ms) for
+ *      SKEW_MONO_BREACH_COUNT (3) paired frames.
+ *   2. Resume stereo SLOW: |mean| < SKEW_MONO_RECOVER_MS (25ms) for
+ *      SKEW_MONO_RECOVER_COUNT (15) frames. Steep hysteresis = clean-mono is
+ *      home base; stereo only when the link is proven clean.
+ *   3. Mono-side selection, in priority order:
+ *        a. preferred eye (UI toggle) IF its link is healthy (txReady+connected)
+ *        b. else the single healthy lens (dead-lens override)
+ *        c. else (both healthy, no preference) drop the laggard = sign of mean
+ *   4. In mono, _sendBoth drives ONLY the mono side; no dual-lens barrier.
  *
  * Drives _recordTextAckSeq + _sendBoth directly; no BLE, no timers.
  */
@@ -57,8 +53,9 @@ function makeCore() {
   anyCore._log = () => {};
   anyCore._trace = () => {};
   anyCore._warn = () => {};
-  // Stub the per-lens send so _sendBoth can be exercised without BLE. Records
-  // which side each frame went to and resolves the R-written barrier promise.
+  // Both lenses healthy by default so selection falls through to skew-sign.
+  anyCore.status.left.connected = true;  anyCore.status.left.txReady = true;
+  anyCore.status.right.connected = true; anyCore.status.right.txReady = true;
   const sends: Side[] = [];
   anyCore._send = (side: Side, _data: Uint8Array, _ack?: boolean, written?: () => void) => {
     sends.push(side);
@@ -68,54 +65,80 @@ function makeCore() {
   return { core, anyCore, sends };
 }
 
-const TEXT = (anyCore: any, seq: number) =>
-  // minimal OP_TEXT frame: [OP_TEXT, seq, ...]; _sendBoth only reads [0] and [1]
-  Uint8Array.from([0x4e /* OP_TEXT */, seq & 0xff]);
+const TEXT = (seq: number) => Uint8Array.from([0x4e /* OP_TEXT */, seq & 0xff]);
 
-describe('mono-fallback — legible-mono beats garbled-stereo', () => {
-  it('enters mono on the HEALTHIER lens after sustained un-fusible skew', () => {
+describe('mono-fallback — clean-mono is home base', () => {
+  it('enters mono FAST (3 frames @ 40ms) on sustained perceptible skew', () => {
     const { anyCore } = makeCore();
     let t = 1_000_000;
-    // Sustained R-leads divergence: L acks 500ms after R every frame ⇒ L is the
-    // laggard. Well past any fusible threshold.
-    for (let seq = 1; seq <= 12; seq++) {
-      t += 2000;
-      feedPair(anyCore, seq, t + 500, t);
-    }
-    // Keep R (healthy), blank L (laggard).
+    for (let seq = 1; seq <= 5; seq++) { t += 2000; feedPair(anyCore, seq, t + 60, t); }
+    // L lags (mean>0 ⇒ R leads ⇒ keep R) — no preference set.
     expect(anyCore._monoSide).toBe('R');
   });
 
-  it('in mono mode drives ONLY the mono side, not the dual-lens barrier', async () => {
-    const { anyCore, sends } = makeCore();
-    anyCore._monoSide = 'R';          // forced mono on R
-    anyCore._monoBlanked = { L: true, R: true }; // pretend blank already issued
-    sends.length = 0;
-    await anyCore._sendBoth(TEXT(anyCore, 1));
-    // Exactly one real text frame, to R only. No L frame (would be the laggard).
-    expect(sends.filter((s) => s === 'R')).toHaveLength(1);
-    expect(sends.filter((s) => s === 'L')).toHaveLength(0);
-  });
-
-  it('clears mono mode when skew recovers for a sustained window', () => {
+  it('does NOT enter mono below the 40ms fusion threshold', () => {
     const { anyCore } = makeCore();
     let t = 1_000_000;
-    for (let seq = 1; seq <= 12; seq++) { t += 2000; feedPair(anyCore, seq, t + 500, t); }
-    expect(anyCore._monoSide).toBe('R'); // entered mono
-
-    // Link recovers: skew back to ~10ms for a full window.
-    for (let seq = 13; seq <= 40; seq++) { t += 2000; feedPair(anyCore, seq, t + 10, t); }
-    expect(anyCore._monoSide).toBeNull(); // resumed stereo
+    for (let seq = 1; seq <= 20; seq++) { t += 2000; feedPair(anyCore, seq, t + 30, t); }
+    expect(anyCore._monoSide).toBeNull();
   });
 
-  it('does NOT enter mono on a transient un-fusible spike', () => {
+  it('does NOT enter mono on a single un-fusible spike', () => {
     const { anyCore } = makeCore();
     let t = 1_000_000;
     for (let seq = 1; seq <= 20; seq++) {
       t += 2000;
-      const skew = seq === 10 ? 600 : 12; // one isolated spike
-      feedPair(anyCore, seq, t + skew, t);
+      feedPair(anyCore, seq, t + (seq === 10 ? 600 : 10), t);
     }
     expect(anyCore._monoSide).toBeNull();
+  });
+
+  it('resumes stereo SLOW: needs 15 clean frames (<25ms) to leave mono', () => {
+    const { anyCore } = makeCore();
+    let t = 1_000_000;
+    for (let seq = 1; seq <= 6; seq++) { t += 2000; feedPair(anyCore, seq, t + 60, t); }
+    expect(anyCore._monoSide).toBe('R');
+    // 10 clean frames — NOT enough to recover (needs 15).
+    for (let seq = 7; seq <= 16; seq++) { t += 2000; feedPair(anyCore, seq, t + 8, t); }
+    expect(anyCore._monoSide).toBe('R');
+    // 10 more clean frames — now past the 15-frame recover window.
+    for (let seq = 17; seq <= 40; seq++) { t += 2000; feedPair(anyCore, seq, t + 8, t); }
+    expect(anyCore._monoSide).toBeNull();
+  });
+
+  it('keeps the PREFERRED eye when both links are healthy, ignoring skew sign', () => {
+    const { anyCore } = makeCore();
+    anyCore.setPreferredEye('L'); // operator prefers reading with left
+    let t = 1_000_000;
+    // Skew sign says keep R (L lags), but preference + healthy L wins → keep L.
+    for (let seq = 1; seq <= 6; seq++) { t += 2000; feedPair(anyCore, seq, t + 60, t); }
+    expect(anyCore._monoSide).toBe('L');
+  });
+
+  it('OVERRIDES preference to the healthy lens when the preferred lens is dead', () => {
+    const { anyCore } = makeCore();
+    anyCore.setPreferredEye('L');
+    anyCore.status.left.txReady = false; // preferred lens link is dead
+    let t = 1_000_000;
+    for (let seq = 1; seq <= 6; seq++) { t += 2000; feedPair(anyCore, seq, t + 60, t); }
+    expect(anyCore._monoSide).toBe('R'); // forced to the only healthy lens
+  });
+
+  it("Auto preference (null) falls through to skew-sign selection", () => {
+    const { anyCore } = makeCore();
+    anyCore.setPreferredEye(null); // Auto
+    let t = 1_000_000;
+    for (let seq = 1; seq <= 6; seq++) { t += 2000; feedPair(anyCore, seq, t, t + 60); } // R lags
+    expect(anyCore._monoSide).toBe('L'); // keep the leader
+  });
+
+  it('in mono mode drives ONLY the mono side, not the dual-lens barrier', async () => {
+    const { anyCore, sends } = makeCore();
+    anyCore._monoSide = 'R';
+    anyCore._monoBlanked = { L: true, R: true };
+    sends.length = 0;
+    await anyCore._sendBoth(TEXT(1));
+    expect(sends.filter((s) => s === 'R')).toHaveLength(1);
+    expect(sends.filter((s) => s === 'L')).toHaveLength(0);
   });
 });

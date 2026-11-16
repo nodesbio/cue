@@ -298,28 +298,65 @@ export class G1Core {
   // one clean readable image. This is what the operator was doing by hand
   // (closing an eye); we do it for them, and undo it when the link recovers.
   //
-  // SKEW_MONO_THRESHOLD_MS is the fusion limit. 200ms is a PROVISIONAL default
-  // (binocular temporal-fusion folklore is ~150-250ms; our lenses + this
-  // viewer are the ground truth) — it is tunable and we refine it from the next
-  // field log: the skew at which the operator stops needing to close an eye.
-  // Deliberately HIGHER than SKEW_RESYNC_THRESHOLD_MS (150ms): the corrector
-  // gets first crack at small recoverable skew; mono is the escalation when
-  // that fails and skew is genuinely un-fusible.
-  private static readonly SKEW_MONO_THRESHOLD_MS = 200;
-  // Must be sustained — a single un-fusible spike recovers on its own and must
-  // NOT blank a lens. Larger than the corrector's breach count so mono is a
-  // true escalation, not a race with it.
-  private static readonly SKEW_MONO_BREACH_COUNT = 5;
-  // Frames of in-fusible-range skew required to LEAVE mono and resume stereo.
-  // Asymmetric with entry (hysteresis): slow to blank, slower to un-blank, so
-  // a link flapping near threshold doesn't strobe lenses on/off.
-  private static readonly SKEW_MONO_RECOVER_COUNT = 10;
-  /** Active mono side: the HEALTHY lens we drive alone, or null for stereo. */
+  // Operator verdict (2026-11-16): "the doubling is bad at ANY offset — 1 lens
+  // clean is much better than any offset." So clean-mono is HOME BASE, not a
+  // last resort. We enter mono on any PERCEPTIBLE sustained skew and resume
+  // stereo only when the link proves it can hold skew imperceptibly tight.
+  //
+  // ENTER FAST: 40ms is "perceptible offset" — low enough to kill visible
+  // doubling, high enough to ride out the sub-perceptual 10-30ms jitter that's
+  // always present on a healthy foreground link (else mono would strobe). 3
+  // frames so a single spike can't trip it. These are tunable from field logs.
+  private static readonly SKEW_MONO_THRESHOLD_MS = 40;
+  private static readonly SKEW_MONO_BREACH_COUNT = 3;
+  // LEAVE SLOW: resume stereo only after a long run under a TIGHTER bar (25ms,
+  // below the 40ms entry — a deliberate hysteresis gap so a link flapping near
+  // 40ms stays in clean-mono instead of strobing). 15 frames ≈ several seconds
+  // of proven-clean link before we spend the second lens again.
+  private static readonly SKEW_MONO_RECOVER_MS = 25;
+  private static readonly SKEW_MONO_RECOVER_COUNT = 15;
+  /** Active mono side: the lens we drive alone, or null for stereo. */
   private _monoSide: Side | null = null;
-  private _monoBreachStreak = 0;  // consecutive un-fusible paired frames
-  private _monoRecoverStreak = 0; // consecutive fusible frames while in mono
+  private _monoBreachStreak = 0;  // consecutive perceptible-skew paired frames
+  private _monoRecoverStreak = 0; // consecutive clean frames while in mono
   /** Whether each lens has had its one-shot blank frame issued in mono mode. */
   private _monoBlanked: Record<Side, boolean> = { L: false, R: false };
+  /** Operator's preferred reading eye (UI toggle). null = Auto (link decides).
+   *  Honored in mono ONLY when the preferred lens's link is healthy; a dead
+   *  preferred lens is overridden to the lens that actually works. */
+  private _preferredEye: Side | null = null;
+
+  /** Set the preferred reading eye for mono-fallback. 'L' | 'R' | null (Auto).
+   *  Takes effect at the next mono-entry decision; does not force a switch
+   *  mid-mono (that would blank a working lens the viewer is already reading). */
+  setPreferredEye(side: Side | null): void {
+    this._preferredEye = side;
+    this._log(`[G1] preferred eye = ${side ?? 'Auto'}`);
+  }
+
+  /** A lens is usable iff its TX characteristic is discovered AND it's connected.
+   *  txReady is the real "lens is usable, not just OS-connected" signal
+   *  (see LensState.txReady). Used to override eye preference onto a dead lens. */
+  private _lensHealthy(side: Side): boolean {
+    const st = side === 'L' ? this.status.left : this.status.right;
+    return st.connected && st.txReady;
+  }
+
+  /** Choose which lens to keep in mono, in priority order:
+   *   1. preferred eye, if its link is healthy
+   *   2. the single healthy lens, if only one is (dead-lens override)
+   *   3. drop the laggard — sign of the windowed skew mean (meanMs>0 ⇒ R leads)
+   *  meanMs is the structural lead; its sign names the laggard far more
+   *  reliably than any single frame. */
+  private _pickMonoSide(meanMs: number): Side {
+    const pref = this._preferredEye;
+    if (pref && this._lensHealthy(pref)) return pref;
+    const lOk = this._lensHealthy('L');
+    const rOk = this._lensHealthy('R');
+    if (lOk && !rOk) return 'L';
+    if (rOk && !lOk) return 'R';
+    return meanMs > 0 ? 'R' : 'L';
+  }
   private get _skewMeanMs(): number {
     const w = this._skewWindow;
     if (w.length === 0) return 0;
@@ -2278,10 +2315,18 @@ export class G1Core {
     // lags ⇒ keep R, blank L. Hysteresis: slow to enter, slower to leave.
     const meanAbs = Math.abs(this._skewMeanMs);
     if (this._monoSide === null) {
-      if (meanAbs >= G1Core.SKEW_MONO_THRESHOLD_MS) {
+      // Entry gates on BOTH this frame's skew AND the windowed mean exceeding
+      // threshold. The mean alone is unsafe for MAGNITUDE: one 600ms outlier
+      // pollutes a 20-sample window for many frames and would falsely trip mono
+      // after the spike already passed. Requiring the CURRENT frame to also be
+      // perceptible means the clean frames right after a spike break the streak
+      // immediately. The mean is still what names the laggard side (its sign is
+      // robust; a single frame's sign is noise) — used only in _pickMonoSide.
+      if (Math.abs(skew) >= G1Core.SKEW_MONO_THRESHOLD_MS &&
+          meanAbs >= G1Core.SKEW_MONO_THRESHOLD_MS) {
         this._monoBreachStreak++;
         if (this._monoBreachStreak >= G1Core.SKEW_MONO_BREACH_COUNT) {
-          const keep: Side = this._skewMeanMs > 0 ? 'R' : 'L'; // drop the laggard
+          const keep = this._pickMonoSide(this._skewMeanMs);
           this._monoSide = keep;
           this._monoBreachStreak = 0;
           this._monoRecoverStreak = 0;
@@ -2289,15 +2334,17 @@ export class G1Core {
           this._log(
             `[G1] MONO-FALLBACK seq=${seq} |mean|=${meanAbs.toFixed(0)}ms ≥ ` +
             `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
-            `frames (un-fusible) → blanking ${keep === 'R' ? 'L' : 'R'}, driving ${keep} mono`,
+            `frames → blanking ${keep === 'R' ? 'L' : 'R'}, driving ${keep} mono ` +
+            `(pref=${this._preferredEye ?? 'Auto'})`,
           );
         }
       } else {
         this._monoBreachStreak = 0;
       }
     } else {
-      // In mono: count fusible frames; resume stereo only after a sustained run.
-      if (meanAbs < G1Core.SKEW_MONO_THRESHOLD_MS) {
+      // In mono: count clean frames; resume stereo only after a sustained run
+      // under the TIGHTER recover bar (hysteresis vs the entry threshold).
+      if (meanAbs < G1Core.SKEW_MONO_RECOVER_MS) {
         this._monoRecoverStreak++;
         if (this._monoRecoverStreak >= G1Core.SKEW_MONO_RECOVER_COUNT) {
           this._log(
