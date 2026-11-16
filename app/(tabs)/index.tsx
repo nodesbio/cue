@@ -256,12 +256,20 @@ export default function TeleprompterScreen() {
       if (core.isMono) {
         engineRef.current?.next();
       } else {
-        // Drop to mono, THEN re-push the current frame. emergencyMono() only sets
-        // the decision; the lens drive (blank laggard + drive kept lens) happens
-        // when a TEXT frame flows through _sendBoth's mono branch. The key is
-        // pressed during a pause with no frame in flight, so we push the current
-        // snapshot here — reusing the proven auto-fallback path, which honors the
-        // firmware R-first ESB sync (a hand-rolled lone blank left both lenses on).
+        // Drop to mono. First STOP THE SCROLL: emergency-mono is a freeze-the-
+        // world safety action — the HUD blanks a lens and holds the current
+        // frame, so the app's G1 DISPLAY preview must freeze in lockstep. Without
+        // this pause the scroll timer keeps firing onFrame, the preview races on
+        // to the end while the HUD stays frozen, and app/HUD desync (field report
+        // 2026-11-16: HUD stuck at 4/17, preview scrolled to 17/17).
+        //
+        // Reuse the PLAY-BUTTON pause idiom (manualPause + resync) so there's one
+        // way to stop the deck. Then re-push the resync snapshot: emergencyMono()
+        // only sets the decision; the lens drive (blank laggard + drive kept lens)
+        // happens when a TEXT frame flows through _sendBoth's mono branch, honoring
+        // the firmware R-first ESB sync (a hand-rolled lone blank left both on).
+        manualPauseRef.current = true;
+        engineRef.current?.resync();
         core
           .emergencyMono()
           .then(() => {
