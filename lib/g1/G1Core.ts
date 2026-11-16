@@ -393,20 +393,33 @@ export class G1Core {
     return st.connected && st.txReady;
   }
 
-  /** Choose which lens to keep in mono, in priority order:
-   *   1. preferred eye, if its link is healthy
-   *   2. the single healthy lens, if only one is (dead-lens override)
-   *   3. drop the laggard — sign of the windowed skew mean (meanMs>0 ⇒ R leads)
-   *  meanMs is the structural lead; its sign names the laggard far more
-   *  reliably than any single frame. */
-  private _pickMonoSide(meanMs: number): Side {
-    const pref = this._preferredEye;
-    if (pref && this._lensHealthy(pref)) return pref;
-    const lOk = this._lensHealthy('L');
+  /** Choose which lens to keep in mono.
+   *
+   *  ALWAYS KEEP R. On G1 firmware only R (the ESB slave) can render solo while
+   *  its partner is blanked; L (the master) stalls its display thread waiting
+   *  for an ESB sync from the blanked R that never arrives, and freezes until
+   *  reconnect. Empirically confirmed across sessions: every keep-R mono ran
+   *  clean; every keep-L mono froze and never recovered — including a re-push
+   *  and a play-button resync (field logs 2026-11, keep-L froze at 41/381 and
+   *  51/381). No TS-side re-push can un-stall a master waiting on a dead slave,
+   *  so the correct fix is to never choose L for the solo lens.
+   *
+   *  The preferred-eye picker and the skew-sign laggard-drop are retired for
+   *  the mono case: both were built on the false premise that EITHER lens can
+   *  run solo. meanMs is now unused here (kept in the signature for the call
+   *  sites and telemetry).
+   *
+   *  Dead-lens override (the one honest exception): if R itself is the dead
+   *  lens, keeping R is pointless — we fall back to L and log LOUDLY, because
+   *  keep-L is known-frozen. In that state mono cannot work on this firmware;
+   *  the operator needs to see it rather than get a silently frozen HUD. */
+  private _pickMonoSide(_meanMs: number): Side {
     const rOk = this._lensHealthy('R');
-    if (lOk && !rOk) return 'L';
-    if (rOk && !lOk) return 'R';
-    return meanMs > 0 ? 'R' : 'L';
+    if (!rOk && this._lensHealthy('L')) {
+      this._log('[G1] ⚠️ _pickMonoSide: R link dead — forced to keep L, which is KNOWN to freeze solo on this firmware. Mono cannot recover; reconnect required.');
+      return 'L';
+    }
+    return 'R';
   }
   private get _skewMeanMs(): number {
     const w = this._skewWindow;
@@ -2391,7 +2404,7 @@ export class G1Core {
             `[G1] MONO-FALLBACK seq=${seq} |mean|=${meanAbs.toFixed(0)}ms ≥ ` +
             `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
             `frames → blanking ${keep === 'R' ? 'L' : 'R'}, driving ${keep} mono ` +
-            `(pref=${this._preferredEye ?? 'Auto'})`,
+            `(always-keep-R; pref=${this._preferredEye ?? 'Auto'} ignored for mono)`,
           );
         }
       } else {

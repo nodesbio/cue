@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Animated,
+  AppState,
   PanResponder,
   Pressable,
   SafeAreaView,
@@ -102,6 +103,38 @@ export default function TeleprompterScreen() {
       }
     }
     prevConnectedRef.current = connected;
+  }, [connected, core]);
+
+  // ── Foreground resync (lock-screen recovery) ─────────────────────────────
+  // While the phone is locked/backgrounded iOS keeps the BLE connection up but
+  // the glasses stop ACKing writes, so frames sent during the lock are lost and
+  // the HUD freezes on the last line it rendered before lock. On return to the
+  // foreground nothing re-pushed the current frame, so the HUD stayed frozen
+  // FOREVER — even after unlock (field report 2026-11-16: locked at ~line 38,
+  // HUD stuck at 41/381, never recovered across a 29-min lock + unlock).
+  //
+  // The AppState handler in G1Core was telemetry-only by design; recovery must
+  // live here where we hold the engine snapshot. This is the same Zoracon-
+  // correct re-push the reconnect path uses — it heals the missing precondition
+  // (frames dropped while backgrounded) instead of tolerating a frozen HUD.
+  // Edge-detect active-ness so it fires once on background/inactive → active,
+  // not on every render. It does NOT try to keep scrolling while locked (iOS
+  // won't deliver the writes); it guarantees the HUD catches up the instant the
+  // operator unlocks.
+  const prevActiveRef = useRef(true);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      const nowActive = next === 'active';
+      if (nowActive && !prevActiveRef.current) {
+        const s = snapRef.current;
+        if (s && connected && !core.status.poweredOff) {
+          core.note(`[index] foreground resync → re-push line=${s.topIndex + 1}/${s.totalLines}`);
+          void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+        }
+      }
+      prevActiveRef.current = nowActive;
+    });
+    return () => sub.remove();
   }, [connected, core]);
 
   // ── Calibrated scroll pace ──────────────────────────────────────────────
