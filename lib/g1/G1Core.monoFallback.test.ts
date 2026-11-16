@@ -125,10 +125,10 @@ describe('mono-fallback — clean-mono is home base', () => {
     expect(anyCore._monoSide).not.toBeNull(); // the bug: previously stayed stereo
   });
 
-  it('emergencyMono() forces a clean single lens and latches stereo off', () => {
+  it('emergencyMono() forces a clean single lens and latches stereo off', async () => {
     const { anyCore } = makeCore();
     expect(anyCore._monoSide).toBeNull();
-    anyCore.emergencyMono();
+    await anyCore.emergencyMono();
     expect(anyCore._monoSide).not.toBeNull(); // picked a lens immediately
     expect(anyCore._stereoLatchedOff).toBe(true);
     const chosen = anyCore._monoSide;
@@ -136,6 +136,67 @@ describe('mono-fallback — clean-mono is home base', () => {
     let t = 1_000_000;
     for (let seq = 1; seq <= 60; seq++) { t += 2000; feedPair(anyCore, seq, t, t); }
     expect(anyCore._monoSide).toBe(chosen);
+  });
+
+  it('emergencyMono() drops to mono; the next _sendBoth drives kept lens + blanks laggard', async () => {
+    // FIELD BUG (2026-11-16, device logs): pressing Next >> logged "EMERGENCY-MONO
+    // → keeping X; stereo latched off" but BOTH lenses stayed lit. Two causes in
+    // discovery order: (1) the blank was issued lazily in _sendBoth, gated on the
+    // NEXT OP_TEXT — never fired during a pause; (2) a hand-rolled raw _send(drop,
+    // blank) in emergencyMono() bypassed the firmware R-first ESB sync, so the ESB
+    // slave rejected the lone frame and when keeping R both lenses stayed on.
+    // FIX: emergencyMono() sets only the DECISION; the caller re-pushes the current
+    // frame through _sendBoth's proven mono branch. This test models that re-push.
+    const { anyCore } = makeCore();
+    await anyCore.emergencyMono();
+    const keep: Side = anyCore._monoSide;
+    const drop: Side = keep === 'L' ? 'R' : 'L';
+    expect(keep).not.toBeNull();
+    const driven: Side[] = [];
+    anyCore._send = (side: Side, _d: Uint8Array, _a?: boolean, w?: () => void) => {
+      driven.push(side); if (w) w(); return Promise.resolve();
+    };
+    await anyCore._sendBoth(TEXT(42)); // caller's re-push
+    expect(driven).toContain(keep); // kept lens driven with real text
+    expect(driven).toContain(drop); // laggard blanked once
+    expect(anyCore._monoBlanked[drop]).toBe(true);
+    expect(anyCore._monoBlanked[keep]).toBe(true);
+  });
+
+  it('isMono reflects drop state — the seam the UI gates the Next key on', async () => {
+    // The Next (single_tap) key is dual-purpose: first press drops to mono, every
+    // press after advances a line. index.tsx gates that on core.isMono, so this
+    // getter must flip exactly with _monoSide.
+    const { anyCore, core } = makeCore();
+    expect(core.isMono).toBe(false);
+    await anyCore.emergencyMono();
+    expect(core.isMono).toBe(true);
+    anyCore.resetLensSession();
+    expect(core.isMono).toBe(false); // deliberate re-enable clears it
+  });
+
+  it('mono branch blanks the drop lens only ONCE across repeated frames', async () => {
+    const { anyCore } = makeCore();
+    await anyCore.emergencyMono();
+    const keep: Side = anyCore._monoSide;
+    const drop: Side = keep === 'L' ? 'R' : 'L';
+    const driven: Side[] = [];
+    anyCore._send = (side: Side, _d: Uint8Array, _a?: boolean, w?: () => void) => {
+      driven.push(side); if (w) w(); return Promise.resolve();
+    };
+    await anyCore._sendBoth(TEXT(1));
+    await anyCore._sendBoth(TEXT(2));
+    await anyCore._sendBoth(TEXT(3));
+    expect(driven.filter((s) => s === drop).length).toBe(1); // blanked once
+    expect(driven.filter((s) => s === keep).length).toBe(3); // driven every frame
+  });
+
+  it('emergencyMono() is idempotent — repeat press keeps the same lens', async () => {
+    const { anyCore } = makeCore();
+    await anyCore.emergencyMono();
+    const first = anyCore._monoSide;
+    await anyCore.emergencyMono();
+    expect(anyCore._monoSide).toBe(first); // no flip, no re-pick
   });
 
   it('resetLensSession() re-enables stereo (deliberate pre-show action only)', () => {

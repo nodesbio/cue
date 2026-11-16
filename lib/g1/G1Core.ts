@@ -337,7 +337,14 @@ export class G1Core {
    *  the SmartRemote emergency key (Next >>). Picks the coherent lens via the
    *  same priority as auto mono-fallback, blanks the other, and latches stereo
    *  OFF so nothing auto-resumes it. Idempotent: repeated presses are safe. */
-  emergencyMono(): void {
+  /** True once the engine has dropped to a single clean lens (emergency or
+   *  auto fallback). Lets the UI reuse the emergency key for a second purpose
+   *  (manual line-advance) without re-triggering the drop. */
+  get isMono(): boolean {
+    return this._monoSide !== null;
+  }
+
+  async emergencyMono(): Promise<void> {
     this._stereoLatchedOff = true;
     if (this._monoSide == null) {
       this._monoSide = this._pickMonoSide(this._skewMeanMs);
@@ -346,6 +353,15 @@ export class G1Core {
     this._monoBreachStreak = 0;
     this._monoRecoverStreak = 0;
     this._log(`[G1] EMERGENCY-MONO → keeping ${this._monoSide}; stereo latched off for session`);
+    // ACTUATION NOTE: this only sets the mono DECISION. The actual lens drive —
+    // blank the laggard + drive the kept lens — happens when a TEXT frame flows
+    // through _sendBoth (the mono branch there). The emergency key is pressed
+    // during a PAUSE, when no frame is in flight, so the CALLER must re-push the
+    // current frame immediately after this returns (see index.tsx tap handler).
+    // Earlier a raw _send(drop, blank) was hand-rolled here; it bypassed the
+    // firmware-aware R-first ESB sync in _sendBoth and left BOTH lenses lit when
+    // keeping R (the ESB slave rejected the lone out-of-sync seq). Driving the
+    // real frame through _sendBoth reuses the proven auto-fallback path instead.
   }
 
   /** Re-enable stereo for a NEW session (deliberate operator action only — e.g.

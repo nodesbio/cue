@@ -244,14 +244,34 @@ export default function TeleprompterScreen() {
 
     // ── Media remote ─────────────────────────────────────────────────────
     // Tap events work independently of gesturesEnabled — the remote is always live.
-    // single_tap = SmartRemote Next (>>). Field use: operator rarely advances
-    // lines but NEEDS an instant, unambiguous "kill the echo" key on stage. Next
-    // is the free key, so it's the emergency: force a clean single lens and
-    // session-latch stereo OFF (no auto-resume mid-presentation). One press,
-    // one intent, no cadence to get wrong under pressure. Reassignable later via
-    // the Smart Remote Button Config pane (PR-C).
+    // single_tap = SmartRemote Next (>>). Dual-purpose, gated on mono state so
+    // the operator's thumb never leaves one key:
+    //   • FIRST press (still stereo) → emergencyMono(): kill the doubled echo and
+    //     session-latch stereo OFF. The on-stage safety action.
+    //   • SUBSEQUENT presses (already mono) → next(): advance one line. Once the
+    //     echo is gone the emergency can't re-fire (idempotent + latched), so the
+    //     key is free to do its natural Next job. One thumb, save-then-drive.
+    // Reassignable later via the Smart Remote Button Config pane (PR-C).
     if (isTap) {
-      core.emergencyMono();
+      if (core.isMono) {
+        engineRef.current?.next();
+      } else {
+        // Drop to mono, THEN re-push the current frame. emergencyMono() only sets
+        // the decision; the lens drive (blank laggard + drive kept lens) happens
+        // when a TEXT frame flows through _sendBoth's mono branch. The key is
+        // pressed during a pause with no frame in flight, so we push the current
+        // snapshot here — reusing the proven auto-fallback path, which honors the
+        // firmware R-first ESB sync (a hand-rolled lone blank left both lenses on).
+        core
+          .emergencyMono()
+          .then(() => {
+            const engine = engineRef.current;
+            if (!engine) return;
+            const s = engine.getSnapshot();
+            return core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+          })
+          .catch((e) => console.warn('[G1] emergencyMono failed', e));
+      }
       return;
     }
     // double_tap = SmartRemote Prev (<<) = rewind one line. Operator uses this.
