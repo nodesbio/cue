@@ -3,12 +3,15 @@
  *
  * FIELD EVIDENCE (cue-logs-2026-11-15T19-16-51-339Z.txt):
  *   Both lenses' ACK latency climbs over a run (iOS background radio
- *   throttling), but NOT equally. L and R diverge, and because each frame
- *   waits on the previous ACK the per-frame difference RATCHETS: instantaneous
- *   skew went 11→104ms→+397ms and never recovered even after the app returned
- *   to foreground. The displays drift apart and stay drifted — the bug is
- *   HYSTERETIC. Pacing the send rate (shipped in b99f94f) did nothing, because
- *   the frames aren't too fast; the ACKs come back too slow, asymmetrically.
+ *   throttling), but NOT equally. L and R diverge past the fusion limit.
+ *   NOTE: the original read of this log called the drift monotonic/hysteretic
+ *   ("ratchets, never recovers"). Later captures (19-37, 03-58) corrected that:
+ *   instantaneous skew OSCILLATES (-9ms↔-320ms+) and recovers between spikes on
+ *   a healthy-but-throttled link. The corrector is for that case — catch a
+ *   SUSTAINED excursion and re-anchor. On a DEGRADED link (03-58: NACK storm,
+ *   disconnects) re-push instead makes skew grow, which is why mono-fallback
+ *   (G1Core.monoFallback.test.ts) escalates past the corrector. Pacing the send
+ *   rate (b99f94f) did nothing: frames aren't too fast, ACKs come back too slow.
  *
  * THE FIX UNDER TEST: a closed-loop corrector. When instantaneous |skew|
  * exceeds SKEW_RESYNC_THRESHOLD_MS for SKEW_RESYNC_BREACH_COUNT consecutive

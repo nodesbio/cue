@@ -285,6 +285,41 @@ export class G1Core {
   // corrector itself keys off instantaneous |skew|, never the mean.
   private static readonly SKEW_MEAN_WINDOW = 20;
   private _skewWindow: number[] = [];
+
+  // ── Mono-fallback: legible-mono beats garbled-stereo ──────────────────────
+  // Two eyes cannot FUSE a text image that is temporally offset beyond
+  // ~150-250ms — the viewer sees doubled/ghosted text and must physically
+  // close one eye to read (field report, 2026-11-16T03-58 log). On a degraded
+  // link skew spent most of that session >400ms and spiked to ~8000ms, and the
+  // skew CORRECTOR made it worse (re-push adds frames to a choked link: skew
+  // GREW +187→+1478ms after each resync). So when skew is sustained beyond what
+  // re-push can fix, the humane move is NOT to keep fighting for stereo sync —
+  // it is to blank the LAGGARD lens and drive the healthier one MONO, giving
+  // one clean readable image. This is what the operator was doing by hand
+  // (closing an eye); we do it for them, and undo it when the link recovers.
+  //
+  // SKEW_MONO_THRESHOLD_MS is the fusion limit. 200ms is a PROVISIONAL default
+  // (binocular temporal-fusion folklore is ~150-250ms; our lenses + this
+  // viewer are the ground truth) — it is tunable and we refine it from the next
+  // field log: the skew at which the operator stops needing to close an eye.
+  // Deliberately HIGHER than SKEW_RESYNC_THRESHOLD_MS (150ms): the corrector
+  // gets first crack at small recoverable skew; mono is the escalation when
+  // that fails and skew is genuinely un-fusible.
+  private static readonly SKEW_MONO_THRESHOLD_MS = 200;
+  // Must be sustained — a single un-fusible spike recovers on its own and must
+  // NOT blank a lens. Larger than the corrector's breach count so mono is a
+  // true escalation, not a race with it.
+  private static readonly SKEW_MONO_BREACH_COUNT = 5;
+  // Frames of in-fusible-range skew required to LEAVE mono and resume stereo.
+  // Asymmetric with entry (hysteresis): slow to blank, slower to un-blank, so
+  // a link flapping near threshold doesn't strobe lenses on/off.
+  private static readonly SKEW_MONO_RECOVER_COUNT = 10;
+  /** Active mono side: the HEALTHY lens we drive alone, or null for stereo. */
+  private _monoSide: Side | null = null;
+  private _monoBreachStreak = 0;  // consecutive un-fusible paired frames
+  private _monoRecoverStreak = 0; // consecutive fusible frames while in mono
+  /** Whether each lens has had its one-shot blank frame issued in mono mode. */
+  private _monoBlanked: Record<Side, boolean> = { L: false, R: false };
   private get _skewMeanMs(): number {
     const w = this._skewWindow;
     if (w.length === 0) return 0;
@@ -2234,6 +2269,50 @@ export class G1Core {
     } else {
       this._skewBreachStreak = 0;
     }
+
+    // Mono-fallback escalation: when skew is sustained BEYOND the fusion limit
+    // the corrector can't win (the 2026-11-16 log: re-push made skew grow), so
+    // we stop fighting for stereo and drive the healthy lens alone. Keyed off
+    // the WINDOWED MEAN, not one frame — a single-sample sign is noise, and the
+    // mean's sign reliably names the structural laggard. mean>0 ⇒ R leads ⇒ L
+    // lags ⇒ keep R, blank L. Hysteresis: slow to enter, slower to leave.
+    const meanAbs = Math.abs(this._skewMeanMs);
+    if (this._monoSide === null) {
+      if (meanAbs >= G1Core.SKEW_MONO_THRESHOLD_MS) {
+        this._monoBreachStreak++;
+        if (this._monoBreachStreak >= G1Core.SKEW_MONO_BREACH_COUNT) {
+          const keep: Side = this._skewMeanMs > 0 ? 'R' : 'L'; // drop the laggard
+          this._monoSide = keep;
+          this._monoBreachStreak = 0;
+          this._monoRecoverStreak = 0;
+          this._monoBlanked = { L: false, R: false };
+          this._log(
+            `[G1] MONO-FALLBACK seq=${seq} |mean|=${meanAbs.toFixed(0)}ms ≥ ` +
+            `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
+            `frames (un-fusible) → blanking ${keep === 'R' ? 'L' : 'R'}, driving ${keep} mono`,
+          );
+        }
+      } else {
+        this._monoBreachStreak = 0;
+      }
+    } else {
+      // In mono: count fusible frames; resume stereo only after a sustained run.
+      if (meanAbs < G1Core.SKEW_MONO_THRESHOLD_MS) {
+        this._monoRecoverStreak++;
+        if (this._monoRecoverStreak >= G1Core.SKEW_MONO_RECOVER_COUNT) {
+          this._log(
+            `[G1] MONO-RECOVER seq=${seq} |mean|=${meanAbs.toFixed(0)}ms < threshold for ` +
+            `${G1Core.SKEW_MONO_RECOVER_COUNT} frames → resuming stereo`,
+          );
+          this._monoSide = null;
+          this._monoRecoverStreak = 0;
+          this._monoBreachStreak = 0;
+          this._monoBlanked = { L: false, R: false };
+        }
+      } else {
+        this._monoRecoverStreak = 0;
+      }
+    }
     const lead = skew > 0 ? 'R' : skew < 0 ? 'L' : '=';
     // Root-cause attribution: pull each side's write-accept vs ack-latency split.
     // L=write/ack  R=write/ack lets a reader see at a glance whether R's skew
@@ -2333,6 +2412,26 @@ export class G1Core {
     // Issuing L and R concurrently let L's display thread sync before R had
     // the packet → R rejected the sync and stayed one line behind. Writing R
     // first costs one write RTT (~15-50 ms) and closes that window.
+    // Mono-fallback: skew is un-fusible (see _monoSide). Drive the healthy lens
+    // alone and blank the laggard ONCE, so the viewer gets one clean readable
+    // image instead of a doubled/ghosted stereo pair. Only diverts TEXT frames;
+    // control frames (battery, brightness, exit) still go to both lenses so
+    // telemetry and state stay consistent on the blanked lens. The dual-lens
+    // R-first ESB barrier below is skipped entirely — there's no pairing to sync.
+    if (this._monoSide !== null && data[0] === P.OP_TEXT) {
+      const keep = this._monoSide;
+      const drop: Side = keep === 'L' ? 'R' : 'L';
+      if (!this._monoBlanked[drop]) {
+        // One-shot blank of the laggard, same idiom as _sleepLenses (line ~702).
+        this._monoBlanked[drop] = true;
+        await this._send(drop, P.text(' ', this._nextSeq(), 1, 1, P.NewScreen.TEXT));
+      }
+      this._monoBlanked[keep] = true; // the kept lens is "live", never re-blank it
+      await this._send(keep, data);
+      this._trace(`[G1] mono send seq=${data[1]} → ${keep} only (${drop} blanked)`);
+      return;
+    }
+
     let rWritten!: () => void;
     const rWrittenP = new Promise<void>((r) => { rWritten = r; });
     const t0 = Date.now();
