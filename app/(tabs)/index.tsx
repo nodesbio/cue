@@ -171,6 +171,21 @@ export default function TeleprompterScreen() {
     return () => core.setSkewResyncHandler(null);
   }, [core]);
 
+  // ── Reading-eye auto-alternation re-push (eye-health) ────────────────────
+  // When the core's alternation timer flips the mono reading eye, re-push the
+  // current frame so the NEW reading eye lights immediately (the core holds the
+  // decision, not the frame bytes — same contract as the skew-resync handler).
+  useEffect(() => {
+    core.setReadingEyeSwapHandler((side) => {
+      const engine = engineRef.current;
+      if (!engine || core.status.poweredOff) return;
+      const s = engine.getSnapshot();
+      core.note(`[index] EYE-ALTERNATE → reader=${side}, re-push line=${s.topIndex + 1}/${s.totalLines}`);
+      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+    });
+    return () => core.setReadingEyeSwapHandler(null);
+  }, [core]);
+
   // Load gesture preferences (re-read on focus so settings changes apply immediately)
   useEffect(() => {
     AsyncStorage.multiGet(['gesture_nav_enabled', 'gesture_nav_swapped']).then(pairs => {

@@ -31,6 +31,9 @@ export default function SettingsScreen() {
   const [showLogs, setShowLogs]               = useState(false);
   const [verboseLogs, setVerboseLogs]         = useState(false);
   const [harnessRunning, setHarnessRunning]   = useState(false);
+  // Reading-eye auto-alternation (eye-health). Rotates which eye reads in mono
+  // on a cadence so a single eye isn't loaded for a whole session.
+  const [eyeAlternate, setEyeAlternate]       = useState(false);
   const logs = useLogs();
 
   // ── Calibration ───────────────────────────────────────────────────────────
@@ -571,6 +574,27 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* Reading-eye auto-alternation (eye-health). In mono (single-lens)
+            mode, rotates which eye shows content every few minutes so one eye
+            isn't loaded for a whole session. Only acts while both lenses are
+            healthy; a true-solo mono (one lens dead) has nowhere to swap and is
+            left alone. Default 5 min cadence. */}
+        <View style={s.row}>
+          <View style={s.rowText}>
+            <Text style={s.label}>Alternate reading eye</Text>
+            <Text style={s.sub}>In single-lens mode, rotate which eye reads every 5 min to reduce single-eye fatigue.</Text>
+          </View>
+          <Switch
+            value={eyeAlternate}
+            onValueChange={(val) => {
+              setEyeAlternate(val);
+              core.setEyeAlternation(val);
+            }}
+            trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
+            thumbColor="#fff"
+          />
+        </View>
+
         {/* ── Calibrate ──────────────────────────────────────────
             Tunes the scroll pace to THIS pair at its current charge. Link
             phase is automatic; render phase asks the user to watch the glasses
@@ -732,6 +756,7 @@ const s = StyleSheet.create({
   rowText:     { flex: 1, marginRight: 16 },
   label:       { color: '#fff', fontSize: 15 },
   sub:         { color: '#555', fontSize: 12, marginTop: 3 },
+
   value:       { color: '#888', fontSize: 15 },
   green:       { color: '#00c47a' },
   yellow:      { color: '#f5c542' },

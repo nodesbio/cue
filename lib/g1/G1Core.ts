@@ -319,11 +319,12 @@ export class G1Core {
   private _monoSide: Side | null = null;
   private _monoBreachStreak = 0;  // consecutive perceptible-skew paired frames
   private _monoRecoverStreak = 0; // consecutive clean frames while in mono
-  /** Whether each lens has had its one-shot blank frame issued in mono mode. */
-  private _monoBlanked: Record<Side, boolean> = { L: false, R: false };
+
   /** Operator's preferred reading eye (UI toggle). null = Auto (link decides).
    *  Honored in mono ONLY when the preferred lens's link is healthy; a dead
-   *  preferred lens is overridden to the lens that actually works. */
+   *  preferred lens is overridden to the lens that actually works. Since the
+   *  2026-11 keep-both-live finding (see _sendBoth mono branch) EITHER lens can
+   *  be the reader, so this is now freely honored — no forced keep-R. */
   private _preferredEye: Side | null = null;
 
   /** Session-latch: once the operator (or an emergency drop) forces mono, the
@@ -348,7 +349,6 @@ export class G1Core {
     this._stereoLatchedOff = true;
     if (this._monoSide == null) {
       this._monoSide = this._pickMonoSide(this._skewMeanMs);
-      this._monoBlanked = { L: false, R: false };
     }
     this._monoBreachStreak = 0;
     this._monoRecoverStreak = 0;
@@ -373,7 +373,6 @@ export class G1Core {
     this._monoSide = null;
     this._monoBreachStreak = 0;
     this._monoRecoverStreak = 0;
-    this._monoBlanked = { L: false, R: false };
     this._log(`[G1] lens session reset → stereo re-enabled (will be re-earned)`);
   }
 
@@ -393,32 +392,40 @@ export class G1Core {
     return st.connected && st.txReady;
   }
 
-  /** Choose which lens to keep in mono.
+  /** Choose which lens to keep as the CONTENT (reading) eye in mono.
    *
-   *  ALWAYS KEEP R. On G1 firmware only R (the ESB slave) can render solo while
-   *  its partner is blanked; L (the master) stalls its display thread waiting
-   *  for an ESB sync from the blanked R that never arrives, and freezes until
-   *  reconnect. Empirically confirmed across sessions: every keep-R mono ran
-   *  clean; every keep-L mono froze and never recovered — including a re-push
-   *  and a play-button resync (field logs 2026-11, keep-L froze at 41/381 and
-   *  51/381). No TS-side re-push can un-stall a master waiting on a dead slave,
-   *  so the correct fix is to never choose L for the solo lens.
+   *  DOCTRINE RETRACTED (2026-11-16). The former rule — "ALWAYS KEEP R, L master
+   *  freezes solo" — was WRONG. The earlier keep-L freezes (field logs 2026-11,
+   *  41/381 and 51/381) all shared a confound: the non-content lens was BLANKED
+   *  (one-shot) and then never written again. L didn't freeze because it ran
+   *  solo; it froze because R, the ESB slave, went silent and starved the
+   *  master's sync. Verified by the eye-flip test (log 2026-11-16T20:51): with R
+   *  driven a fresh blank frame every tick (keep-both-live), L kept ACKing for
+   *  55s straight (a360→a676ms, no climb, survived backgrounding) and never
+   *  stalled. EITHER lens can be the reader as long as the other is kept
+   *  sync-alive. The keep-both-live drive in _sendBoth is now the only mono
+   *  path, so this picker is free to honor the operator's choice.
    *
-   *  The preferred-eye picker and the skew-sign laggard-drop are retired for
-   *  the mono case: both were built on the false premise that EITHER lens can
-   *  run solo. meanMs is now unused here (kept in the signature for the call
-   *  sites and telemetry).
-   *
-   *  Dead-lens override (the one honest exception): if R itself is the dead
-   *  lens, keeping R is pointless — we fall back to L and log LOUDLY, because
-   *  keep-L is known-frozen. In that state mono cannot work on this firmware;
-   *  the operator needs to see it rather than get a silently frozen HUD. */
+   *  Priority: (1) the operator's preferred eye if that lens is healthy;
+   *  (2) the only healthy lens if just one is up; (3) R as a neutral Auto
+   *  tiebreak when both are healthy and no preference is set (R is the ESB
+   *  slave — a slightly cheaper default, not a safety mandate). meanMs is
+   *  unused — kept in the signature for call sites and telemetry. */
   private _pickMonoSide(_meanMs: number): Side {
+    const lOk = this._lensHealthy('L');
     const rOk = this._lensHealthy('R');
-    if (!rOk && this._lensHealthy('L')) {
-      this._log('[G1] ⚠️ _pickMonoSide: R link dead — forced to keep L, which is KNOWN to freeze solo on this firmware. Mono cannot recover; reconnect required.');
+
+    // (1) Honor the operator's preferred reading eye when its link is healthy.
+    if (this._preferredEye && this._lensHealthy(this._preferredEye)) {
+      return this._preferredEye;
+    }
+    // (2) Only one lens up → keep it (either is a valid solo reader now).
+    if (lOk && !rOk) {
+      this._log('[G1] _pickMonoSide: only L healthy → keeping L as reader (R driven live is impossible; mono degrades to true-solo).');
       return 'L';
     }
+    if (rOk && !lOk) return 'R';
+    // (3) Both healthy, no preference → neutral Auto default.
     return 'R';
   }
   private get _skewMeanMs(): number {
@@ -458,6 +465,59 @@ export class G1Core {
   private _onSkewResync: ((seq: number) => void) | null = null;
   setSkewResyncHandler(fn: ((seq: number) => void) | null): void {
     this._onSkewResync = fn;
+  }
+
+  // ── Reading-eye auto-alternation (eye-health) ───────────────────────────
+  // Unlocked by the 2026-11-16 keep-both-live finding: since EITHER lens can be
+  // the reader, we periodically swap which eye shows content to avoid loading a
+  // single eye for a whole session. Default cadence 5 min (binocular-display
+  // comfort guidance; tune via setEyeAlternationMinutes). OFF by default — it's
+  // a comfort feature, not a safety one, and must never surprise a live operator.
+  //
+  // Swap mechanics reuse the proven "core decides, HUD re-pushes" pattern (see
+  // _onSkewResync): the timer flips _monoSide and fires _onReadingEyeSwap so the
+  // HUD re-pushes the current frame, lighting the new reading eye immediately.
+  // Guarded: only swaps while in mono with BOTH lenses healthy (can't move the
+  // reader onto a dead lens), and never clears the stereo latch.
+  private _eyeAlternateEnabled = false;
+  private _eyeAlternateMs = 5 * 60_000;
+  private _eyeAlternateTimer: ReturnType<typeof setInterval> | null = null;
+  private _onReadingEyeSwap: ((side: Side) => void) | null = null;
+
+  /** HUD wires this to re-push the current frame after an auto-swap flips the
+   *  reading eye, exactly like setSkewResyncHandler. */
+  setReadingEyeSwapHandler(fn: ((side: Side) => void) | null): void {
+    this._onReadingEyeSwap = fn;
+  }
+
+  setEyeAlternationMinutes(min: number): void {
+    this._eyeAlternateMs = Math.max(1, min) * 60_000;
+    this._log(`[G1] eye-alternation cadence = ${min} min`);
+    if (this._eyeAlternateEnabled) this.setEyeAlternation(true); // restart timer at new cadence
+  }
+
+  setEyeAlternation(on: boolean): void {
+    this._eyeAlternateEnabled = on;
+    if (this._eyeAlternateTimer) { clearInterval(this._eyeAlternateTimer); this._eyeAlternateTimer = null; }
+    if (on) {
+      this._eyeAlternateTimer = setInterval(() => this._tryAlternateEye(), this._eyeAlternateMs);
+    }
+    this._log(`[G1] eye-alternation ${on ? `ON (every ${this._eyeAlternateMs / 60_000} min)` : 'OFF'}`);
+  }
+
+  /** Timer tick: swap the reading eye iff it's safe. No-op outside mono or when
+   *  either lens is unhealthy — we never move the reader onto a lens that can't
+   *  render, and a true-solo mono (one lens dead) has nowhere to swap. */
+  private _tryAlternateEye(): void {
+    if (!this._eyeAlternateEnabled || this._monoSide === null) return;
+    if (!this._lensHealthy('L') || !this._lensHealthy('R')) {
+      this._log('[G1] eye-alternation skip: both lenses must be healthy to swap the reader.');
+      return;
+    }
+    const next: Side = this._monoSide === 'L' ? 'R' : 'L';
+    this._monoSide = next;
+    this._log(`[G1] eye-alternation → reading eye now ${next} (health rotation)`);
+    this._onReadingEyeSwap?.(next);
   }
   /** Last OP_TEXT frame handed to _sendBoth — read by the USER MARK handler so
    *  a human-observed desync is stamped with the exact in-flight line/seq. */
@@ -1142,6 +1202,7 @@ export class G1Core {
   destroy(): void {
     this.destroyed = true;
     this._stopHeartbeat();
+    if (this._eyeAlternateTimer) { clearInterval(this._eyeAlternateTimer); this._eyeAlternateTimer = null; }
     this._resolveWake('L'); this._resolveWake('R'); // #27: don't leave _connectLensInner parked forever
     clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
     clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
@@ -2395,7 +2456,6 @@ export class G1Core {
           this._monoSide = keep;
           this._monoBreachStreak = 0;
           this._monoRecoverStreak = 0;
-          this._monoBlanked = { L: false, R: false };
           // Stage rule: an auto-drop is as committing as an emergency drop. Once
           // we go mono, latch stereo OFF for the session so the recover path
           // below cannot auto-resume and flicker the echo back mid-presentation.
@@ -2403,8 +2463,8 @@ export class G1Core {
           this._log(
             `[G1] MONO-FALLBACK seq=${seq} |mean|=${meanAbs.toFixed(0)}ms ≥ ` +
             `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
-            `frames → blanking ${keep === 'R' ? 'L' : 'R'}, driving ${keep} mono ` +
-            `(always-keep-R; pref=${this._preferredEye ?? 'Auto'} ignored for mono)`,
+            `frames → reading eye ${keep}, blank-live on ${keep === 'R' ? 'L' : 'R'} ` +
+            `(pref=${this._preferredEye ?? 'Auto'})`,
           );
         }
       } else {
@@ -2534,23 +2594,35 @@ export class G1Core {
     // Issuing L and R concurrently let L's display thread sync before R had
     // the packet → R rejected the sync and stayed one line behind. Writing R
     // first costs one write RTT (~15-50 ms) and closes that window.
-    // Mono-fallback: skew is un-fusible (see _monoSide). Drive the healthy lens
-    // alone and blank the laggard ONCE, so the viewer gets one clean readable
-    // image instead of a doubled/ghosted stereo pair. Only diverts TEXT frames;
+    // Mono-fallback: skew is un-fusible (see _monoSide). We show text on ONE
+    // lens (the reader) and a blank on the other, so the viewer gets a single
+    // clean image instead of a ghosted stereo pair. Only diverts TEXT frames;
     // control frames (battery, brightness, exit) still go to both lenses so
-    // telemetry and state stay consistent on the blanked lens. The dual-lens
-    // R-first ESB barrier below is skipped entirely — there's no pairing to sync.
+    // telemetry/state stay consistent.
+    //
+    // KEEP BOTH LENSES LIVE (2026-11-16 finding — see _pickMonoSide). We do NOT
+    // one-shot-blank the non-content lens and leave it silent: on G1 the ESB
+    // master starves if its slave stops receiving frames, which is what froze
+    // keep-L in the old doctrine. Instead BOTH lenses get a fresh text frame
+    // every tick — the reader gets 'data', the other gets a blank sharing the
+    // SAME seq so the pair stays frame-aligned the way the firmware expects.
+    // Write order mirrors the stereo barrier (R first so the slave has the
+    // packet before the master syncs). Verified: L runs clean as reader this
+    // way (log 2026-11-16T20:51, L ACKed 55s with no latency climb).
     if (this._monoSide !== null && data[0] === P.OP_TEXT) {
       const keep = this._monoSide;
       const drop: Side = keep === 'L' ? 'R' : 'L';
-      if (!this._monoBlanked[drop]) {
-        // One-shot blank of the laggard, same idiom as _sleepLenses (line ~702).
-        this._monoBlanked[drop] = true;
-        await this._send(drop, P.text(' ', this._nextSeq(), 1, 1, P.NewScreen.TEXT));
-      }
-      this._monoBlanked[keep] = true; // the kept lens is "live", never re-blank it
-      await this._send(keep, data);
-      this._trace(`[G1] mono send seq=${data[1]} → ${keep} only (${drop} blanked)`);
+
+      const blank = P.text(' ', data[1], 1, 1, P.NewScreen.TEXT);
+      const rFrame = keep === 'R' ? data : blank;
+      const lFrame = keep === 'L' ? data : blank;
+      let rWrittenMono!: () => void;
+      const rWrittenMonoP = new Promise<void>((r) => { rWrittenMono = r; });
+      const rSend = this._send('R', rFrame, true, rWrittenMono);
+      rSend.catch((e) => this._warn(`[G1] mono [R] send error: ${e?.message ?? e}`));
+      await rWrittenMonoP;
+      await this._send('L', lFrame);
+      this._trace(`[G1] mono seq=${data[1]} → text on ${keep}, blank on ${drop} (both live)`);
       return;
     }
 
@@ -2649,8 +2721,18 @@ export class G1Core {
         // sendText; if the last text frame is younger than BATTERY_POLL_QUIET_MS
         // the user is mid-scroll, so skip this cycle — battery re-polls on the
         // next idle % 4 tick (≤4 × HEARTBEAT_INTERVAL_MS later).
+        //
+        // Also skip while backgrounded: a battery reading is useless when the
+        // phone is locked, and iOS stops delivering the write so it NACKs every
+        // cycle — a NACK storm for the whole lock duration (field 2026-11-16:
+        // 0x2c NACKing ~every 2s for 29 min). The 0x25 keepalive above still
+        // fires so the 30s firmware watchdog (reason 0x13) can't drop the link;
+        // only the pointless poll is suppressed. Zoracon: this removes the junk
+        // signal at its source, it does not mask a failed write.
         const sinceText = this._lastSent ? Date.now() - this._lastSent.at : Infinity;
-        if (sinceText < BATTERY_POLL_QUIET_MS) {
+        if (this._appState !== 'active') {
+          this._trace('[G1] battery poll skipped — app backgrounded');
+        } else if (sinceText < BATTERY_POLL_QUIET_MS) {
           this._trace(`[G1] battery poll deferred — text active (${sinceText}ms since last frame)`);
         } else {
           await this._send('L', P.batteryRequest(PHONE));
