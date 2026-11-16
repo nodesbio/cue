@@ -244,10 +244,17 @@ export default function TeleprompterScreen() {
 
     // ── Media remote ─────────────────────────────────────────────────────
     // Tap events work independently of gesturesEnabled — the remote is always live.
+    // single_tap = SmartRemote Next (>>). Field use: operator rarely advances
+    // lines but NEEDS an instant, unambiguous "kill the echo" key on stage. Next
+    // is the free key, so it's the emergency: force a clean single lens and
+    // session-latch stereo OFF (no auto-resume mid-presentation). One press,
+    // one intent, no cadence to get wrong under pressure. Reassignable later via
+    // the Smart Remote Button Config pane (PR-C).
     if (isTap) {
-      engineRef.current?.next();
+      core.emergencyMono();
       return;
     }
+    // double_tap = SmartRemote Prev (<<) = rewind one line. Operator uses this.
     if (isDblTap) {
       engineRef.current?.prev();
       return;

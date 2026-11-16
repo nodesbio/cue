@@ -93,17 +93,58 @@ describe('mono-fallback — clean-mono is home base', () => {
     expect(anyCore._monoSide).toBeNull();
   });
 
-  it('resumes stereo SLOW: needs 15 clean frames (<25ms) to leave mono', () => {
+  it('STAGE RULE: stays mono for the session — never auto-resumes stereo', () => {
+    // Replaces the old "resumes stereo after 15 clean frames" test. The field
+    // rule changed: once dropped to mono, the engine must NOT flicker the echo
+    // back on its own mid-presentation, no matter how clean the link gets.
     const { anyCore } = makeCore();
     let t = 1_000_000;
     for (let seq = 1; seq <= 6; seq++) { t += 2000; feedPair(anyCore, seq, t + 60, t); }
     expect(anyCore._monoSide).toBe('R');
-    // 10 clean frames — NOT enough to recover (needs 15).
-    for (let seq = 7; seq <= 16; seq++) { t += 2000; feedPair(anyCore, seq, t + 8, t); }
-    expect(anyCore._monoSide).toBe('R');
-    // 10 more clean frames — now past the 15-frame recover window.
-    for (let seq = 17; seq <= 40; seq++) { t += 2000; feedPair(anyCore, seq, t + 8, t); }
+    expect(anyCore._stereoLatchedOff).toBe(true); // auto-drop latches the session
+    // Feed a LONG run of perfectly clean frames — far past the old 15-frame
+    // recover window. Stereo must still NOT come back on its own.
+    for (let seq = 7; seq <= 60; seq++) { t += 2000; feedPair(anyCore, seq, t, t); }
+    expect(anyCore._monoSide).toBe('R'); // still mono — latched for the session
+  });
+
+  it('LOG REPRO: sign-flipping skew that cancels in the mean STILL trips mono', () => {
+    // 2026-11-15 field log: per-frame L-R oscillated across zero
+    // (+50, -24, -39, -85, +61, -72 …) so the windowed MEAN hovered ~27ms and
+    // the old "mean >= 40" entry gate was BLIND to it — yet the operator saw
+    // doubling because the EYE integrates each frame's |offset|, not the mean.
+    // Entry now gates on per-frame skew alone, so this sustained swing trips.
+    const { anyCore } = makeCore();
+    let t = 1_000_000;
+    const offs = [50, -60, 55, -70, 48, -65]; // |each| >= 40, mean ~ +2ms
+    offs.forEach((o, i) => {
+      t += 2000;
+      // positive o ⇒ L acks later ⇒ L lags; negative ⇒ R lags.
+      feedPair(anyCore, i + 1, o >= 0 ? t + o : t, o >= 0 ? t : t - o);
+    });
+    expect(anyCore._monoSide).not.toBeNull(); // the bug: previously stayed stereo
+  });
+
+  it('emergencyMono() forces a clean single lens and latches stereo off', () => {
+    const { anyCore } = makeCore();
     expect(anyCore._monoSide).toBeNull();
+    anyCore.emergencyMono();
+    expect(anyCore._monoSide).not.toBeNull(); // picked a lens immediately
+    expect(anyCore._stereoLatchedOff).toBe(true);
+    const chosen = anyCore._monoSide;
+    // Even a long clean run cannot bring stereo back after an emergency drop.
+    let t = 1_000_000;
+    for (let seq = 1; seq <= 60; seq++) { t += 2000; feedPair(anyCore, seq, t, t); }
+    expect(anyCore._monoSide).toBe(chosen);
+  });
+
+  it('resetLensSession() re-enables stereo (deliberate pre-show action only)', () => {
+    const { anyCore } = makeCore();
+    anyCore.emergencyMono();
+    expect(anyCore._stereoLatchedOff).toBe(true);
+    anyCore.resetLensSession();
+    expect(anyCore._stereoLatchedOff).toBe(false);
+    expect(anyCore._monoSide).toBeNull(); // back to stereo home base
   });
 
   it('keeps the PREFERRED eye when both links are healthy, ignoring skew sign', () => {

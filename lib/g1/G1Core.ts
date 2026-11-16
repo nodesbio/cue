@@ -326,6 +326,41 @@ export class G1Core {
    *  preferred lens is overridden to the lens that actually works. */
   private _preferredEye: Side | null = null;
 
+  /** Session-latch: once the operator (or an emergency drop) forces mono, the
+   *  engine STAYS mono for the rest of the session — no automatic stereo
+   *  re-entry. Cleared only by resetLensSession() (a deliberate restart /
+   *  pre-show re-enable). This is the stage-safety invariant: the glasses must
+   *  never flicker the echo back on their own mid-presentation. */
+  private _stereoLatchedOff = false;
+
+  /** Force an immediate, session-latched drop to a single clean lens. Wired to
+   *  the SmartRemote emergency key (Next >>). Picks the coherent lens via the
+   *  same priority as auto mono-fallback, blanks the other, and latches stereo
+   *  OFF so nothing auto-resumes it. Idempotent: repeated presses are safe. */
+  emergencyMono(): void {
+    this._stereoLatchedOff = true;
+    if (this._monoSide == null) {
+      this._monoSide = this._pickMonoSide(this._skewMeanMs);
+      this._monoBlanked = { L: false, R: false };
+    }
+    this._monoBreachStreak = 0;
+    this._monoRecoverStreak = 0;
+    this._log(`[G1] EMERGENCY-MONO → keeping ${this._monoSide}; stereo latched off for session`);
+  }
+
+  /** Re-enable stereo for a NEW session (deliberate operator action only — e.g.
+   *  restarting the prompter or a pre-show re-enable). Clears the session latch
+   *  and the mono state so the auto-controller can earn stereo again. NOT called
+   *  by any live on-stage gesture. */
+  resetLensSession(): void {
+    this._stereoLatchedOff = false;
+    this._monoSide = null;
+    this._monoBreachStreak = 0;
+    this._monoRecoverStreak = 0;
+    this._monoBlanked = { L: false, R: false };
+    this._log(`[G1] lens session reset → stereo re-enabled (will be re-earned)`);
+  }
+
   /** Set the preferred reading eye for mono-fallback. 'L' | 'R' | null (Auto).
    *  Takes effect at the next mono-entry decision; does not force a switch
    *  mid-mono (that would blank a working lens the viewer is already reading). */
@@ -2315,15 +2350,16 @@ export class G1Core {
     // lags ⇒ keep R, blank L. Hysteresis: slow to enter, slower to leave.
     const meanAbs = Math.abs(this._skewMeanMs);
     if (this._monoSide === null) {
-      // Entry gates on BOTH this frame's skew AND the windowed mean exceeding
-      // threshold. The mean alone is unsafe for MAGNITUDE: one 600ms outlier
-      // pollutes a 20-sample window for many frames and would falsely trip mono
-      // after the spike already passed. Requiring the CURRENT frame to also be
-      // perceptible means the clean frames right after a spike break the streak
-      // immediately. The mean is still what names the laggard side (its sign is
-      // robust; a single frame's sign is noise) — used only in _pickMonoSide.
-      if (Math.abs(skew) >= G1Core.SKEW_MONO_THRESHOLD_MS &&
-          meanAbs >= G1Core.SKEW_MONO_THRESHOLD_MS) {
+      // Entry gates on PER-FRAME skew ONLY, for a sustained streak. The windowed
+      // MEAN must NOT gate magnitude: the 2026-11-15 log showed the per-frame
+      // L-R oscillating across zero (+50, -24, -39, -85) while the mean stayed
+      // ~27ms — the swings cancel in the mean, so a mean gate is BLIND to exactly
+      // the sign-flipping doubling the user reports. The eye integrates each
+      // frame's absolute offset, not the mean. Spike safety is preserved by the
+      // STREAK, not the mean: a lone 600ms outlier is a streak of 1 and resets on
+      // the next clean frame, so it never trips. The mean's SIGN is still used —
+      // but only to name the laggard side in _pickMonoSide, never as a magnitude.
+      if (Math.abs(skew) >= G1Core.SKEW_MONO_THRESHOLD_MS) {
         this._monoBreachStreak++;
         if (this._monoBreachStreak >= G1Core.SKEW_MONO_BREACH_COUNT) {
           const keep = this._pickMonoSide(this._skewMeanMs);
@@ -2331,6 +2367,10 @@ export class G1Core {
           this._monoBreachStreak = 0;
           this._monoRecoverStreak = 0;
           this._monoBlanked = { L: false, R: false };
+          // Stage rule: an auto-drop is as committing as an emergency drop. Once
+          // we go mono, latch stereo OFF for the session so the recover path
+          // below cannot auto-resume and flicker the echo back mid-presentation.
+          this._stereoLatchedOff = true;
           this._log(
             `[G1] MONO-FALLBACK seq=${seq} |mean|=${meanAbs.toFixed(0)}ms ≥ ` +
             `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
@@ -2342,19 +2382,25 @@ export class G1Core {
         this._monoBreachStreak = 0;
       }
     } else {
-      // In mono: count clean frames; resume stereo only after a sustained run
-      // under the TIGHTER recover bar (hysteresis vs the entry threshold).
+      // In mono: STAGE RULE — once dropped to mono, STAY mono for the rest of the
+      // session. We do NOT auto-resume stereo mid-run. Rationale (operator, from
+      // field use): on stage, reliant on one button, the glasses must never
+      // flicker the echo back on their own while you're mid-sentence. An
+      // automatic stereo re-entry that guesses "pace looks sustainable now" can
+      // be wrong for one frame, and one frame of doubling in front of an audience
+      // is the exact humiliation this whole subsystem exists to prevent. Stereo
+      // is a PRE-SHOW decision, re-earned only by a deliberate operator action
+      // (restart the prompter / explicit re-enable), never by the engine on its
+      // own. We still track the recover streak purely for diagnostics/logging so
+      // we can see whether the link WOULD have recovered, without acting on it.
       if (meanAbs < G1Core.SKEW_MONO_RECOVER_MS) {
         this._monoRecoverStreak++;
-        if (this._monoRecoverStreak >= G1Core.SKEW_MONO_RECOVER_COUNT) {
+        if (this._monoRecoverStreak === G1Core.SKEW_MONO_RECOVER_COUNT) {
           this._log(
-            `[G1] MONO-RECOVER seq=${seq} |mean|=${meanAbs.toFixed(0)}ms < threshold for ` +
-            `${G1Core.SKEW_MONO_RECOVER_COUNT} frames → resuming stereo`,
+            `[G1] MONO-STABLE seq=${seq} |mean|=${meanAbs.toFixed(0)}ms < threshold for ` +
+            `${G1Core.SKEW_MONO_RECOVER_COUNT} frames — link would support stereo, but ` +
+            `staying mono (session-latched; stereo re-entry is a deliberate action only)`,
           );
-          this._monoSide = null;
-          this._monoRecoverStreak = 0;
-          this._monoBreachStreak = 0;
-          this._monoBlanked = { L: false, R: false };
         }
       } else {
         this._monoRecoverStreak = 0;
