@@ -11,12 +11,30 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/**
+ * A persisted resume point (bookmark) for a long script delivered across
+ * multiple takes. Stored by SOURCE char offset — not wrapped-line index — so
+ * it survives line-wrap changes (font/MAX_CHARS) and edits after the mark.
+ * `anchor` is a short source snippet starting at the mark for human-readable
+ * display and (future) fuzzy re-anchoring after edits before the mark.
+ * `lineIndex` is a display-cache only, valid while `textLen` matches the
+ * current text length; the engine re-derives from `charOffset` otherwise.
+ */
+export interface ResumeMarker {
+  charOffset: number; // offset into ScriptEntry.text where the mark sits
+  anchor: string;     // ~24 chars of source at the mark (for the chip label)
+  lineIndex: number;  // cached wrapped-line index (fast path)
+  textLen: number;    // text.length when cached; cache valid iff unchanged
+  updatedAt: number;  // epoch ms
+}
+
 export interface ScriptEntry {
   id: string;
   name: string;
   text: string;
   updatedAt: number; // epoch ms — last edited / imported
   openedAt:  number; // epoch ms — last loaded into engine (0 if never)
+  marker?:   ResumeMarker; // resume bookmark (undefined = none set)
 }
 
 const INDEX_KEY = 'scripts_index_v1';
@@ -81,12 +99,59 @@ export async function updateScript(
   const raw = await AsyncStorage.getItem(entryKey(id));
   if (!raw) return null;
   try {
+    const prev: ScriptEntry = JSON.parse(raw);
     const entry: ScriptEntry = {
-      ...JSON.parse(raw),
+      ...prev,
       ...patch,
       updatedAt: Date.now(),
     };
     if (typeof entry.openedAt !== 'number') entry.openedAt = 0;
+    // A text edit invalidates the marker's cached line index (wrap shifts).
+    // The charOffset/anchor survive, so the engine re-derives on next load;
+    // we just clear the stale cache by zeroing textLen so it can't be trusted.
+    if (patch.text !== undefined && patch.text !== prev.text && entry.marker) {
+      entry.marker = { ...entry.marker, lineIndex: 0, textLen: -1 };
+    }
+    await AsyncStorage.setItem(entryKey(id), JSON.stringify(entry));
+    return entry;
+  } catch { return null; }
+}
+
+/**
+ * Set (or replace) the resume marker on a script. `charOffset` is an offset
+ * into the script's text; `lineIndex` is the current wrapped-line index for
+ * the fast-path cache. Does NOT bump updatedAt (marking isn't an edit) and
+ * does NOT reorder. Returns the updated entry or null if the id is gone.
+ */
+export async function setMarker(
+  id: string,
+  charOffset: number,
+  lineIndex: number,
+): Promise<ScriptEntry | null> {
+  const raw = await AsyncStorage.getItem(entryKey(id));
+  if (!raw) return null;
+  try {
+    const entry: ScriptEntry = JSON.parse(raw);
+    const anchor = entry.text.slice(charOffset, charOffset + 24).replace(/\s+/g, ' ').trim();
+    entry.marker = {
+      charOffset,
+      anchor,
+      lineIndex,
+      textLen: entry.text.length,
+      updatedAt: Date.now(),
+    };
+    await AsyncStorage.setItem(entryKey(id), JSON.stringify(entry));
+    return entry;
+  } catch { return null; }
+}
+
+/** Remove the resume marker from a script. */
+export async function clearMarker(id: string): Promise<ScriptEntry | null> {
+  const raw = await AsyncStorage.getItem(entryKey(id));
+  if (!raw) return null;
+  try {
+    const entry: ScriptEntry = JSON.parse(raw);
+    delete entry.marker;
     await AsyncStorage.setItem(entryKey(id), JSON.stringify(entry));
     return entry;
   } catch { return null; }

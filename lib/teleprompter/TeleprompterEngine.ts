@@ -12,7 +12,13 @@
  * This keeps it fully testable and decoupled from G1Core.
  */
 
-import { wrapScript, formatFrame, DEFAULT_SCRIPT, WINDOW_SIZE } from './lineWrapper';
+import {
+  wrapScriptWithOffsets,
+  resolveMarkerLine,
+  formatFrame,
+  DEFAULT_SCRIPT,
+  WINDOW_SIZE,
+} from './lineWrapper';
 export { WINDOW_SIZE } from './lineWrapper';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -63,6 +69,7 @@ const LOOP_RESTART_DELAY_MS = 3000;
 
 export class TeleprompterEngine {
   private lines: string[] = [];
+  private lineStarts: number[] = []; // source char offset of each wrapped line
   private topIndex = 0;
   private state: EngineState = 'idle';
   private secondsPerLine: number;
@@ -91,10 +98,45 @@ export class TeleprompterEngine {
   /** Load a new script. Stops playback and resets position. */
   loadScript(script: string): void {
     this._clearTimers();
-    this.lines = wrapScript(script);
+    const wrapped = wrapScriptWithOffsets(script);
+    this.lines = wrapped.lines;
+    this.lineStarts = wrapped.lineStarts;
     this.topIndex = 0;
     this.state = 'idle';
     this._emit('loadScript');
+  }
+
+  // ── Resume markers ──────────────────────────────────────────────────────
+
+  /**
+   * Source char offset of the current top line — what the UI persists when
+   * the operator taps "Set marker". Returns 0 for an empty script.
+   */
+  currentOffset(): number {
+    return this.lineStarts[this.topIndex] ?? 0;
+  }
+
+  /**
+   * Resolve a stored source offset to a wrapped-line index for THIS script's
+   * current wrap. Pure read — does not move the engine. The UI uses this to
+   * label the resume chip ("Resume ▸ line N") without jumping.
+   */
+  lineForOffset(offset: number): number {
+    return resolveMarkerLine(this.lineStarts, offset);
+  }
+
+  /**
+   * Jump to a stored marker offset and HOLD there (paused). Never auto-plays —
+   * the operator decides when to start. Clamps into range. Emits so the HUD
+   * and preview re-render at the new position.
+   */
+  jumpToOffset(offset: number): void {
+    if (this.lines.length === 0) return;
+    this._clearTimers();
+    this.topIndex = Math.min(resolveMarkerLine(this.lineStarts, offset), this.lines.length - 1);
+    this.justSynced = true; // treat as a resync point — HUD shows the lock glyph
+    if (this.state === 'playing') this.state = 'paused';
+    this._emit('jumpToOffset');
   }
 
   // ── Playback controls ─────────────────────────────────────────────────────

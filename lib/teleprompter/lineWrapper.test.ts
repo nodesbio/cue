@@ -6,6 +6,8 @@
 import {
   wrapParagraph,
   wrapScript,
+  wrapScriptWithOffsets,
+  resolveMarkerLine,
   getWindow,
   formatFrame,
   MAX_CHARS,
@@ -152,5 +154,77 @@ describe('formatFrame', () => {
     const frame = formatFrame('S', lines, 0);
     const [, l2, l3, l4, l5] = frame.split('\n');
     expect([l2, l3, l4, l5]).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
+// ── wrapScriptWithOffsets + resolveMarkerLine (resume markers) ───────────────
+
+describe('wrapScriptWithOffsets', () => {
+  it('reports one offset per produced line', () => {
+    const { lines, lineStarts } = wrapScriptWithOffsets('Hello world');
+    expect(lineStarts.length).toBe(lines.length);
+  });
+
+  it('each lineStart points at the start of that line text in the source', () => {
+    const src = 'Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi';
+    const { lines, lineStarts } = wrapScriptWithOffsets(src);
+    for (let i = 0; i < lines.length; i++) {
+      const firstWord = lines[i].split(' ')[0];
+      if (firstWord === '') continue;
+      expect(src.slice(lineStarts[i]).startsWith(firstWord)).toBe(true);
+    }
+  });
+
+  it('offsets are monotonically non-decreasing', () => {
+    const src = DEFAULT_SCRIPT;
+    const { lineStarts } = wrapScriptWithOffsets(src);
+    for (let i = 1; i < lineStarts.length; i++) {
+      expect(lineStarts[i]).toBeGreaterThanOrEqual(lineStarts[i - 1]);
+    }
+  });
+
+  it('handles multi-paragraph scripts with blank lines', () => {
+    const src = 'First para here.\n\nSecond para over here.';
+    const { lines, lineStarts } = wrapScriptWithOffsets(src);
+    expect(lines.length).toBe(lineStarts.length);
+    expect(lines).toContain('');
+  });
+
+  it('empty script yields empty arrays', () => {
+    expect(wrapScriptWithOffsets('')).toEqual({ lines: [], lineStarts: [] });
+  });
+});
+
+describe('resolveMarkerLine', () => {
+  const starts = [0, 10, 25, 40, 60];
+
+  it('returns 0 for empty', () => {
+    expect(resolveMarkerLine([], 123)).toBe(0);
+  });
+
+  it('exact match returns that line', () => {
+    expect(resolveMarkerLine(starts, 25)).toBe(2);
+  });
+
+  it('between starts returns the preceding line', () => {
+    expect(resolveMarkerLine(starts, 30)).toBe(2);
+    expect(resolveMarkerLine(starts, 59)).toBe(3);
+  });
+
+  it('before first start clamps to 0', () => {
+    expect(resolveMarkerLine(starts, -5)).toBe(0);
+  });
+
+  it('past last start clamps to last line', () => {
+    expect(resolveMarkerLine(starts, 9999)).toBe(4);
+  });
+
+  it('round-trips: a captured offset resolves back to its own line', () => {
+    const src = DEFAULT_SCRIPT;
+    const { lines, lineStarts } = wrapScriptWithOffsets(src);
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === '') continue;
+      expect(resolveMarkerLine(lineStarts, lineStarts[i])).toBe(i);
+    }
   });
 });
