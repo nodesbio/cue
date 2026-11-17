@@ -419,13 +419,18 @@ export default function TeleprompterScreen() {
     }
   }, [connected, poweredOff]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep battery levels in the engine status bar
+  // Keep battery levels in the engine status bar. In mono fallback we pass the
+  // live lens so the bar shows ONLY its battery (which also signals which lens
+  // is active). `core.isMono` is read live; `status` ticks keep this in sync on
+  // the flip frame since monoSide isn't part of the status snapshot.
   useEffect(() => {
+    const mono = core?.isMono ? core.monoSide : null;
     engineRef.current?.setBattery(
       status?.left.batteryPct ?? null,
       status?.right.batteryPct ?? null,
+      mono,
     );
-  }, [status?.left.batteryPct, status?.right.batteryPct]);
+  }, [status?.left.batteryPct, status?.right.batteryPct, status, core]);
 
   handlePlayButtonRef.current = handlePlayButton;
   const handleNext   = useCallback(() => engineRef.current?.next(),   []);

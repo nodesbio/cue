@@ -81,6 +81,8 @@ export class TeleprompterEngine {
   private justSynced = false;
   private leftBat: number | null = null;
   private rightBat: number | null = null;
+  // Non-null when mono-fallback is active: only this lens's battery is shown.
+  private monoBat: 'L' | 'R' | null = null;
   // gestureHint is computed from live state — no timer needed.
 
   private onFrame: TeleprompterEngineOptions['onFrame'];
@@ -208,10 +210,14 @@ export class TeleprompterEngine {
     return '';
   }
 
-  /** Update battery levels — reflected in the status bar on next frame. */
-  setBattery(left: number | null, right: number | null): void {
+  /** Update battery levels — reflected in the status bar on next frame.
+   *  `monoSide` ('L'|'R') means only that lens is live (mono fallback): the
+   *  status bar then shows ONLY that lens's battery, which doubles as the
+   *  indicator of which lens is active. null ⇒ stereo, show both. */
+  setBattery(left: number | null, right: number | null, monoSide: 'L' | 'R' | null = null): void {
     this.leftBat = left;
     this.rightBat = right;
+    this.monoBat = monoSide;
   }
 
   /** Advance one line forward. Resets the timer if playing. */
@@ -411,8 +417,12 @@ export class TeleprompterEngine {
     const playIcon = (this.state === 'playing' && !this.timerSuspended) ? '▶' : '⏸';
     const cur = this.topIndex + 1;
     const tot = this.lines.length;
-    const batL = this.leftBat != null ? `L${this.leftBat}%` : '';
-    const batR = this.rightBat != null ? `R${this.rightBat}%` : '';
+    // Mono fallback: show ONLY the live lens's battery — the single reading
+    // also tells the operator which lens is active. Stereo: show both.
+    const batL = (this.monoBat === null || this.monoBat === 'L') && this.leftBat != null
+      ? `L${this.leftBat}%` : '';
+    const batR = (this.monoBat === null || this.monoBat === 'R') && this.rightBat != null
+      ? `R${this.rightBat}%` : '';
     const arrow = this._dirArrow();
     // [S] = manually synced & locked on this line (double-click resync).
     const sync = this.justSynced ? ' [S]' : '';

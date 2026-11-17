@@ -345,6 +345,13 @@ export class G1Core {
     return this._monoSide !== null;
   }
 
+  /** The lens currently driven in mono ('L'|'R'), or null while stereo. The UI
+   *  shows only this lens's battery in mono — the single reading showing which
+   *  lens is live (see TeleprompterEngine._buildStatusBar). */
+  get monoSide(): Side | null {
+    return this._monoSide;
+  }
+
   async emergencyMono(): Promise<void> {
     this._stereoLatchedOff = true;
     if (this._monoSide == null) {

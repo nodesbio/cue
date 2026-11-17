@@ -19,6 +19,11 @@ import {
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 
+// Skew/lens-race harness buttons — internal diagnostics, hidden from the normal
+// UI. Flip to true to re-expose them during link-layer debugging. (Already
+// __DEV__-gated below, so they never ship to production regardless.)
+const SHOW_DEV_HARNESS = false;
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { core, status, isConnected: connected, isPartiallyConnected, isAutoConnecting, disconnect, disconnectSide, reconnectSide, pairedSerial, brightness, setBrightness, sendTestDisplay } = useG1();
@@ -678,13 +683,13 @@ export default function SettingsScreen() {
         {/* Skew harness — DEV only. Drives the HUD at a fixed cadence from a
             clean start and fires a mid-run resync, so the SKEW telemetry plots
             a repeatable latency curve. Reads out inline in the Raw Logs below. */}
-        {__DEV__ && (
+        {__DEV__ && SHOW_DEV_HARNESS && (
           <Pressable
             style={[s.btn, harnessRunning ? s.btnDanger : s.btnSecondary, !connected && { opacity: 0.4 }]}
             onPress={() => void runSkewHarness()}
             disabled={!connected}
           >
-            <Text style={s.btnText}>
+            <Text style={[s.btnText, { color: '#ffffff' }]}>
               {harnessRunning ? '■ Stop skew harness' : '▶ Run skew harness (160 frames)'}
             </Text>
           </Pressable>
@@ -695,13 +700,13 @@ export default function SettingsScreen() {
             the other. Reads out per-lens throughput + margin inline below, to
             isolate link-layer L/R asymmetry from firmware ACK timing. Desyncs
             the displays during the run, then auto-resyncs to dashboard. */}
-        {__DEV__ && (
+        {__DEV__ && SHOW_DEV_HARNESS && (
           <Pressable
             style={[s.btn, harnessRunning ? s.btnDanger : s.btnSecondary, !connected && { opacity: 0.4 }]}
             onPress={() => void runLensRace()}
             disabled={!connected}
           >
-            <Text style={s.btnText}>
+            <Text style={[s.btnText, { color: '#ffffff' }]}>
               {harnessRunning ? '■ Stop' : '▶ Run lens race (L vs R, 160)'}
             </Text>
           </Pressable>
