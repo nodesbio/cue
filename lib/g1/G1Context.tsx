@@ -109,9 +109,11 @@ function _addLog(line: string) {
 //
 // But version+build alone don't distinguish field builds: CFBundleVersion is
 // "1" on every local `expo run` and never increments. The git SHA is the only
-// thing that actually identifies the build. We bake it in at bundle time via
-// EXPO_PUBLIC_GIT_SHA (set by the rebuild script); absent ⇒ "nocommit", which
-// is itself a signal that the stamp wiring was bypassed.
+// thing that actually identifies the build. app.config.ts resolves it at
+// config-eval time (EAS_BUILD_GIT_COMMIT_HASH on cloud builds, else `git
+// rev-parse`) and exports EXPO_PUBLIC_GIT_SHA, so it bakes in on both local and
+// EAS builds. A "-dirty" suffix means uncommitted changes; "nocommit" means git
+// was unavailable — either way the stamp still identifies build provenance.
 const _rtv = Constants.expoConfig?.runtimeVersion;
 const _sha = process.env.EXPO_PUBLIC_GIT_SHA || 'nocommit';
 const BUILD_STAMP = `cue ${Application.nativeApplicationVersion ?? '?'} (${Application.nativeBuildVersion ?? '?'}) ${_sha}${typeof _rtv === 'string' ? ` rtv=${_rtv}` : ''}`.trim();

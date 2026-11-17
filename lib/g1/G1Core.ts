@@ -2411,6 +2411,26 @@ export class G1Core {
     const lAt = side === 'L' ? ackAt : otherAt;
     const rAt = side === 'R' ? ackAt : otherAt;
     const skew = lAt - rAt; // >0 ⇒ R acked first ⇒ R leads
+
+    // Backgrounded ACK timing is NOT link health. When iOS suspends the app it
+    // stops granting CPU, so writes queue and ACKs are only processed when the
+    // OS next schedules us — the field 2026-11-17 log showed ack-latency climb
+    // to 16.5s with app=background, which the skew/mono detectors read as a
+    // catastrophic link fault and would act on. That latency measures OS
+    // throttling, not the glasses. Zoracon: drop the junk sample at its source
+    // rather than widen thresholds to tolerate it. We DON'T seed the window
+    // either — a suspended sample would poison the mean on resume. Both detectors
+    // (resync + mono) are skipped; streaks are untouched so a real pre-suspend
+    // streak survives the gap and resumes cleanly when active returns.
+    if (this._appState !== 'active') {
+      this._textAckAt[side].delete(seq);
+      this._textAckAt[other].delete(seq);
+      this._textAckTiming[side].delete(seq);
+      this._textAckTiming[other].delete(seq);
+      this._trace(`[G1] skew sample dropped — app ${this._appState} (ack timing is OS-throttled, not link)`);
+      return;
+    }
+
     this._skewWindow.push(skew);
     if (this._skewWindow.length > G1Core.SKEW_MEAN_WINDOW) this._skewWindow.shift();
 
@@ -2460,10 +2480,16 @@ export class G1Core {
           // we go mono, latch stereo OFF for the session so the recover path
           // below cannot auto-resume and flicker the echo back mid-presentation.
           this._stereoLatchedOff = true;
+          // Log the PER-FRAME skew that actually tripped the gate, not the mean
+          // — the gate is per-frame-streaked (see comment above), so printing the
+          // mean (which the sign-flip cancels toward ~0) reads as a false "1ms ≥
+          // 40ms" contradiction and misleads the next log reader. meanSign names
+          // the laggard that _pickMonoSide used; |skew| is the magnitude.
           this._log(
-            `[G1] MONO-FALLBACK seq=${seq} |mean|=${meanAbs.toFixed(0)}ms ≥ ` +
+            `[G1] MONO-FALLBACK seq=${seq} |skew|=${Math.abs(skew)}ms ≥ ` +
             `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
-            `frames → reading eye ${keep}, blank-live on ${keep === 'R' ? 'L' : 'R'} ` +
+            `frames (meanSign=${this._skewMeanMs >= 0 ? '+' : '-'}${meanAbs.toFixed(0)}ms) ` +
+            `→ reading eye ${keep}, blank-live on ${keep === 'R' ? 'L' : 'R'} ` +
             `(pref=${this._preferredEye ?? 'Auto'})`,
           );
         }

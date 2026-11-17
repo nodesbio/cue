@@ -1,4 +1,33 @@
+// app.config.ts runs under Node at build time; its tsconfig doesn't expose
+// @types/node, so we require() child_process untyped rather than pull node types
+// into the app's type graph. execSync is the only symbol used.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const execSync = require('child_process').execSync as (cmd: string, opts?: unknown) => { toString(): string };
 import type { ExpoConfig } from 'expo/config';
+
+// Resolve the git SHA at config-eval time so EVERY build path bakes a real
+// commit into the on-glass [BUILD] stamp — local `expo run:ios` AND the EAS
+// cloud build (EAS checks out the repo, so git is available there too). The
+// previous scheme relied on a shell export that no script actually set and
+// wouldn't survive the cloud build anyway, so every field log stamped
+// "nocommit" and couldn't be tied to a build (the 2026-11-15/17 log confusion).
+// EAS exposes EAS_BUILD_GIT_COMMIT_HASH; fall back to git, then 'nocommit'.
+function resolveGitSha(): string {
+  if (process.env.EAS_BUILD_GIT_COMMIT_HASH) {
+    return process.env.EAS_BUILD_GIT_COMMIT_HASH.slice(0, 7);
+  }
+  try {
+    const dirty = execSync('git status --porcelain', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim().length > 0;
+    const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim();
+    return dirty ? `${sha}-dirty` : sha;
+  } catch {
+    return 'nocommit';
+  }
+}
+
+process.env.EXPO_PUBLIC_GIT_SHA = resolveGitSha();
 
 const config: ExpoConfig = {
   name: 'Cue',
