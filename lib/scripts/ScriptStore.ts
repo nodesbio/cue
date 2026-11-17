@@ -75,6 +75,17 @@ export async function listScripts(): Promise<ScriptEntry[]> {
   return ids.flatMap(id => (map.has(id) ? [map.get(id)!] : []));
 }
 
+/** Fetch a single script entry by id, or null if missing/corrupt. */
+export async function getScript(id: string): Promise<ScriptEntry | null> {
+  const raw = await AsyncStorage.getItem(entryKey(id));
+  if (!raw) return null;
+  try {
+    const e = JSON.parse(raw) as ScriptEntry;
+    if (typeof e.openedAt !== 'number') e.openedAt = 0;
+    return e;
+  } catch { return null; }
+}
+
 /** Save a new script. Prepends to index (top of list). */
 export async function saveScript(name: string, text: string): Promise<ScriptEntry> {
   const entry: ScriptEntry = {

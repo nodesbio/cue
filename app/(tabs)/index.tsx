@@ -32,6 +32,7 @@ import {
   SPEED_STEP,
 } from '@/lib/teleprompter/TeleprompterEngine';
 import { getEngine } from '@/lib/teleprompter/engine';
+import { getScript, setMarker, clearMarker, type ResumeMarker } from '@/lib/scripts/ScriptStore';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,12 @@ export default function TeleprompterScreen() {
   const [gesturesEnabled, setGesturesEnabled] = useState(false);
   const [gesturesSwapped, setGesturesSwapped] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  // Resume marker for the currently loaded script. `marker` is the stored
+  // bookmark (null = none set on this script, or ad-hoc text with no id).
+  // `resumeDismissed` hides the resume chip once the operator acts on it so it
+  // doesn't nag — re-shown only when a different script loads.
+  const [marker, setMarkerState] = useState<ResumeMarker | null>(null);
+  const [resumeDismissed, setResumeDismissed] = useState(false);
   // 0 = split view (HUD + controls), 1 = HUD-only fullscreen
   const [hudPage, setHudPage] = useState(0);
   // true while the panel is fullscreen OR animating toward fullscreen
@@ -435,6 +442,48 @@ export default function TeleprompterScreen() {
     engineRef.current?.setLoop(next);
   }, [loop]);
 
+  // ── Resume markers ────────────────────────────────────────────────────────
+  // Re-fetch the stored marker whenever the loaded script changes. The engine
+  // owns the active id (set atomically with the text in loadScript), so this
+  // can't point at the wrong script. A load clears the dismissed flag so a new
+  // script's resume chip shows even if the previous one was dismissed.
+  const activeId = engineRef.current?.activeScriptId() ?? null;
+  const loadedTotal = snap?.totalLines ?? 0;
+  useEffect(() => {
+    let cancelled = false;
+    setResumeDismissed(false);
+    if (!activeId) { setMarkerState(null); return; }
+    getScript(activeId).then(e => {
+      if (!cancelled) setMarkerState(e?.marker ?? null);
+    });
+    return () => { cancelled = true; };
+    // loadedTotal changes on every loadScript (wrap produces a new count),
+    // giving us a reliable "a script was (re)loaded" signal alongside id.
+  }, [activeId, loadedTotal]);
+
+  const handleSetMarker = useCallback(async () => {
+    const engine = engineRef.current;
+    const id = engine?.activeScriptId();
+    if (!engine || !id) return;
+    const entry = await setMarker(id, engine.currentOffset(), engine.getSnapshot().topIndex);
+    setMarkerState(entry?.marker ?? null);
+    setResumeDismissed(true); // just set it — don't immediately offer to resume to it
+  }, []);
+
+  const handleClearMarker = useCallback(async () => {
+    const id = engineRef.current?.activeScriptId();
+    if (!id) return;
+    await clearMarker(id);
+    setMarkerState(null);
+  }, []);
+
+  const handleResume = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine || !marker) return;
+    engine.jumpToOffset(marker.charOffset);
+    setResumeDismissed(true);
+  }, [marker]);
+
   // ── Reconnect handler ─────────────────────────────────────────────────────
   const handleReconnect = useCallback(async () => {
     setReconnecting(true);
@@ -525,6 +574,13 @@ export default function TeleprompterScreen() {
   const playing = snap.state === 'playing';
   const ended   = snap.state === 'ended';
   const hasScript = snap.totalLines > 0;
+  // Marker UI is only meaningful for a saved script (has an id to persist to).
+  const canMark = hasScript && !!engineRef.current?.activeScriptId();
+  // Line the marker currently maps to under THIS script's wrap — re-derived,
+  // never trusted from the stale cache (survives edits / font changes).
+  const markerLine = marker ? (engineRef.current?.lineForOffset(marker.charOffset) ?? 0) : 0;
+  const atMarker = marker ? snap.topIndex === markerLine : false;
+  const showResume = canMark && !!marker && !resumeDismissed && !atMarker;
 
   // Render the current G1 frame as lines
   const hudLines = (engineRef.current?.getFrameAt(snap.topIndex) ?? '').split('\n');
@@ -609,6 +665,26 @@ export default function TeleprompterScreen() {
             </View>
           )}
 
+          {/* ── Resume chip — tap to jump to the stored marker ───────── */}
+          {showResume && (
+            <View style={s.resumeRow}>
+              <Pressable style={s.resumeChip} onPress={handleResume}>
+                <Text style={s.resumeIcon}>◆</Text>
+                <Text style={s.resumeText} numberOfLines={1}>
+                  Resume ▸ line {markerLine + 1}
+                  {marker?.anchor ? `  “${marker.anchor}”` : ''}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={s.resumeDismiss}
+                hitSlop={10}
+                onPress={() => setResumeDismissed(true)}
+              >
+                <Text style={s.resumeDismissText}>✕</Text>
+              </Pressable>
+            </View>
+          )}
+
           {/* ── Playback Controls ─────────────────────────────────────── */}
           <View style={s.controlRow}>
             <Pressable style={[s.ctrlBtn, s.ctrlSecondary]} onPress={handlePrev} disabled={!hasScript}>
@@ -632,6 +708,25 @@ export default function TeleprompterScreen() {
             <Pressable style={s.restartBtn} onPress={() => engineRef.current?.restart()}>
               <Text style={s.restartText}>↺  Restart from top</Text>
             </Pressable>
+          )}
+
+          {/* ── Resume marker — set here / clear ──────────────────────── */}
+          {canMark && (
+            <View style={s.markerRow}>
+              <Pressable
+                style={[s.markerBtn, atMarker && s.markerBtnActive]}
+                onPress={handleSetMarker}
+              >
+                <Text style={[s.markerBtnText, atMarker && s.markerBtnTextActive]}>
+                  ◆  {atMarker ? 'Marked this line' : 'Set marker here'}
+                </Text>
+              </Pressable>
+              {marker && (
+                <Pressable style={s.markerClearBtn} hitSlop={8} onPress={handleClearMarker}>
+                  <Text style={s.markerClearText}>Clear</Text>
+                </Pressable>
+              )}
+            </View>
           )}
 
           {/* ── Speed Slider ─────────────────────────────────────────── */}
@@ -731,6 +826,27 @@ const s = StyleSheet.create({
   restartBtn:       { alignSelf: 'center', marginBottom: 20, paddingVertical: 10, paddingHorizontal: 24,
                        backgroundColor: '#1e1e1e', borderRadius: 12 },
   restartText:      { color: '#888', fontSize: 14 },
+
+  // Resume chip (shown above controls when a marker exists)
+  resumeRow:        { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  resumeChip:       { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+                      paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12,
+                      backgroundColor: 'rgba(74,222,128,0.12)',
+                      borderWidth: 1, borderColor: 'rgba(74,222,128,0.4)' },
+  resumeIcon:       { color: '#4ade80', fontSize: 13 },
+  resumeText:       { color: '#4ade80', fontSize: 15, fontWeight: '600', flex: 1 },
+  resumeDismiss:    { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  resumeDismissText:{ color: '#666', fontSize: 16 },
+
+  // Resume marker set/clear (below controls)
+  markerRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
+  markerBtn:        { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 12,
+                      backgroundColor: '#1e1e1e', borderWidth: 1, borderColor: '#2a2a2a' },
+  markerBtnActive:  { backgroundColor: 'rgba(74,222,128,0.12)', borderColor: 'rgba(74,222,128,0.4)' },
+  markerBtnText:    { color: '#ccc', fontSize: 14, fontWeight: '600' },
+  markerBtnTextActive:{ color: '#4ade80' },
+  markerClearBtn:   { paddingVertical: 12, paddingHorizontal: 16 },
+  markerClearText:  { color: '#888', fontSize: 14 },
 
   // Speed
   speedCard:        { backgroundColor: '#141414', borderRadius: 16, padding: 20, marginBottom: 16 },

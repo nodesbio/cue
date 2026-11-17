@@ -372,7 +372,7 @@ export default function FilesScreen() {
 
   // ── Load ────────────────────────────────────────────────────────────────
   const handleLoad = useCallback((entry: ScriptEntry) => {
-    getEngine().loadScript(entry.text);
+    getEngine().loadScript(entry.text, entry.id);
     // setLoadedId flips the badge on exactly two rows — cheap, do it now so
     // the UI responds immediately.
     setLoadedId(entry.id);

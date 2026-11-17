@@ -70,6 +70,7 @@ const LOOP_RESTART_DELAY_MS = 3000;
 export class TeleprompterEngine {
   private lines: string[] = [];
   private lineStarts: number[] = []; // source char offset of each wrapped line
+  private activeId: string | null = null; // ScriptStore id of loaded script
   private topIndex = 0;
   private state: EngineState = 'idle';
   private secondsPerLine: number;
@@ -95,18 +96,32 @@ export class TeleprompterEngine {
 
   // ── Script loading ────────────────────────────────────────────────────────
 
-  /** Load a new script. Stops playback and resets position. */
-  loadScript(script: string): void {
+  /**
+   * Load a new script. Stops playback and resets position.
+   *
+   * `id` is the ScriptStore entry id of the loaded script, if any. The engine
+   * holds it so marker writes ("Set marker") target the correct entry and the
+   * id never drifts out of sync with the loaded text — they change together,
+   * atomically, here. Passing undefined (ad-hoc/compose-draft text) clears it,
+   * which correctly disables the marker UI for unsaved text.
+   */
+  loadScript(script: string, id?: string): void {
     this._clearTimers();
     const wrapped = wrapScriptWithOffsets(script);
     this.lines = wrapped.lines;
     this.lineStarts = wrapped.lineStarts;
+    this.activeId = id ?? null;
     this.topIndex = 0;
     this.state = 'idle';
     this._emit('loadScript');
   }
 
   // ── Resume markers ──────────────────────────────────────────────────────
+
+  /** ScriptStore id of the currently loaded script, or null for ad-hoc text. */
+  activeScriptId(): string | null {
+    return this.activeId;
+  }
 
   /**
    * Source char offset of the current top line — what the UI persists when
