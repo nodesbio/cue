@@ -2499,6 +2499,13 @@ export class G1Core {
             `→ reading eye ${keep}, blank-live on ${keep === 'R' ? 'L' : 'R'} ` +
             `(pref=${this._preferredEye ?? 'Auto'})`,
           );
+          // Notify the HUD on the INITIAL mono drop — same handler the 5-min eye
+          // alternation uses. Without this, monoSide flips here but nothing
+          // re-pushes the frame, so a PAUSED operator keeps seeing the stale
+          // stereo status bar (both lenses' batteries) after one lens goes dark
+          // (field: cue-logs-2026-11-17T02-19-30 showed 'L74% R79%' with L off).
+          // The handler updates the live-lens battery and re-pushes in place.
+          this._onReadingEyeSwap?.(keep);
         }
       } else {
         this._monoBreachStreak = 0;

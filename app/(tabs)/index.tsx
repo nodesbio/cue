@@ -186,8 +186,19 @@ export default function TeleprompterScreen() {
     core.setReadingEyeSwapHandler((side) => {
       const engine = engineRef.current;
       if (!engine || core.status.poweredOff) return;
+      // Update the live-lens battery BEFORE snapshotting: the status bar builds
+      // from monoBat, and the battery effect only runs on status ticks — so on
+      // the mono flip (and each alternation) monoBat is stale until we set it
+      // here. Without this the re-pushed frame still shows both lenses' batteries
+      // (field: HUD read 'L74% R79% [S]' after L went dark). side===null ⇒ back
+      // to stereo (shouldn't happen mid-session, but keeps the contract honest).
+      engine.setBattery(
+        core.status.left.batteryPct ?? null,
+        core.status.right.batteryPct ?? null,
+        side,
+      );
       const s = engine.getSnapshot();
-      core.note(`[index] EYE-ALTERNATE → reader=${side}, re-push line=${s.topIndex + 1}/${s.totalLines}`);
+      core.note(`[index] MONO/EYE flip → reader=${side}, re-push line=${s.topIndex + 1}/${s.totalLines}`);
       void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
     });
     return () => core.setReadingEyeSwapHandler(null);
