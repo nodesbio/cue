@@ -7,7 +7,7 @@
  * receive touches when the row is in the revealed state (pointerEvents).
  */
 
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -43,6 +43,7 @@ import {
   type ScriptEntry,
 } from '@/lib/scripts/ScriptStore';
 import { getEngine } from '@/lib/teleprompter/engine';
+import { scriptLengthLabel } from '@/lib/teleprompter/readTime';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,8 @@ function NewModal({
 interface RowProps {
   entry:       ScriptEntry;
   isLoaded:    boolean;
+  /** Current scroll speed, so the row can show how long the script runs. */
+  secondsPerLine: number;
   onLoad:      (entry: ScriptEntry) => void;
   onEdit:      (entry: ScriptEntry) => void;
   onDelete:    (id: string) => void;
@@ -183,7 +186,7 @@ interface RowProps {
   onDragStart: (id: string, pageY: number) => void;
 }
 
-const ScriptRow = memo(function ScriptRow({ entry, isLoaded, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
+const ScriptRow = memo(function ScriptRow({ entry, isLoaded, secondsPerLine, onLoad, onEdit, onDelete, onRename, onDragStart }: RowProps) {
   const tx        = useRef(new Animated.Value(0)).current;
   const revealed  = useRef(false);
   const [renaming, setRenaming] = useState(false);
@@ -245,6 +248,7 @@ const ScriptRow = memo(function ScriptRow({ entry, isLoaded, onLoad, onEdit, onD
     ? `Opened ${new Date(entry.openedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
     : `Added ${new Date(entry.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
   const preview = entry.text.slice(0, 90).replace(/\n/g, ' ');
+  const lengthLabel = useMemo(() => scriptLengthLabel(entry.text, secondsPerLine), [entry.text, secondsPerLine]);
 
   return (
     // clip to row height; no overflow:hidden so touches aren't eaten
@@ -289,7 +293,7 @@ const ScriptRow = memo(function ScriptRow({ entry, isLoaded, onLoad, onEdit, onD
               )}
               {isLoaded && <Text style={r.loadedBadge}>● loaded</Text>}
             </View>
-            <Text style={r.meta}>{openedLabel} · {entry.text.length.toLocaleString()} chars</Text>
+            <Text style={r.meta}>{openedLabel} · {lengthLabel}</Text>
             <Text style={r.preview} numberOfLines={1}>{preview}</Text>
           </Pressable>
         </View>
@@ -342,7 +346,12 @@ export default function FilesScreen() {
     listScripts().then(list => { setList(list); setLoading(false); });
   }
 
-  useFocusEffect(useCallback(() => { refresh(); }, []));
+  // Speed is set on the Teleprompter tab; re-read it whenever this tab regains focus.
+  const [pace, setPace] = useState(() => getEngine().getSnapshot().secondsPerLine);
+  useFocusEffect(useCallback(() => {
+    refresh();
+    setPace(getEngine().getSnapshot().secondsPerLine);
+  }, []));
 
   // ── Backup / restore ────────────────────────────────────────────────────
   async function handleBackup() {
@@ -536,6 +545,7 @@ export default function FilesScreen() {
                   <ScriptRow
                     entry={entry}
                     isLoaded={entry.id === loadedId}
+                    secondsPerLine={pace}
                     onLoad={handleLoad}
                     onEdit={setEditEntry}
                     onDelete={handleDelete}
@@ -560,7 +570,7 @@ export default function FilesScreen() {
                   <Text style={s.ghostDragIcon}>≡</Text>
                   <View style={s.ghostContent}>
                     <Text style={s.ghostName} numberOfLines={1}>{draggedEntry.name}</Text>
-                    <Text style={s.ghostMeta}>{draggedEntry.text.length.toLocaleString()} chars</Text>
+                    <Text style={s.ghostMeta}>{scriptLengthLabel(draggedEntry.text, pace)}</Text>
                   </View>
                 </Animated.View>
               )}

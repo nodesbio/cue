@@ -32,6 +32,7 @@ import {
   SPEED_STEP,
 } from '@/lib/teleprompter/TeleprompterEngine';
 import { getEngine } from '@/lib/teleprompter/engine';
+import { remainingSeconds, formatClock } from '@/lib/teleprompter/readTime';
 import { getScript, setMarker, clearMarker, type ResumeMarker } from '@/lib/scripts/ScriptStore';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -590,6 +591,8 @@ export default function TeleprompterScreen() {
   const playing = snap.state === 'playing';
   const ended   = snap.state === 'ended';
   const hasScript = snap.totalLines > 0;
+  // null in manual mode (no timer); hidden once the script has ended.
+  const timeLeft = ended ? null : remainingSeconds(snap.topIndex, snap.totalLines, snap.secondsPerLine);
   // Marker UI is only meaningful for a saved script (has an id to persist to).
   const canMark = hasScript && !!engineRef.current?.activeScriptId();
   // Line the marker currently maps to under THIS script's wrap — re-derived,
@@ -667,9 +670,14 @@ export default function TeleprompterScreen() {
           {/* ── Progress ─────────────────────────────────────────────── */}
           {hasScript && (
             <View style={s.progressRow}>
-              <Text style={s.progressText}>
-                Line {snap.topIndex + 1} / {snap.totalLines}
-              </Text>
+              <View style={s.progressHeader}>
+                <Text style={s.progressText}>
+                  Line {snap.topIndex + 1} / {snap.totalLines}
+                </Text>
+                {timeLeft !== null && (
+                  <Text style={s.progressTime}>{formatClock(timeLeft)} left</Text>
+                )}
+              </View>
               <View style={s.progressBar}>
                 <View
                   style={[
@@ -826,7 +834,9 @@ const s = StyleSheet.create({
 
   // Progress
   progressRow:      { marginBottom: 20, gap: 8 },
+  progressHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   progressText:     { color: '#555', fontSize: 12 },
+  progressTime:     { color: '#aaa', fontSize: 12, fontWeight: '600', fontVariant: ['tabular-nums'] },
   progressBar:      { height: 2, backgroundColor: '#1e1e1e', borderRadius: 1 },
   progressFill:     { height: 2, backgroundColor: '#22c55e', borderRadius: 1 },
 
