@@ -33,6 +33,7 @@ export default function SettingsScreen() {
   const [lastEvent, setLastEvent]             = useState<string | null>(null);
   const [debugDevices, setDebugDevices]       = useState<string[]>([]);
   const [scanning, setScanning]               = useState(false);
+  const [showAdvanced, setShowAdvanced]       = useState(false);
   const [showLogs, setShowLogs]               = useState(false);
   const [verboseLogs, setVerboseLogs]         = useState(false);
   const [harnessRunning, setHarnessRunning]   = useState(false);
@@ -549,35 +550,8 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
-        {/* ── Debug ──────────────────────────────────────────── */}
-        <Text style={s.section}>Debug</Text>
-
-        <Pressable style={[s.btn, s.btnSecondary]} onPress={runDebugScan} disabled={scanning}>
-          <Text style={[s.btnText, { color: '#888' }]}>
-            {scanning ? 'Scanning…' : '🔍 Scan All BLE Devices'}
-          </Text>
-        </Pressable>
-
-        {debugDevices.map((d, i) => (
-          <Text key={i} style={s.debugText}>{d}</Text>
-        ))}
-
-        {/* Verbose BLE logging — enriches the shared log with raw RX frames
-            (incl. 0x4e ACK bytes) and per-frame write/ACK timing. Off by
-            default: ~55% more log volume. Flip on before capturing a skew
-            session, Share, then flip off. */}
-        <View style={s.row}>
-          <View style={s.rowText}>
-            <Text style={s.label}>Verbose BLE logging</Text>
-            <Text style={s.sub}>Logs raw frames + sync timing for skew diagnosis. Turn on before a capture.</Text>
-          </View>
-          <Switch
-            value={verboseLogs}
-            onValueChange={(val) => { setVerboseLogs(val); core.setVerbose(val); }}
-            trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
-            thumbColor="#fff"
-          />
-        </View>
+        {/* ── Single-lens mode ───────────────────────────────── */}
+        <Text style={s.section}>Single-Lens Mode</Text>
 
         {/* Reading-eye auto-alternation (eye-health). In mono (single-lens)
             mode, rotates which eye shows content every few minutes so one eye
@@ -599,6 +573,44 @@ export default function SettingsScreen() {
             thumbColor="#fff"
           />
         </View>
+
+        {/* ── Advanced ───────────────────────────────────────
+            Field diagnostics (BLE scan, verbose logging). Collapsed by
+            default so everyday users are not shown developer tools. */}
+        <Pressable onPress={() => setShowAdvanced(v => !v)} hitSlop={8} accessibilityRole="button">
+          <Text style={s.section}>Advanced {showAdvanced ? '▾' : '▸'}</Text>
+        </Pressable>
+
+        {showAdvanced && (
+          <>
+            <Pressable style={[s.btn, s.btnSecondary]} onPress={runDebugScan} disabled={scanning}>
+              <Text style={[s.btnText, { color: '#888' }]}>
+                {scanning ? 'Scanning…' : '🔍 Scan All BLE Devices'}
+              </Text>
+            </Pressable>
+
+            {debugDevices.map((d, i) => (
+              <Text key={i} style={s.debugText}>{d}</Text>
+            ))}
+
+            {/* Verbose BLE logging — enriches the shared log with raw RX frames
+                (incl. 0x4e ACK bytes) and per-frame write/ACK timing. Off by
+                default: ~55% more log volume. Flip on before capturing a skew
+                session, Share, then flip off. */}
+            <View style={s.row}>
+              <View style={s.rowText}>
+                <Text style={s.label}>Verbose BLE logging</Text>
+                <Text style={s.sub}>Logs raw frames + sync timing for skew diagnosis. Turn on before a capture.</Text>
+              </View>
+              <Switch
+                value={verboseLogs}
+                onValueChange={(val) => { setVerboseLogs(val); core.setVerbose(val); }}
+                trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
+                thumbColor="#fff"
+              />
+            </View>
+          </>
+        )}
 
         {/* ── Calibrate ──────────────────────────────────────────
             Tunes the scroll pace to THIS pair at its current charge. Link
