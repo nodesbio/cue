@@ -320,6 +320,21 @@ export class G1Core {
   private _monoBreachStreak = 0;  // consecutive perceptible-skew paired frames
   private _monoRecoverStreak = 0; // consecutive clean frames while in mono
 
+  // ── Background ACK-MISS mono trigger ──────────────────────────────────────
+  // The skew detector (_evaluateSkew) only ticks when paired ACKs come back, so
+  // it goes DORMANT when iOS throttles the BLE radio on lockscreen/background —
+  // emergency-mono never fired while locked (field: cue-logs-2026-11-17T03-39,
+  // 82 consecutive R ACK MISSes over ~5 min backgrounded, mono fired only once
+  // the app returned to active). The per-frame ACK-MISS probe DOES run in
+  // background, so a sustained one-sided miss streak is the only live signal
+  // for a dead lens while locked. A run of N same-side misses trips mono,
+  // keeping the lens that is still acking.
+  private _ackMissSide: Side | null = null; // side of the current miss streak
+  private _ackMissStreak = 0;               // consecutive same-side ACK misses
+  // 3 missed frames ≈ the same evidence bar as SKEW_MONO_BREACH_COUNT: enough to
+  // rule out a lone dropped ACK, fast enough to catch a dead lens within ~6-9s.
+  private static readonly ACK_MISS_MONO_COUNT = 3;
+
   /** Operator's preferred reading eye (UI toggle). null = Auto (link decides).
    *  Honored in mono ONLY when the preferred lens's link is healthy; a dead
    *  preferred lens is overridden to the lens that actually works. Since the
@@ -353,13 +368,10 @@ export class G1Core {
   }
 
   async emergencyMono(): Promise<void> {
-    this._stereoLatchedOff = true;
-    if (this._monoSide == null) {
-      this._monoSide = this._pickMonoSide(this._skewMeanMs);
-    }
-    this._monoBreachStreak = 0;
-    this._monoRecoverStreak = 0;
-    this._log(`[G1] EMERGENCY-MONO → keeping ${this._monoSide}; stereo latched off for session`);
+    // Operator pressed the emergency key. Keep the coherent lens via the same
+    // priority the auto path uses. _tripMono is idempotent, so a second press
+    // while already mono is a safe no-op (no re-log, no re-notify).
+    this._tripMono(this._monoSide ?? this._pickMonoSide(this._skewMeanMs), 'emergency key');
     // ACTUATION NOTE: this only sets the mono DECISION. The actual lens drive —
     // blank the laggard + drive the kept lens — happens when a TEXT frame flows
     // through _sendBoth (the mono branch there). The emergency key is pressed
@@ -369,6 +381,32 @@ export class G1Core {
     // firmware-aware R-first ESB sync in _sendBoth and left BOTH lenses lit when
     // keeping R (the ESB slave rejected the lone out-of-sync seq). Driving the
     // real frame through _sendBoth reuses the proven auto-fallback path instead.
+  }
+
+  /** Shared mono-drop body. Every path that forces mono (operator emergency
+   *  key, auto skew-fallback, and the background ACK-MISS detector) funnels
+   *  through here so the latch, streak resets, logging and HUD notify are
+   *  identical. Idempotent: a no-op if already mono on the same side.
+   *
+   *  `keep` is the lens to DRIVE (the reader). The caller decides which lens
+   *  survives: the skew path uses _pickMonoSide(mean); the ACK-MISS path keeps
+   *  the lens that is still acking (the opposite of the missing side).
+   *
+   *  Does NOT itself push a frame — the mono decision actuates on the next
+   *  TEXT frame through _sendBoth's mono branch. _onReadingEyeSwap re-pushes
+   *  the current frame so a PAUSED/foregrounded operator heals immediately. */
+  private _tripMono(keep: Side, reason: string): void {
+    this._stereoLatchedOff = true;
+    if (this._monoSide === keep) return; // already there — don't re-log/re-notify
+    this._monoSide = keep;
+    this._monoBreachStreak = 0;
+    this._monoRecoverStreak = 0;
+    this._log(
+      `[G1] MONO-DROP (${reason}) → reading eye ${keep}, ` +
+      `blank-live on ${keep === 'R' ? 'L' : 'R'} (pref=${this._preferredEye ?? 'Auto'}); ` +
+      `stereo latched off for session`,
+    );
+    this._onReadingEyeSwap?.(keep);
   }
 
   /** Re-enable stereo for a NEW session (deliberate operator action only — e.g.
@@ -605,7 +643,27 @@ export class G1Core {
     AppState?.addEventListener?.('change', (next) => {
       if (next !== this._appState) {
         this._log(`[G1] APPSTATE ${this._appState} → ${next}`);
+        const leavingActive = this._appState === 'active' && next !== 'active';
         this._appState = next;
+        // PRE-EMPTIVE MONO ON LOCK/BACKGROUND. Verified limitation (2026-11-17,
+        // confirmed against Apple CoreBluetooth background docs): on lockscreen
+        // iOS suspends the RN JS runloop, so NO setTimeout/BLE-ACK callback
+        // fires and the skew + ACK-MISS detectors go dark — a lens that dies
+        // mid-lock would silently ghost the reader with no way to catch it
+        // (bluetooth-central only wakes NATIVE CB delegates, not the JS bridge).
+        // So we cannot DETECT a dead lens while locked; we DEFEND against it:
+        // the instant we leave 'active' (this handler still runs — JS is alive
+        // for the transition), drop to a single clean lens. Operating contract:
+        // screen on = tinker in stereo, screen locked = committed to mono.
+        // Stereo re-earns on resume via the normal skew path (latch is cleared
+        // by _tripMono? no — it LATCHES off; resume path calls resetLensSession
+        // on a deliberate restart). We only arm this when actually presenting:
+        // connected + not already mono, else an idle backgrounded app would
+        // needlessly latch mono before the operator ever starts.
+        if (leavingActive && this.isConnected && this._monoSide === null) {
+          const keep = this._pickMonoSide(this._skewMeanMs);
+          this._tripMono(keep, `app left active (${next}) — can't detect dead lens while locked`);
+        }
       }
     });
   }
@@ -2480,13 +2538,6 @@ export class G1Core {
         this._monoBreachStreak++;
         if (this._monoBreachStreak >= G1Core.SKEW_MONO_BREACH_COUNT) {
           const keep = this._pickMonoSide(this._skewMeanMs);
-          this._monoSide = keep;
-          this._monoBreachStreak = 0;
-          this._monoRecoverStreak = 0;
-          // Stage rule: an auto-drop is as committing as an emergency drop. Once
-          // we go mono, latch stereo OFF for the session so the recover path
-          // below cannot auto-resume and flicker the echo back mid-presentation.
-          this._stereoLatchedOff = true;
           // Log the PER-FRAME skew that actually tripped the gate, not the mean
           // — the gate is per-frame-streaked (see comment above), so printing the
           // mean (which the sign-flip cancels toward ~0) reads as a false "1ms ≥
@@ -2495,17 +2546,10 @@ export class G1Core {
           this._log(
             `[G1] MONO-FALLBACK seq=${seq} |skew|=${Math.abs(skew)}ms ≥ ` +
             `${G1Core.SKEW_MONO_THRESHOLD_MS}ms for ${G1Core.SKEW_MONO_BREACH_COUNT} ` +
-            `frames (meanSign=${this._skewMeanMs >= 0 ? '+' : '-'}${meanAbs.toFixed(0)}ms) ` +
-            `→ reading eye ${keep}, blank-live on ${keep === 'R' ? 'L' : 'R'} ` +
-            `(pref=${this._preferredEye ?? 'Auto'})`,
+            `frames (meanSign=${this._skewMeanMs >= 0 ? '+' : '-'}${meanAbs.toFixed(0)}ms)`,
           );
-          // Notify the HUD on the INITIAL mono drop — same handler the 5-min eye
-          // alternation uses. Without this, monoSide flips here but nothing
-          // re-pushes the frame, so a PAUSED operator keeps seeing the stale
-          // stereo status bar (both lenses' batteries) after one lens goes dark
-          // (field: cue-logs-2026-11-17T02-19-30 showed 'L74% R79%' with L off).
-          // The handler updates the live-lens battery and re-pushes in place.
-          this._onReadingEyeSwap?.(keep);
+          // Shared drop: latches stereo off, resets streaks, notifies the HUD.
+          this._tripMono(keep, `skew seq=${seq}`);
         }
       } else {
         this._monoBreachStreak = 0;
@@ -2698,8 +2742,37 @@ export class G1Core {
             `[G1] *** ACK MISS side=${miss} seq=${probeSeq} +${Date.now() - probeT0}ms — ` +
             `write flushed but no text ACK in window; likely one-lens desync. ${this.syncSnapshot}`,
           );
+          // Background dead-lens detector. The skew path is dormant while locked
+          // (no paired ACKs to tick it), so a sustained one-sided miss streak is
+          // the only live signal that a lens has died. A single-side miss (L xor
+          // R) names the dead lens; keep the OTHER lens. BOTH-miss is a total
+          // stall (radio down, not one dead lens) — don't trip mono, it would
+          // just move the reader onto an equally-dead lens; reset the streak.
+          if (this._monoSide === null && (miss === 'L' || miss === 'R')) {
+            if (this._ackMissSide === miss) {
+              this._ackMissStreak++;
+            } else {
+              this._ackMissSide = miss;
+              this._ackMissStreak = 1;
+            }
+            if (this._ackMissStreak >= G1Core.ACK_MISS_MONO_COUNT) {
+              const keep: Side = miss === 'R' ? 'L' : 'R'; // keep the acking lens
+              this._tripMono(keep, `ack-miss x${this._ackMissStreak} side=${miss}`);
+              this._ackMissSide = null;
+              this._ackMissStreak = 0;
+            }
+          } else {
+            // BOTH-miss or already mono: the streak isn't evidence of one dead
+            // lens, so clear it to avoid a stale trip when single misses resume.
+            this._ackMissSide = null;
+            this._ackMissStreak = 0;
+          }
         } else {
           this._trace(`[G1] ack OK seq=${probeSeq} (L+R) within +${Date.now() - probeT0}ms`);
+          // Clean paired ACK — the lens recovered. Reset the miss streak so an
+          // intermittent single drop never accumulates across healthy frames.
+          this._ackMissSide = null;
+          this._ackMissStreak = 0;
         }
       }, G1Core.R_ACK_PROBE_MS);
 
