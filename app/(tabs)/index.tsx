@@ -843,7 +843,7 @@ const s = StyleSheet.create({
   // Controls
   controlRow:       { flexDirection: 'row', gap: 12, marginBottom: 20, justifyContent: 'center' },
   ctrlBtn:          { borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  ctrlPrimary:      { backgroundColor: '#fff', width: 72, height: 72 },
+  ctrlPrimary:      { backgroundColor: '#22c55e', width: 72, height: 72 },
   ctrlSecondary:    { backgroundColor: '#1e1e1e', width: 56, height: 56 },
   ctrlDisabled:     { opacity: 0.3 },
   ctrlPlayIcon:     { fontSize: 28 },
