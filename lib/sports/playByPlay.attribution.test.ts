@@ -129,6 +129,43 @@ const returnRoster: Roster = new Map<string, string>([
 // On this kickoff ESPN labels the KICKING team as "offense" (the inversion trap).
 const KICKOFF_CTX: PlayContext = { offense: 'KU', defense: 'BYU' };
 
+/**
+ * Surname matching must be EXACT on a name part, not a substring of the whole
+ * name. "Smith" must not spuriously match "Smithson"/"Goldsmith". With a
+ * substring match, a J.Smith token against a #4 carrying both "Jordan Smith"
+ * and "Jalen Smithson" sees two hits -> conflict -> abstains, silently losing
+ * the resolution we should have made (Jordan Smith is the exact match).
+ */
+const smithRoster: Roster = new Map<string, string>([['USC#4', 'Jordan Smith']]);
+// Two holders of #4 that collide under a substring match but not an exact one.
+const smithCollisionRoster: Roster = new Map<string, string>([
+  ['USC#4', 'Jordan Smith'],
+  ['UCLA#4', 'Jalen Smithson'], // substring "smith" ⊂ "smithson" — the trap
+]);
+const USC_BALL: PlayContext = { offense: 'USC', defense: 'UCLA' };
+
+describe('surname matching is exact per name-part, not a substring', () => {
+  it('resolves J.Smith to Jordan Smith even when a Smithson shares the jersey', () => {
+    const out = expandNames(
+      'Luke Fahey pass incomplete short left to #4 J.Smith',
+      smithCollisionRoster,
+      USC_BALL,
+    );
+    expect(out).toContain('Jordan Smith'); // exact surname match wins
+    expect(out).not.toContain('Jalen Smithson'); // "smith" must NOT match "smithson"
+    expect(out).toContain('Luke Fahey'); // already-full name passes through untouched
+  });
+
+  it('resolves cleanly when the jersey is unique', () => {
+    const out = expandNames(
+      'Luke Fahey pass incomplete short left to #4 J.Smith',
+      smithRoster,
+      USC_BALL,
+    );
+    expect(out).toContain('Jordan Smith');
+  });
+});
+
 describe('kick/punt return plays resolve by name, never by inverted clause team', () => {
   const text =
     '#99 B.Laga kickoff 63 yards to the KU02 #12 B.Hayes return 18 yards to the KU20 (#38 L.Payne)';

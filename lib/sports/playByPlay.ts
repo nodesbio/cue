@@ -237,8 +237,13 @@ export function expandNames(
     if (!holders || holders.length === 0) return { kind: 'unknown' };
     const sur = surname.split(' ')[0].toLowerCase(); // drop "Jr."/Roman suffix
     const hits = holders.filter((p) => {
-      const parts = p.name.split(' ');
-      return parts[0][0] === initial && p.name.toLowerCase().includes(sur);
+      // Match on EXACT name parts, not a substring: "Smith" must not match
+      // "Smithson". First part supplies the initial; any later part is the
+      // surname (handles "Van Jefferson", "St. Brown", hyphenated names).
+      const parts = p.name.split(/\s+/);
+      const firstInitialOk = parts[0][0]?.toUpperCase() === initial.toUpperCase();
+      const surnameOk = parts.slice(1).some((part) => part.toLowerCase() === sur);
+      return firstInitialOk && surnameOk;
     });
     if (hits.length === 1) return { kind: 'match', name: hits[0].name };
     return { kind: 'conflict' };
