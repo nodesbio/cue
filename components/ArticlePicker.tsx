@@ -27,6 +27,7 @@ import {
   View,
 } from 'react-native';
 import { fetchNewsList, type NewsItem } from '@/lib/sports/newsFeed';
+import { loadSeen, partitionBySeen, type SeenMap } from '@/lib/sports/SeenStore';
 
 /** A named news source the picker can browse (label + prebuilt list URL). */
 export interface NewsSource {
@@ -67,8 +68,32 @@ export function ArticlePicker({ sources, onStream }: ArticlePickerProps) {
   // Queue is kept ORDERED (array, not set) so read order == pick order.
   const [queue, setQueue] = useState<string[]>([]);
 
+  // Already-streamed set (#49 dedup). Loaded once on mount; drives the dimmed
+  // "SEEN" tag and the Fresh-only filter so a nightly listener surfaces NEW
+  // articles instead of last night's. A corrupt read is surfaced (seenWarn) but
+  // we default to show-all — a readable picker beats blocking on history, and
+  // the store's contract is "caller decides" (SeenStore throws, we choose here).
+  const [seen, setSeen] = useState<SeenMap>({});
+  const [seenWarn, setSeenWarn] = useState<string | null>(null);
+  const [freshOnly, setFreshOnly] = useState(false);
+
   const abortRef = useRef<AbortController | null>(null);
   const source = sources.find((s) => s.id === sourceId) ?? null;
+
+  // Load the seen-set once. Refreshed each time a source loads so returning from
+  // a stream reflects what was just read (markSeen runs in useArticleStream).
+  useEffect(() => {
+    void (async () => {
+      try {
+        setSeen(await loadSeen());
+        setSeenWarn(null);
+      } catch (e) {
+        // Surface, don't silence: history unreadable → show everything, but say so.
+        setSeenWarn('Couldn\u2019t read your history — showing all articles.');
+        setSeen({});
+      }
+    })();
+  }, [sourceId]);
 
   // Load the selected source's news list. Aborts an in-flight load on switch.
   useEffect(() => {
@@ -110,16 +135,36 @@ export function ArticlePicker({ sources, onStream }: ArticlePickerProps) {
     if (queue.length > 0) onStream(queue);
   }, [queue, onStream]);
 
+  // Split by history; freshOnly hides already-seen items. Order is preserved so
+  // the newest headlines stay on top.
+  const { fresh, seen: seenItems } = partitionBySeen(items, seen);
+  const visible = freshOnly ? fresh : items;
+  const seenCount = seenItems.length;
+
   return (
     <View style={styles.body}>
       <View style={styles.header}>
         <Text style={styles.title}>Pick articles</Text>
-        {queue.length > 0 && (
-          <Pressable onPress={clearQueue} hitSlop={6}>
-            <Text style={styles.clear}>Clear ({queue.length})</Text>
-          </Pressable>
-        )}
+        <View style={styles.headerRight}>
+          {seenCount > 0 && (
+            <Pressable
+              onPress={() => setFreshOnly((v) => !v)}
+              hitSlop={6}
+              style={[styles.freshToggle, freshOnly && styles.freshToggleOn]}
+            >
+              <Text style={[styles.freshText, freshOnly && styles.freshTextOn]}>
+                {freshOnly ? `Fresh only · ${fresh.length}` : `Hide seen · ${seenCount}`}
+              </Text>
+            </Pressable>
+          )}
+          {queue.length > 0 && (
+            <Pressable onPress={clearQueue} hitSlop={6}>
+              <Text style={styles.clear}>Clear ({queue.length})</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
+      {seenWarn && <Text style={styles.seenWarn}>⚠ {seenWarn}</Text>}
 
       {/* Source chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sourceRow}>
@@ -149,24 +194,34 @@ export function ArticlePicker({ sources, onStream }: ArticlePickerProps) {
         {!loading && !error && items.length === 0 && (
           <Text style={styles.muted}>No articles for this source right now.</Text>
         )}
+        {!loading && !error && items.length > 0 && visible.length === 0 && (
+          <Text style={styles.muted}>
+            {'You\u2019ve seen everything here. Turn off Fresh only to re-read.'}
+          </Text>
+        )}
         {!loading &&
-          items.map((it) => {
+          visible.map((it) => {
             const queued = queue.includes(it.id);
             const pos = queue.indexOf(it.id) + 1;
+            const isSeen = Object.prototype.hasOwnProperty.call(seen, it.id);
             return (
               <Pressable
                 key={it.id}
                 onPress={() => toggleQueue(it.id)}
-                style={[styles.item, queued && styles.itemQueued]}
+                style={[styles.item, queued && styles.itemQueued, isSeen && !queued && styles.itemSeen]}
               >
                 <View style={styles.itemLeft}>
                   <Text
-                    style={[styles.itemHead, it.maybeVideo && styles.itemHeadMuted]}
+                    style={[
+                      styles.itemHead,
+                      (it.maybeVideo || isSeen) && styles.itemHeadMuted,
+                    ]}
                     numberOfLines={2}
                   >
                     {it.headline}
                   </Text>
                   <View style={styles.itemMetaRow}>
+                    {isSeen && <Text style={styles.seenTag}>SEEN</Text>}
                     {it.maybeVideo && <Text style={styles.videoTag}>VIDEO · likely no prose</Text>}
                     {!it.maybeVideo && it.type !== '' && (
                       <Text style={styles.typeTag}>{it.type}</Text>
@@ -211,6 +266,23 @@ const styles = StyleSheet.create({
   },
   title: { color: C.text, fontSize: 20, fontWeight: '700' },
   clear: { color: C.hot, fontSize: 13, fontWeight: '600' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  freshToggle: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  freshToggleOn: { backgroundColor: C.accent, borderColor: C.accent },
+  freshText: { color: C.dim, fontSize: 12, fontWeight: '600' },
+  freshTextOn: { color: '#000000' },
+  seenWarn: {
+    color: C.hot,
+    fontSize: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
   sourceRow: { flexDirection: 'row', paddingHorizontal: 12, maxHeight: 44 },
   chip: {
     paddingHorizontal: 14,
@@ -239,11 +311,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   itemQueued: { borderColor: C.queued },
+  itemSeen: { opacity: 0.55 },
   itemLeft: { flex: 1, paddingRight: 12 },
   itemHead: { color: C.text, fontSize: 15, fontWeight: '600', lineHeight: 20 },
   itemHeadMuted: { color: C.dim },
   itemMetaRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
   videoTag: { color: C.hot, fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
+  seenTag: { color: C.queued, fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
   typeTag: { color: C.dim, fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
   itemRight: { width: 36, alignItems: 'center', justifyContent: 'center' },
   addGlyph: { color: C.dim, fontSize: 22, fontWeight: '400' },

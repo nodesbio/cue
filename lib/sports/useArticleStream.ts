@@ -27,6 +27,7 @@ import {
   type ArticleProse,
   type ArticleRejectReason,
 } from './articleStream';
+import { markSeen } from './SeenStore';
 
 // Distinct per-segment owner token (#43/#49): LiveSportsView, DeckView and
 // StreamView each hold the lens under their OWN token so an outgoing segment's
@@ -106,6 +107,32 @@ export async function assembleStream(
   return { lines, skipped };
 }
 
+/**
+ * Pure: the ids of articles fully streamed past by the time the lens window sits
+ * at `index` (its top line). An article counts as read once its LAST line is
+ * above the window top (index > that line) — i.e. it has scrolled off the top of
+ * the lens. On the final window we also count articles whose last line is within
+ * the visible window, since play-through-end shows that window then goes dark.
+ *
+ * Returned in first-seen order, deduped. This is the signal SeenStore records —
+ * only articles you actually read to the end, never ones still on/ahead of the
+ * lens. Extracted pure so the "mark seen" rule is unit-testable without a device.
+ */
+export function articlesReadBy(lines: readonly StreamLine[], index: number): string[] {
+  if (lines.length === 0) return [];
+  const atEnd = index >= lines.length - WINDOW_SIZE;
+  // Last line index per article (lines are contiguous per article).
+  const lastLineOf = new Map<string, number>();
+  lines.forEach((l, i) => lastLineOf.set(l.articleId, i));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [id, last] of lastLineOf) {
+    const read = atEnd ? last <= index + WINDOW_SIZE - 1 : last < index;
+    if (read && !seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  return out;
+}
+
 export interface UseArticleStream {
   /** Flat, wrapped, ≤45-col lines across all streamable queued articles. */
   lines: StreamLine[];
@@ -152,6 +179,9 @@ export function useArticleStream(
 
   const abortRef = useRef<AbortController | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ids already persisted to SeenStore this load — avoids re-writing on every
+  // window tick. Reset in load() when a new queue comes in.
+  const markedRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async (articleIds: string[]) => {
     abortRef.current?.abort();
@@ -161,6 +191,7 @@ export function useArticleStream(
     setIndex(0);
     setSkipped([]);
     setError(null);
+    markedRef.current = new Set();
 
     if (articleIds.length === 0) { setLines([]); return; }
 
@@ -204,6 +235,22 @@ export function useArticleStream(
       void core.sendText(frame, 1, 1, true, undefined, OWNER);
     }
   }, [playing, index, lines, isConnected, core]);
+
+  // Record articles streamed past as the window advances (#49 dedup). Only ids
+  // not yet persisted this load are written, so a nightly listener won't re-see
+  // them. A write failure is surfaced (console), never silenced — a lost "seen"
+  // mark just means the article may reappear, which is safe, but we don't want
+  // to hide a storage fault (Zoracon). Marking is gated on `playing` so merely
+  // scrubbing with next/prev while paused doesn't burn through the backlog.
+  useEffect(() => {
+    if (!playing || lines.length === 0) return;
+    const readNow = articlesReadBy(lines, index).filter((id) => !markedRef.current.has(id));
+    if (readNow.length === 0) return;
+    for (const id of readNow) markedRef.current.add(id);
+    markSeen(readNow).catch((e) => {
+      console.warn('[useArticleStream] markSeen failed:', (e as Error).message);
+    });
+  }, [playing, index, lines]);
 
   // The clock: advance one window per dwell while playing. Local-only (no
   // network), so it keeps ticking with the phone in a pocket.
