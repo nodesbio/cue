@@ -23,11 +23,23 @@ import { SportsFeed, DEFAULT_POLL_MS } from '@/lib/sports/SportsFeed';
 import { LEAGUE_LABEL } from '@/lib/sports/espn';
 import type { GameSnapshot, League } from '@/lib/sports/types';
 import { AudienceBuilder } from '@/components/AudienceBuilder';
+import { listAudiences } from '@/lib/sports/AudienceStore';
+import type { Audience } from '@/lib/sports/audience';
+import { useDeck } from '@/lib/sports/useDeck';
 
 const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM'];
 
-/** Which Sports surface is showing. 'deck' (the conversation lens) lands in #46. */
-type SportsMode = 'live' | 'audiences';
+/** Which Sports surface is showing. */
+type SportsMode = 'live' | 'audiences' | 'deck';
+
+/** No live-game promotion in the standalone deck yet (#46 v1). */
+const NO_LIVE: ReadonlySet<string> = new Set<string>();
+
+const MODE_LABEL: Record<SportsMode, string> = {
+  live: 'Live',
+  audiences: 'Audiences',
+  deck: 'Deck',
+};
 
 const C = {
   bg: '#0a0a0a',
@@ -57,7 +69,7 @@ export default function SportsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.segmentRow}>
-        {(['live', 'audiences'] as SportsMode[]).map((m) => {
+        {(['live', 'audiences', 'deck'] as SportsMode[]).map((m) => {
           const on = mode === m;
           return (
             <Pressable
@@ -67,13 +79,15 @@ export default function SportsScreen() {
               hitSlop={6}
             >
               <Text style={[styles.segmentText, on && styles.segmentTextOn]}>
-                {m === 'live' ? 'Live' : 'Audiences'}
+                {MODE_LABEL[m]}
               </Text>
             </Pressable>
           );
         })}
       </View>
-      {mode === 'live' ? <LiveSportsView /> : <AudienceBuilder />}
+      {mode === 'live' && <LiveSportsView />}
+      {mode === 'audiences' && <AudienceBuilder />}
+      {mode === 'deck' && <DeckView />}
     </SafeAreaView>
   );
 }
@@ -217,6 +231,114 @@ function LiveSportsView() {
   );
 }
 
+/**
+ * DeckView — the conversation deck (#46). Pick an audience, step through its
+ * cards, and mirror the current card to the lens. Play claims the lens and
+ * pushes; Pause blanks it and hands ownership back (the #43 arbiter). Stepping
+ * is manual so the wearer paces the conversation.
+ */
+function DeckView() {
+  const { core, isConnected } = useG1();
+  const connected = isConnected;
+
+  const [audiences, setAudiences] = useState<Audience[]>([]);
+  const [audienceId, setAudienceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const list = await listAudiences();
+      if (!alive) return;
+      setAudiences(list);
+      setAudienceId((cur) => cur ?? list[0]?.id ?? null);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const audience = audiences.find((a) => a.id === audienceId) ?? null;
+  const { deck, index, current, loading, error, playing, next, prev, pause, play, refresh } =
+    useDeck(core, audience, NO_LIVE, connected);
+
+  const atStart = index <= 0;
+  const atEnd = index >= deck.length - 1;
+
+  return (
+    <View style={styles.liveBody}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Deck</Text>
+        <Text style={[styles.conn, { color: connected ? C.accent : C.dim }]}>
+          {connected ? '● glasses' : '○ no glasses'}
+        </Text>
+      </View>
+
+      {/* Audience picker */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.leagueRow}>
+        {audiences.map((a) => {
+          const on = a.id === audienceId;
+          return (
+            <Pressable
+              key={a.id}
+              onPress={() => { setAudienceId(a.id); if (playing) pause(); }}
+              style={[styles.chip, on && styles.chipOn, { marginRight: 8 }]}
+            >
+              <Text style={[styles.chipText, on && styles.chipTextOn]}>{a.name}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {audiences.length === 0 && (
+        <Text style={styles.empty}>No audiences yet. Build one in the Audiences tab.</Text>
+      )}
+
+      {/* Card viewer */}
+      {audience && (
+        <View style={styles.deckCard}>
+          {loading ? (
+            <Text style={styles.deckMuted}>Loading cards…</Text>
+          ) : error ? (
+            <Text style={[styles.deckMuted, { color: C.hot }]}>⚠ {error}</Text>
+          ) : current ? (
+            <>
+              <View style={styles.deckMeta}>
+                <Text style={styles.league}>{current.topicLabel.toUpperCase()}</Text>
+                <View style={[styles.stanceBadge, current.stance === 'know' ? styles.stanceKnow : styles.stanceLearn]}>
+                  <Text style={styles.stanceText}>{current.stance === 'know' ? 'SHARE' : 'ASK'}</Text>
+                </View>
+              </View>
+              <Text style={styles.deckText}>{current.text}</Text>
+              <Text style={styles.deckCount}>{index + 1} / {deck.length}</Text>
+            </>
+          ) : (
+            <Text style={styles.deckMuted}>No cards for this audience right now.</Text>
+          )}
+        </View>
+      )}
+
+      {/* Navigation + play/pause */}
+      {current && (
+        <View style={styles.deckNav}>
+          <Pressable onPress={prev} disabled={atStart} style={[styles.navBtn, atStart && styles.navBtnOff]} hitSlop={8}>
+            <Text style={styles.navText}>‹ Prev</Text>
+          </Pressable>
+          <Pressable onPress={playing ? pause : play} style={[styles.cta, { flex: 1, marginHorizontal: 8 }, playing && styles.ctaLive]}>
+            <Text style={styles.ctaText}>{playing ? 'Pause lens' : 'Play to lens'}</Text>
+          </Pressable>
+          <Pressable onPress={next} disabled={atEnd} style={[styles.navBtn, atEnd && styles.navBtnOff]} hitSlop={8}>
+            <Text style={styles.navText}>Next ›</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {audience && !loading && (
+        <Pressable onPress={refresh} hitSlop={6}>
+          <Text style={styles.status}>↻ Refresh cards</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   liveBody: { flex: 1, paddingHorizontal: 16 },
@@ -248,4 +370,19 @@ const styles = StyleSheet.create({
   gameRight: { alignItems: 'flex-end', marginLeft: 12 },
   score: { fontSize: 22, fontWeight: '800' },
   onGlasses: { color: C.accent, fontSize: 10, fontWeight: '700', marginTop: 2 },
+
+  // Deck (#46)
+  deckCard: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 18, marginTop: 8, minHeight: 180, justifyContent: 'center' },
+  deckMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  deckText: { color: C.text, fontSize: 20, fontWeight: '600', lineHeight: 28 },
+  deckCount: { color: C.dim, fontSize: 12, marginTop: 14, textAlign: 'right' },
+  deckMuted: { color: C.dim, fontSize: 14, textAlign: 'center' },
+  stanceBadge: { paddingVertical: 3, paddingHorizontal: 10, borderRadius: 10 },
+  stanceKnow: { backgroundColor: C.accent },
+  stanceLearn: { backgroundColor: C.hot },
+  stanceText: { color: C.text, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  deckNav: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
+  navBtn: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: C.border },
+  navBtnOff: { opacity: 0.35 },
+  navText: { color: C.text, fontSize: 15, fontWeight: '700' },
 });
