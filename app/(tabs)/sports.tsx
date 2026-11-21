@@ -11,6 +11,9 @@
  */
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
+  ActivityIndicator,
+  Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,9 +22,12 @@ import {
   View,
 } from 'react-native';
 import { useG1 } from '@/lib/g1/G1Context';
+import type { G1Core } from '@/lib/g1/G1Core';
+import { useLivePlay } from '@/lib/sports/useLivePlay';
 import { SportsFeed, DEFAULT_POLL_MS } from '@/lib/sports/SportsFeed';
 import { LEAGUE_LABEL } from '@/lib/sports/espn';
-import type { GameSnapshot, League } from '@/lib/sports/types';
+import { fetchPlayByPlay } from '@/lib/sports/playByPlay';
+import type { GameSnapshot, League, PlayLine } from '@/lib/sports/types';
 import { AudienceBuilder } from '@/components/AudienceBuilder';
 import { listAudiences } from '@/lib/sports/AudienceStore';
 import type { Audience } from '@/lib/sports/audience';
@@ -125,6 +131,7 @@ function LiveSportsView() {
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<number | null>(null);
+  const [selected, setSelected] = useState<GameSnapshot | null>(null);
 
   const feedRef = useRef<SportsFeed | null>(null);
   const isConnectedRef = useRef(isConnected);
@@ -231,7 +238,13 @@ function LiveSportsView() {
           <Text style={styles.empty}>No live games right now.</Text>
         )}
         {games.map((g, i) => (
-          <View key={g.gameId} style={styles.game}>
+          <Pressable
+            key={g.gameId}
+            style={({ pressed }) => [styles.game, pressed && styles.gamePressed]}
+            onPress={() => setSelected(g)}
+            accessibilityRole="button"
+            accessibilityLabel={`${g.away} at ${g.home}, play by play`}
+          >
             <View style={styles.gameLeft}>
               <Text style={styles.league}>{LEAGUE_LABEL[g.league]}</Text>
               <Text style={styles.matchup}>{g.away} {g.awayScore} · {g.home} {g.homeScore}</Text>
@@ -247,11 +260,167 @@ function LiveSportsView() {
             <View style={styles.gameRight}>
               <Text style={[styles.score, { color: heat(g.excitement) }]}>{g.excitement}</Text>
               {i === 0 && <Text style={styles.onGlasses}>on lens</Text>}
+              <Text style={styles.tapHint}>tap ›</Text>
             </View>
-          </View>
+          </Pressable>
         ))}
       </ScrollView>
+
+      <PlayByPlayModal
+        game={selected}
+        core={core}
+        isConnected={isConnected}
+        onClose={() => setSelected(null)}
+      />
     </View>
+  );
+}
+
+/** How often to refresh play-by-play while the modal is open. */
+const PBP_POLL_MS = 15000;
+
+/**
+ * PlayByPlayModal — tap a game to see its live play-by-play. Fetches on open,
+ * polls every 15s while open, and shows loading / error / empty states
+ * honestly (an empty feed says "no plays yet", it never fakes a row). Closing
+ * aborts any in-flight fetch and clears the poll.
+ */
+function PlayByPlayModal({
+  game,
+  core,
+  isConnected,
+  onClose,
+}: {
+  game: GameSnapshot | null;
+  core: G1Core;
+  isConnected: boolean;
+  onClose: () => void;
+}) {
+  const [plays, setPlays] = useState<PlayLine[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Live-play lens stream (#49). The newest play pushes to the glasses as plays
+  // land; "to lens" starts it, closing or "off lens" stops + goes dark.
+  const live = useLivePlay(core, game?.gameId ?? '', game?.league ?? 'NCAAF', isConnected);
+
+  // Stop the lens stream whenever the modal closes, so we never strand the
+  // glasses on a frozen play after the user walks away (#43 ownership release).
+  useEffect(() => {
+    if (!game && live.streaming) live.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game]);
+
+  useEffect(() => {
+    if (!game) return;
+    let cancelled = false;
+    const ctrl = new AbortController();
+
+    const load = async (initial: boolean) => {
+      if (initial) setLoading(true);
+      try {
+        const lines = await fetchPlayByPlay(game.gameId, game.league, ctrl.signal);
+        if (!cancelled) {
+          setPlays(lines);
+          setErr(null);
+        }
+      } catch (e) {
+        if (!cancelled && !ctrl.signal.aborted) {
+          setErr(e instanceof Error ? e.message : 'Failed to load play-by-play');
+        }
+      } finally {
+        if (!cancelled && initial) setLoading(false);
+      }
+    };
+
+    load(true);
+    const timer = setInterval(() => load(false), PBP_POLL_MS);
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearInterval(timer);
+    };
+  }, [game]);
+
+  // Reset transient state when the modal closes so the next open starts clean.
+  useEffect(() => {
+    if (!game) {
+      setPlays([]);
+      setErr(null);
+      setLoading(false);
+    }
+  }, [game]);
+
+  return (
+    <Modal visible={!!game} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>
+                {game ? `${game.away} ${game.awayScore} · ${game.home} ${game.homeScore}` : ''}
+              </Text>
+              <Text style={styles.modalSub}>{game?.status ?? ''}</Text>
+            </View>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => (live.streaming ? live.stop() : live.start())}
+                disabled={!isConnected}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={live.streaming ? 'Stop streaming to glasses' : 'Stream to glasses'}
+                style={[
+                  styles.lensBtn,
+                  live.streaming && styles.lensBtnOn,
+                  !isConnected && styles.lensBtnOff,
+                ]}
+              >
+                <Text style={[styles.lensBtnText, live.streaming && styles.lensBtnTextOn]}>
+                  {live.streaming ? '● on lens' : isConnected ? 'to lens' : 'no glasses'}
+                </Text>
+              </Pressable>
+              <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
+                <Text style={styles.modalClose}>Done</Text>
+              </Pressable>
+            </View>
+          </View>
+          {live.error && <Text style={styles.modalError}>lens: {live.error}</Text>}
+
+          {live.streaming && (
+            <View style={styles.lensMirror}>
+              <Text style={styles.lensMirrorLabel}>ON THE LENS NOW</Text>
+              {live.currentFrame
+                ? live.currentFrame.split('\n').map((l, i) => (
+                    <Text key={i} style={styles.lensMirrorLine}>{l}</Text>
+                  ))
+                : <Text style={styles.lensMirrorWait}>waiting for the next play…</Text>}
+            </View>
+          )}
+
+          {loading && (
+            <View style={styles.modalCenter}>
+              <ActivityIndicator color="#4ade80" />
+            </View>
+          )}
+          {err && !loading && <Text style={styles.modalError}>{err}</Text>}
+          {!loading && !err && plays.length === 0 && (
+            <Text style={styles.empty}>No plays yet.</Text>
+          )}
+
+          <ScrollView style={styles.pbpList} contentContainerStyle={{ paddingBottom: 24 }}>
+            {plays.map((p) => (
+              <View key={p.id} style={[styles.pbpRow, p.scoring && styles.pbpScoring]}>
+                <View style={styles.pbpMeta}>
+                  <Text style={styles.pbpClock}>Q{p.period} {p.clock}</Text>
+                  {p.score !== '' && <Text style={styles.pbpScore}>{p.score}</Text>}
+                </View>
+                <Text style={[styles.pbpText, p.scoring && styles.pbpTextScoring]}>{p.text}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -517,6 +686,42 @@ const styles = StyleSheet.create({
   gameRight: { alignItems: 'flex-end', marginLeft: 12 },
   score: { fontSize: 22, fontWeight: '800' },
   onGlasses: { color: C.accent, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  gamePressed: { opacity: 0.6 },
+  tapHint: { color: C.dim, fontSize: 11, fontWeight: '600', marginTop: 2 },
+
+  // Play-by-play modal
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: C.bg, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '82%', paddingHorizontal: 16, paddingTop: 16 },
+  modalHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  modalTitle: { color: C.text, fontSize: 18, fontWeight: '700' },
+  modalSub: { color: C.dim, fontSize: 13, marginTop: 2 },
+  modalClose: { color: C.accent, fontSize: 16, fontWeight: '700' },
+  modalActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  lensBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: C.accent },
+  lensBtnOn: { backgroundColor: C.accent, borderColor: C.accent },
+  lensBtnOff: { borderColor: C.border },
+  lensBtnText: { color: C.accent, fontSize: 13, fontWeight: '700' },
+  lensBtnTextOn: { color: C.bg },
+  lensMirror: {
+    marginTop: 10, marginBottom: 6, padding: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: C.accent, backgroundColor: 'rgba(74,222,128,0.06)',
+  },
+  lensMirrorLabel: { color: C.accent, fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginBottom: 6 },
+  lensMirrorLine: {
+    color: C.accent, fontSize: 18, lineHeight: 24,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+  },
+  lensMirrorWait: { color: C.dim, fontSize: 14, fontStyle: 'italic' },
+  modalCenter: { paddingVertical: 32, alignItems: 'center' },
+  modalError: { color: C.hot, fontSize: 13, textAlign: 'center', marginTop: 24 },
+  pbpList: { marginTop: 10 },
+  pbpRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  pbpScoring: { backgroundColor: C.card, borderRadius: 8, paddingHorizontal: 10, marginVertical: 2, borderBottomWidth: 0 },
+  pbpMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 3 },
+  pbpClock: { color: C.dim, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  pbpScore: { color: C.accent, fontSize: 11, fontWeight: '800' },
+  pbpText: { color: C.text, fontSize: 14, lineHeight: 19 },
+  pbpTextScoring: { fontWeight: '700' },
 
   // Deck (#46)
   deckCard: { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 18, marginTop: 8, minHeight: 180, justifyContent: 'center' },
