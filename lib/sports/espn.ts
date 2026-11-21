@@ -84,7 +84,7 @@ export const LEAGUE_LABEL: Record<League, string> = {
 export function rankScoreboard(board: EspnScoreboard, league: League): GameSnapshot[] {
   const out: GameSnapshot[] = [];
   for (const event of board.events ?? []) {
-    const excitement = calculateExcitement(event);
+    const excitement = calculateExcitement(event, league);
     if (excitement <= 0) continue;
 
     const comp = event.competitions?.[0];

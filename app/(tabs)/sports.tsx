@@ -41,7 +41,10 @@ import { buildStreamSources } from '@/lib/sports/streamSources';
 // Adding teams is now a catalog edit, not a code change here.
 const STREAM_SOURCES: NewsSource[] = buildStreamSources(50);
 
-const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM'];
+// NOTE: must stay in sync with the League union + ENDPOINTS map in espn.ts.
+// CFB (NCAAF) matters on football Saturdays — omitting it made the Live feed
+// surface a stale low-activity basketball game instead of OSU@NEB / WAKE@GT.
+const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM', 'NCAAF'];
 
 /** Which Sports surface is showing. */
 type SportsMode = 'live' | 'audiences' | 'deck' | 'stream';

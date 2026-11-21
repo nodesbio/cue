@@ -74,4 +74,24 @@ describe('calculateExcitement', () => {
     g.competitions[0].competitors[0].score = '';
     expect(calculateExcitement(g)).toBe(0);
   });
+
+  it('ranks a dead tie above a one-score game', () => {
+    // A tied 1st-period game (55) must outrank a 3-point game, even one that
+    // has picked up the period bonus — the regression that pinned a 3-pt CFB
+    // game above a tied one on the lens.
+    const tie = calculateExcitement(game({ period: 1, homeScore: 7, awayScore: 7 }));
+    const threePt = calculateExcitement(game({ period: 1, homeScore: 10, awayScore: 7 }));
+    expect(tie).toBe(55);
+    expect(threePt).toBe(50);
+    expect(tie).toBeGreaterThan(threePt);
+  });
+
+  it('defers the football time-pressure bonus to the 2nd half (period >= 3)', () => {
+    // margin 12 → 10. NCAAF 2nd quarter (period 2) is NOT the back half, so no
+    // +20 — unlike basketball, where period 2 is. Period 3 earns it.
+    expect(calculateExcitement(game({ period: 2, homeScore: 20, awayScore: 8 }), 'NCAAF')).toBe(10);
+    expect(calculateExcitement(game({ period: 3, homeScore: 20, awayScore: 8 }), 'NCAAF')).toBe(30);
+    // Same event, basketball semantics: period 2 IS the back half → +20.
+    expect(calculateExcitement(game({ period: 2, homeScore: 20, awayScore: 8 }), 'NCAAM')).toBe(30);
+  });
 });
