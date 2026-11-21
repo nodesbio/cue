@@ -107,6 +107,7 @@ export function ArticlePicker({ sources, onStream }: ArticlePickerProps) {
       try {
         const list = await fetchNewsList(source.url, ctrl.signal);
         if (ctrl.signal.aborted) return;
+        console.log(`[picker] source=${source.id} url=${source.url} items=${list.length}`);
         setItems(list);
       } catch (e) {
         if (ctrl.signal.aborted) return;
