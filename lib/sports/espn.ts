@@ -66,6 +66,7 @@ const ENDPOINTS: Record<League, string> = {
   NBA: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
   NHL: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard',
   NCAAM: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard',
+  NCAAF: 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard',
 };
 
 /** Human label for a league (used in the HUD line). */
@@ -73,6 +74,7 @@ export const LEAGUE_LABEL: Record<League, string> = {
   NBA: 'NBA',
   NHL: 'NHL',
   NCAAM: 'NCAA',
+  NCAAF: 'CFB',
 };
 
 /**
@@ -127,7 +129,7 @@ async function fetchBoard(league: League, signal?: AbortSignal): Promise<EspnSco
  * the others are fine; the caller still gets a useful feed.)
  */
 export async function fetchLiveGames(
-  leagues: League[] = ['NBA', 'NHL', 'NCAAM'],
+  leagues: League[] = ['NBA', 'NHL', 'NCAAM', 'NCAAF'],
   signal?: AbortSignal,
 ): Promise<GameSnapshot[]> {
   const results = await Promise.allSettled(

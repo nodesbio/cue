@@ -56,7 +56,7 @@ export interface EspnScoreboard {
 }
 
 /** League key → used for endpoint selection and display labels. */
-export type League = 'NBA' | 'NHL' | 'NCAAM';
+export type League = 'NBA' | 'NHL' | 'NCAAM' | 'NCAAF';
 
 /** A normalized, UI/HUD-ready view of one live game. */
 export interface GameSnapshot {

@@ -234,6 +234,7 @@ export function useArticleStream(
     );
 
     if (ctrl.signal.aborted) return;
+    console.log(`[stream] assembled ids=${articleIds.length} lines=${out.length} skipped=${skips.length}`, skips.map((s) => `${s.articleId}:${s.reason}`).join(','));
     setLines(out);
     setSkipped(skips);
     if (out.length === 0) {
