@@ -22,8 +22,12 @@ import { useG1 } from '@/lib/g1/G1Context';
 import { SportsFeed, DEFAULT_POLL_MS } from '@/lib/sports/SportsFeed';
 import { LEAGUE_LABEL } from '@/lib/sports/espn';
 import type { GameSnapshot, League } from '@/lib/sports/types';
+import { AudienceBuilder } from '@/components/AudienceBuilder';
 
 const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM'];
+
+/** Which Sports surface is showing. 'deck' (the conversation lens) lands in #46. */
+type SportsMode = 'live' | 'audiences';
 
 const C = {
   bg: '#0a0a0a',
@@ -42,7 +46,40 @@ function heat(excitement: number): string {
   return C.dim;
 }
 
+/**
+ * SportsScreen — the Sports tab shell. A segmented control switches between the
+ * always-on live HUD and the audience builder (#44); the conversation deck (#46)
+ * will add a third segment here.
+ */
 export default function SportsScreen() {
+  const [mode, setMode] = useState<SportsMode>('live');
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.segmentRow}>
+        {(['live', 'audiences'] as SportsMode[]).map((m) => {
+          const on = mode === m;
+          return (
+            <Pressable
+              key={m}
+              onPress={() => setMode(m)}
+              style={[styles.segment, on && styles.segmentOn]}
+              hitSlop={6}
+            >
+              <Text style={[styles.segmentText, on && styles.segmentTextOn]}>
+                {m === 'live' ? 'Live' : 'Audiences'}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {mode === 'live' ? <LiveSportsView /> : <AudienceBuilder />}
+    </SafeAreaView>
+  );
+}
+
+/** The always-on live sports HUD (the original Sports screen). */
+function LiveSportsView() {
   const { core, isConnected } = useG1();
 
   const [leagues, setLeagues] = useState<League[]>(ALL_LEAGUES);
@@ -115,7 +152,7 @@ export default function SportsScreen() {
   }, [lastUpdate]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.liveBody}>
       <View style={styles.header}>
         <Text style={styles.title}>Live Sports</Text>
         <Text style={[styles.conn, { color: isConnected ? C.accent : C.dim }]}>
@@ -176,12 +213,18 @@ export default function SportsScreen() {
           </View>
         ))}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg, paddingHorizontal: 16 },
+  safe: { flex: 1, backgroundColor: C.bg },
+  liveBody: { flex: 1, paddingHorizontal: 16 },
+  segmentRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  segment: { flex: 1, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: C.border, alignItems: 'center' },
+  segmentOn: { backgroundColor: C.card, borderColor: C.accent },
+  segmentText: { color: C.dim, fontSize: 14, fontWeight: '700' },
+  segmentTextOn: { color: C.text },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, paddingBottom: 12 },
   title: { color: C.text, fontSize: 24, fontWeight: '700' },
   conn: { fontSize: 13, fontWeight: '600' },

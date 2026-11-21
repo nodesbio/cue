@@ -26,6 +26,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+// Note: the screen body is a plain View — the Sports tab shell (sports.tsx)
+// owns the SafeAreaView. The editor Modal still uses its own SafeAreaView since
+// it presents as a separate page sheet.
 import { useFocusEffect } from 'expo-router';
 import {
   AudienceStoreError,
@@ -333,7 +336,7 @@ export function AudienceBuilder() {
   );
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={s.safe}>
       <View style={s.header}>
         <Text style={s.title}>Audiences</Text>
         <Pressable onPress={() => setEditing(emptyDraft())} style={s.newBtn} hitSlop={8}>
@@ -379,7 +382,7 @@ export function AudienceBuilder() {
           onClose={() => setEditing(null)}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
