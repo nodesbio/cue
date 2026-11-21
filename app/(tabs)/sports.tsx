@@ -28,7 +28,7 @@ import type { Audience } from '@/lib/sports/audience';
 import { useDeck } from '@/lib/sports/useDeck';
 import { ArticlePicker, type NewsSource } from '@/components/ArticlePicker';
 import { useArticleStream } from '@/lib/sports/useArticleStream';
-import { teamNewsUrl, leagueNewsUrl } from '@/lib/sports/newsFeed';
+import { buildStreamSources } from '@/lib/sports/streamSources';
 
 /**
  * Stream sources for the article picker (#49). OSU is the configured example
@@ -36,10 +36,10 @@ import { teamNewsUrl, leagueNewsUrl } from '@/lib/sports/newsFeed';
  * sport/team-agnostic; this screen picks which team/league to browse. Swapping
  * teams is a config change, not a code change.
  */
-const STREAM_SOURCES: NewsSource[] = [
-  { id: 'osu-team', label: 'Ohio State', url: teamNewsUrl('football/college-football', '194', 50) },
-  { id: 'cfb', label: 'College FB', url: leagueNewsUrl('football/college-football', 50) },
-];
+// Derived from the CATALOG (#49 content depth) — every covered team + standalone
+// league is pickable, so a nightly listener doesn't run dry after ~50 articles.
+// Adding teams is now a catalog edit, not a code change here.
+const STREAM_SOURCES: NewsSource[] = buildStreamSources(50);
 
 const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM'];
 
