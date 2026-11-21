@@ -14,44 +14,46 @@
  * at on the lens). Empty feeds surface as [] — never a silent partial.
  */
 import type {
+  EspnAthlete,
   EspnPlay,
   EspnSummary,
+  EspnTeamRoster,
   League,
   PlayLine,
   Roster,
 } from './types';
 
 /**
- * Build a team+jersey -> full name map from the boxscore. Pure.
+ * Build the jersey -> full names map for one game. Pure.
  *
- * The lens surfaces what you can SAY: a full name ("Anthony Colandrea") is a
- * word you speak at the bar; "#10 A.Colandrea" is a box score you decode. Only
- * players who have recorded a stat appear here — early-game or no-touch players
- * stay abbreviated until they show up, which is honest (we never invent a name).
+ * Two sources, joined on jersey number:
+ *   - the summary boxscore: only players who have recorded a stat so far
+ *   - each team's full roster (optional): everyone, including a receiver who
+ *     has been targeted but hasn't caught a ball yet
  *
- * Jersey numbers are NOT unique within a team (offense/defense/ST reuse — OSU
- * carries #25 for two players). Collisions are dropped, not guessed: a name you
- * might say wrong is worse than one you leave abbreviated.
+ * Numbers are shared freely, across the two teams and within one (offense and
+ * defense reuse them), so every name is kept. expandNames picks between them
+ * by initial + surname.
  */
-export function extractRoster(summary: EspnSummary): Roster {
+export function extractRoster(summary: EspnSummary, teamRosters: EspnTeamRoster[] = []): Roster {
   const roster: Roster = new Map();
-  const collided = new Set<string>();
+  const add = (player?: EspnAthlete) => {
+    if (!player?.jersey || !player.displayName) return;
+    const names = roster.get(player.jersey);
+    if (!names) roster.set(player.jersey, [player.displayName]);
+    else if (!names.includes(player.displayName)) names.push(player.displayName);
+  };
 
   for (const team of summary.boxscore?.players ?? []) {
-    const abbr = team.team?.abbreviation;
-    if (!abbr) continue;
     for (const cat of team.statistics ?? []) {
-      for (const a of cat.athletes ?? []) {
-        const jersey = a.athlete?.jersey;
-        const name = a.athlete?.displayName;
-        if (!jersey || !name) continue;
-        const key = `${abbr}#${jersey}`;
-        if (roster.has(key) && roster.get(key) !== name) collided.add(key);
-        roster.set(key, name);
-      }
+      for (const a of cat.athletes ?? []) add(a.athlete);
     }
   }
-  for (const key of collided) roster.delete(key);
+  for (const team of teamRosters) {
+    for (const group of team.athletes ?? []) {
+      for (const player of group.items ?? []) add(player);
+    }
+  }
   return roster;
 }
 
@@ -83,193 +85,53 @@ const JERSEY_TOKEN =
   /#(\d{1,2})\s+([A-Z])\.([A-Za-z'.-]+(?:\s(?:[JS]r\.|I{1,3}|IV|V))?)/g;
 
 /**
- * Which teams are on offense/defense for a single play. Abbreviations
- * (e.g. "NEB"/"OSU"), matching the roster key prefix. Either may be undefined
- * if the play lacks participant data (non-football, pre-game, etc.).
+ * Expand jersey tokens to full names you can SAY, keeping ESPN's number:
+ *
+ *   "#10 A.Colandrea pass complete" -> "#10 Anthony Colandrea pass complete"
+ *
+ * Pure. A token is matched on first initial + surname:
+ *   1. among the players wearing that number;
+ *   2. if none of them has that name, across the whole roster. ESPN's play
+ *      text and its rosters often disagree on a player's number (8 of 71
+ *      tokens in NEB @ OSU, 2026-11), so the name is the half to trust.
+ *
+ * Exactly one match expands. Anything else (no such name, or two players it
+ * could be) leaves the token exactly as ESPN wrote it: a wrong name on the
+ * lens is worse than an abbreviation.
  */
-export interface PlayContext {
-  offense?: string;
-  defense?: string;
-}
-
-/**
- * Build team-id -> abbreviation from the summary header competitors. Pure.
- * Lets us translate a play's numeric team IDs (158) into roster prefixes (NEB).
- */
-export function buildTeamIndex(summary: EspnSummary): Map<string, string> {
-  const index = new Map<string, string>();
-  for (const comp of summary.header?.competitions ?? []) {
-    for (const c of comp.competitors ?? []) {
-      const id = c.team?.id;
-      const abbr = c.team?.abbreviation;
-      if (id && abbr) index.set(id, abbr);
-    }
-  }
-  return index;
-}
-
-/** Resolve a play's offense/defense team abbreviations from its participants. */
-export function playContext(
-  play: EspnPlay,
-  teamIndex: Map<string, string>,
-): PlayContext {
-  const ctx: PlayContext = {};
-  for (const tp of play.teamParticipants ?? []) {
-    const abbr = tp.id ? teamIndex.get(tp.id) : undefined;
-    if (!abbr) continue;
-    if (tp.type === 'offense') ctx.offense = abbr;
-    else if (tp.type === 'defense') ctx.defense = abbr;
-  }
-  // Fallback: possessing team is the offense when participants are absent.
-  if (!ctx.offense && play.start?.team?.id) {
-    ctx.offense = teamIndex.get(play.start.team.id);
-  }
-  return ctx;
-}
-
-/**
- * Expand jersey tokens to full names you can SAY. Pure, fully disambiguated.
- *
- * Football structure IS the disambiguator: the passer/rusher/receiver appear
- * BEFORE the trailing "(...)" tackle parenthetical and belong to the offense;
- * the tacklers inside the parenthetical belong to the defense. Combined with
- * the play's offense/defense team IDs, every "#NN" resolves to exactly one
- * team — "NEB#10" or "OSU#10", never a probe-both-and-hope.
- *
- * Fail-safe: if context is missing or the team's roster lacks that jersey
- * (player not yet in the boxscore), the token is left exactly as ESPN wrote it.
- * Confident or silent, never a guess.
- */
-// A penalty clause names its team explicitly: "PENALTY OSU Holding (#67 ...)".
-// It can appear anywhere in the text (compound plays append it after live action),
-// so we anchor on the keyword, not position 0. Team abbr is 2-4 uppercase letters.
-const PENALTY_CLAUSE = /PENALTY\s+([A-Z]{2,4})\b/g;
-
-// A special-teams parenthetical labels its occupants by ROLE: "(H: #19 …, LS: #88 …)"
-// on a FG/PAT, "(K: …)" / punter clauses on kicks. The kicking unit (holder,
-// long-snapper, kicker) is the POSSESSING team — the offense — NOT the defense
-// the tackle-parenthetical rule assumes. Verified against BYU@KU 401856866: the
-// holder #19 is on BYU (offense); the defense's #88 would mislabel the snapper.
-const SPECIAL_TEAMS_PAREN = /\((?:[HK]|LS|LG):\s/;
-
-/**
- * Expand jersey tokens to full names you can SAY. Pure, clause-aware.
- *
- * A play's text is a SEQUENCE of clauses, each with its own team binding:
- *
- *   - Live-ball region (before any PENALTY): the passer/rusher/receiver precede
- *     the "(...)" tackle parenthetical and belong to the OFFENSE; tacklers inside
- *     it belong to the DEFENSE.
- *   - Penalty region ("PENALTY <TEAM> ... (#NN X.Surname)"): the flagged player
- *     in the parenthetical belongs to <TEAM> named right there \u2014 independent of
- *     offense/defense. Compound plays can carry BOTH a tackle paren (defense) and
- *     a penalty paren (penalty team), bound to different teams in one string.
- *
- * We scan left to right, splitting at each "PENALTY <TEAM>". Within a region,
- * tokens before the region's first "(" bind to the region's "pre" team, tokens
- * from the first "(" onward bind to its "paren" team.
- *
- * Fail-safe: missing context or a jersey absent from the team's roster leaves the
- * token exactly as ESPN wrote it. Say a full name when we can; never guess.
- */
-export function expandNames(
-  text: string,
-  roster: Roster,
-  ctx: PlayContext = {},
-): string {
+export function expandNames(text: string, roster: Roster): string {
   if (roster.size === 0) return text;
+  const everyone = [...new Set([...roster.values()].flat())];
 
-  // Find clause boundaries: index of each "PENALTY <TEAM>" and the team it names.
-  const boundaries: Array<{ start: number; team?: string }> = [];
-  for (const m of text.matchAll(PENALTY_CLAUSE)) {
-    boundaries.push({ start: m.index ?? 0, team: m[1] });
+  let out = '';
+  let done = 0; // how much of `text` is already in `out`
+  for (const m of text.matchAll(JERSEY_TOKEN)) {
+    const [token, num, initial, surname] = m;
+    const sur = surname.split(/\s/)[0].toLowerCase(); // drop "Jr."/Roman suffix
+    // Exact name parts, not substrings: "Smith" must not match "Smithson".
+    // First part supplies the initial; any later part may be the surname
+    // (handles "Van Jefferson", "St. Brown").
+    const named = (names: string[]) =>
+      names.filter((name) => {
+        const [first, ...rest] = name.split(/\s+/);
+        return first[0]?.toUpperCase() === initial && rest.some((part) => part.toLowerCase() === sur);
+      });
+    const wearing = named(roster.get(num) ?? []);
+    const hits = wearing.length > 0 ? wearing : named(everyone);
+    if (hits.length !== 1) continue;
+
+    // The token pattern stops at the first surname word. When the surname is
+    // longer ("R.Van Poppel"), the rest follows in the text: swallow it so the
+    // lens doesn't read "Riley Van Poppel Poppel".
+    const rest = hits[0].split(/\s+/).slice(1);
+    const after = rest.slice(rest.findIndex((part) => part.toLowerCase() === sur) + 1);
+    const tail = after.length > 0 ? ` ${after.join(' ')}` : '';
+    const tokenEnd = m.index + token.length;
+
+    out += `${text.slice(done, m.index)}#${num} ${hits[0]}`;
+    done = tokenEnd + (tail && text.startsWith(tail, tokenEnd) ? tail.length : 0);
   }
-
-  // Region 0 is the live-ball clause: pre-paren=offense, in-paren=defense.
-  // Each subsequent region is a penalty clause: pre-paren AND in-paren = penalty
-  // team (the flagged player is on that team wherever they appear in the clause).
-  type Region = { text: string; preTeam?: string; parenTeam?: string };
-  const regions: Region[] = [];
-  const firstPenalty = boundaries[0]?.start ?? text.length;
-
-  if (firstPenalty > 0) {
-    const liveBall = text.slice(0, firstPenalty);
-    // Tackle parentheticals belong to the defense; special-teams role
-    // parentheticals (H:/LS:/K:) belong to the kicking unit = the offense.
-    const parenTeam = SPECIAL_TEAMS_PAREN.test(liveBall) ? ctx.offense : ctx.defense;
-    regions.push({ text: liveBall, preTeam: ctx.offense, parenTeam });
-  }
-  for (let i = 0; i < boundaries.length; i++) {
-    const start = boundaries[i].start;
-    const end = boundaries[i + 1]?.start ?? text.length;
-    const team = boundaries[i].team;
-    regions.push({ text: text.slice(start, end), preTeam: team, parenTeam: team });
-  }
-
-  // Game-wide index for NAME-FIRST resolution: jersey -> all (team, name) pairs
-  // that wear it. Built from the roster keys ("TEAM#NN" -> fullName). Because a
-  // token carries the player's initial + surname, we can usually identify the
-  // exact player WITHOUT knowing their team — which is essential on kick/punt
-  // returns, where the kicker and returner are opposite teams in one clause and
-  // the payload has no per-player team data. Clause/team logic is the fallback
-  // only when the name is ambiguous.
-  const byJersey = new Map<string, Array<{ name: string }>>();
-  for (const [key, name] of roster) {
-    const num = key.split('#')[1];
-    if (!num) continue;
-    (byJersey.get(num) ?? byJersey.set(num, []).get(num)!).push({ name });
-  }
-
-  // Resolve a token by its initial+surname against everyone wearing that jersey.
-  // Three outcomes:
-  //   'match'    exactly one holder whose name matches the token -> that name.
-  //   'conflict' holder(s) exist for the jersey but NONE matches the token's
-  //              name (e.g. ESPN "B.Laga" vs boxscore #99 "Matthew Gill"). The
-  //              names disagree, so the clause/team guess is untrustworthy —
-  //              leave the ESPN token rather than risk a confident wrong name.
-  //   'unknown'  jersey not in the roster at all -> defer to the clause fallback.
-  const byName = (
-    num: string,
-    initial: string,
-    surname: string,
-  ): { kind: 'match'; name: string } | { kind: 'conflict' } | { kind: 'unknown' } => {
-    const holders = byJersey.get(num);
-    if (!holders || holders.length === 0) return { kind: 'unknown' };
-    const sur = surname.split(' ')[0].toLowerCase(); // drop "Jr."/Roman suffix
-    const hits = holders.filter((p) => {
-      // Match on EXACT name parts, not a substring: "Smith" must not match
-      // "Smithson". First part supplies the initial; any later part is the
-      // surname (handles "Van Jefferson", "St. Brown", hyphenated names).
-      const parts = p.name.split(/\s+/);
-      const firstInitialOk = parts[0][0]?.toUpperCase() === initial.toUpperCase();
-      const surnameOk = parts.slice(1).some((part) => part.toLowerCase() === sur);
-      return firstInitialOk && surnameOk;
-    });
-    if (hits.length === 1) return { kind: 'match', name: hits[0].name };
-    return { kind: 'conflict' };
-  };
-
-  // Clause-based fallback: the region's team binding (scrimmage heuristics).
-  const byTeam = (team: string | undefined, num: string): string | undefined =>
-    team ? roster.get(`${team}#${num}`) : undefined;
-
-  const resolve =
-    (team: string | undefined) =>
-    (token: string, num: string, initial: string, surname: string): string => {
-      const n = byName(num, initial, surname);
-      if (n.kind === 'match') return n.name; // name is authoritative, team-agnostic
-      if (n.kind === 'conflict') return token; // names disagree -> never guess
-      return byTeam(team, num) ?? token; // jersey unknown game-wide -> clause fallback
-    };
-
-  return regions
-    .map((r) => {
-      const parenIdx = r.text.indexOf('(');
-      const pre = parenIdx === -1 ? r.text : r.text.slice(0, parenIdx);
-      const paren = parenIdx === -1 ? '' : r.text.slice(parenIdx);
-      return pre.replace(JERSEY_TOKEN, resolve(r.preTeam)) + paren.replace(JERSEY_TOKEN, resolve(r.parenTeam));
-    })
-    .join('');
+  return out + text.slice(done);
 }
 
 const SPORT_PATH: Record<League, string> = {
@@ -280,16 +142,11 @@ const SPORT_PATH: Record<League, string> = {
 };
 
 /** Normalize one raw ESPN play into a PlayLine, expanding say-able names. */
-function toPlayLine(
-  p: EspnPlay,
-  index: number,
-  roster: Roster,
-  teamIndex: Map<string, string>,
-): PlayLine {
+function toPlayLine(p: EspnPlay, index: number, roster: Roster): PlayLine {
   const away = p.awayScore;
   const home = p.homeScore;
   const haveScore = Number.isFinite(away) && Number.isFinite(home);
-  const text = expandNames(cleanPlayText(p.text ?? ''), roster, playContext(p, teamIndex));
+  const text = expandNames(cleanPlayText(p.text ?? ''), roster);
   return {
     // ESPN ids are neither always present NOR always unique — the live summary
     // feed emits the same play id twice (seen on NCAAF 401858531205). Index is
@@ -304,38 +161,58 @@ function toPlayLine(
 }
 
 /**
+ * Every raw play in the payload, oldest first. Football carries plays under
+ * drives (previous[] oldest→newest, then current); basketball/hockey carry a
+ * flat chronological plays[].
+ */
+function rawPlays(summary: EspnSummary): EspnPlay[] {
+  if (Array.isArray(summary.plays) && summary.plays.length > 0) return summary.plays;
+  return [...(summary.drives?.previous ?? []), summary.drives?.current].flatMap(
+    (drive) => drive?.plays ?? [],
+  );
+}
+
+/**
  * Flatten a summary payload into a normalized, newest-first play list. Pure.
- *
- * Football carries plays under drives (previous[] oldest→newest, then current);
- * basketball/hockey carry a flat chronological plays[]. In both source orders
- * plays run oldest→newest, so we collect in that order, then reverse once.
  * Plays with no text are dropped (ESPN occasionally emits placeholder rows).
+ *
+ * Defaults to the boxscore-only roster (no network). fetchPlayByPlay passes one
+ * that also includes both teams' full rosters.
  */
 export function extractPlayByPlay(summary: EspnSummary, rosterOverride?: Roster): PlayLine[] {
-  const raw: EspnPlay[] = [];
-
-  if (Array.isArray(summary.plays) && summary.plays.length > 0) {
-    raw.push(...summary.plays);
-  } else if (summary.drives) {
-    for (const drive of summary.drives.previous ?? []) {
-      raw.push(...(drive.plays ?? []));
-    }
-    if (summary.drives.current?.plays) {
-      raw.push(...summary.drives.current.plays);
-    }
-  }
-
-  // Default to the boxscore-only roster (pure, no network). Callers that fetched
-  // full team rosters pass a pre-merged map for maximal say-able coverage.
   const roster = rosterOverride ?? extractRoster(summary);
-  const teamIndex = buildTeamIndex(summary);
-  const lines = raw
-    .map((p, i) => toPlayLine(p, i, roster, teamIndex))
+  const lines = rawPlays(summary)
+    .map((p, i) => toPlayLine(p, i, roster))
     .filter((l) => l.text.length > 0);
 
   // Source order is oldest→newest; the lens/list wants newest first.
   lines.reverse();
   return lines;
+}
+
+// ESPN returns 100 athletes per team unless asked for more, and a college
+// roster runs past that (Nebraska: 115, checked live 2026-11).
+const ROSTER_LIMIT = 300;
+
+// Both teams' rosters, fetched once per game and shared by every poll.
+const teamRosterCache = new Map<string, Promise<EspnTeamRoster[]>>();
+
+async function fetchTeamRosters(
+  summary: EspnSummary,
+  league: League,
+  signal?: AbortSignal,
+): Promise<EspnTeamRoster[]> {
+  const teamIds = (summary.header?.competitions?.[0]?.competitors ?? [])
+    .map((c) => c.team?.id)
+    .filter((id): id is string => !!id);
+  return Promise.all(
+    teamIds.map(async (id) => {
+      const url = `https://site.api.espn.com/apis/site/v2/sports/${SPORT_PATH[league]}/teams/${encodeURIComponent(id)}/roster?limit=${ROSTER_LIMIT}`;
+      const resp = await fetch(url, { signal });
+      if (!resp.ok) throw new Error(`ESPN ${league} roster ${id} HTTP ${resp.status}`);
+      return (await resp.json()) as EspnTeamRoster;
+    }),
+  );
 }
 
 /**
@@ -354,12 +231,31 @@ export async function fetchPlayByPlay(
   if (!resp.ok) throw new Error(`ESPN ${league} summary HTTP ${resp.status}`);
   const summary = (await resp.json()) as EspnSummary;
 
-  // Names come ONLY from the in-payload boxscore, which is game-scoped by
-  // construction. The separate …/teams/{id}/roster endpoint was tried and
-  // reverted: it returns non-game-scoped players (observed returning athletes
-  // not dressed for the game), so merging it introduced wrong names — the exact
-  // failure mode the boxscore-only path avoids. See the attribution test and
-  // Appendix C (2026-11, cue roster-merge revert).
-  const roster = extractRoster(summary);
-  return extractPlayByPlay(summary, roster);
+  // The boxscore only lists players with a stat, so the full team rosters fill
+  // in everyone else. They include players not dressed for this game; that is
+  // safe because expandNames matches on initial + surname and leaves the token
+  // alone whenever two players could be meant. (An earlier merge of this
+  // endpoint was reverted for wrong names: Appendix C, 2026-11.)
+  //
+  // Only fetched when the feed actually uses jersey tokens.
+  let teamRosters: EspnTeamRoster[] = [];
+  if (rawPlays(summary).some((p) => (p.text ?? '').search(JERSEY_TOKEN) >= 0)) {
+    const key = `${league}:${gameId}`;
+    let pending = teamRosterCache.get(key);
+    if (!pending) {
+      pending = fetchTeamRosters(summary, league, signal);
+      teamRosterCache.set(key, pending);
+    }
+    try {
+      teamRosters = await pending;
+    } catch (e) {
+      // Don't cache a failure: the next poll tries again.
+      if (teamRosterCache.get(key) === pending) teamRosterCache.delete(key);
+      if (signal?.aborted) throw e;
+      // Plays still show, with boxscore-only names, rather than no plays at all.
+      console.warn(`[sports] ${league} team rosters failed:`, (e as Error).message);
+    }
+  }
+
+  return extractPlayByPlay(summary, extractRoster(summary, teamRosters));
 }

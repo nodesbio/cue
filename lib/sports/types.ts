@@ -107,15 +107,6 @@ export interface EspnPlay {
   homeScore?: number;
   awayScore?: number;
   scoringPlay?: boolean;
-  /**
-   * Which teams are on offense/defense for this play (football). Present on
-   * every play in the summary — this is how we disambiguate "#10" to a single
-   * team: offensive players (passer/rusher/receiver) resolve against the
-   * offense team, tacklers (in the trailing parenthetical) against the defense.
-   */
-  teamParticipants?: Array<{ id?: string; type?: 'offense' | 'defense' }>;
-  /** Possessing team on this play; fallback offense source if participants absent. */
-  start?: { team?: { id?: string } };
 }
 
 /** One ESPN drive (football), wrapping a list of plays. */
@@ -139,17 +130,23 @@ export interface EspnSummary {
   /**
    * Per-team player stat groups. Carries jersey + full name for everyone who
    * has recorded a stat — the join source for expanding "#10 A.Colandrea" into
-   * "Anthony Colandrea" on the lens. Keyless, same payload as plays.
+   * "#10 Anthony Colandrea" on the lens. Keyless, same payload as plays.
    */
   boxscore?: {
     players?: EspnBoxscoreTeam[];
   };
-  /** Competitors carry team id -> abbreviation, used to map play team IDs. */
+  /** The two teams' ids, used to fetch each team's full roster. */
   header?: {
     competitions?: Array<{
-      competitors?: Array<{ team?: { id?: string; abbreviation?: string } }>;
+      competitors?: Array<{ team?: { id?: string } }>;
     }>;
   };
+}
+
+/** A player as ESPN lists them in a boxscore or a team roster. */
+export interface EspnAthlete {
+  jersey?: string;
+  displayName?: string;
 }
 
 /** One team's player stat groups inside boxscore.players. */
@@ -157,18 +154,25 @@ export interface EspnBoxscoreTeam {
   team?: { abbreviation?: string };
   statistics?: Array<{
     athletes?: Array<{
-      athlete?: { jersey?: string; displayName?: string };
+      athlete?: EspnAthlete;
     }>;
   }>;
 }
 
 /**
- * team+jersey -> full name map for one game. Only unambiguous entries are
- * present: if a jersey number maps to two different names within a team
- * (offense/defense/ST reuse, seen with OSU #25), it is dropped rather than
- * guessed — a wrong name on the lens is worse than an abbreviation.
+ * ESPN team roster payload (…/teams/{id}/roster). Football groups players by
+ * unit (offense / defense / special teams) under `athletes[].items`.
  */
-export type Roster = Map<string, string>;
+export interface EspnTeamRoster {
+  athletes?: Array<{ items?: EspnAthlete[] }>;
+}
+
+/**
+ * Jersey number -> every full name wearing it in one game, both teams
+ * together. Numbers are shared across teams and within a team, so a number
+ * alone never picks a player: expandNames also matches initial + surname.
+ */
+export type Roster = Map<string, string[]>;
 
 /** A normalized single play for the play-by-play list, newest first. */
 export interface PlayLine {

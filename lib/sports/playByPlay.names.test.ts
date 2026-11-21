@@ -1,69 +1,41 @@
 /**
- * Say-able play text: strip read-only noise, expand jersey tokens to full
- * names. The lens surfaces what you can SAY ("Anthony Colandrea") and suppresses
- * what you can only READ (play-clock, formation).
+ * Say-able play text: strip read-only noise, then expand jersey tokens to
+ * "#NN Full Name".
  *
- * Disambiguation is 100%: football structure IS the key. The passer/rusher/
- * receiver precede the "(...)" tackle parenthetical and belong to the offense;
- * tacklers inside it belong to the defense. With each play's offense/defense
- * team IDs, every "#NN" resolves to exactly one team. Fixtures use real OSU+NEB
- * data to lock team-agnosticism and the fail-safe (unresolved, missing context).
+ * A token is matched on first initial + surname against the game's roster
+ * (boxscore plus both teams' full rosters): first among players wearing that
+ * number, then, if none of them has that name, across everyone. Exactly one
+ * match expands; anything else stays exactly as ESPN wrote it.
+ *
+ * Inputs here are hand-built to the ESPN payload shapes, not captured payloads.
  */
 import {
-  buildTeamIndex,
   cleanPlayText,
   expandNames,
-  extractRoster,
   extractPlayByPlay,
-  playContext,
-  type PlayContext,
+  extractRoster,
+  fetchPlayByPlay,
 } from './playByPlay';
-import type { EspnSummary, EspnPlay, Roster } from './types';
+import type { EspnSummary, EspnTeamRoster, Roster } from './types';
 
 /** Minimal boxscore builder: team abbr -> [ [jersey, fullName], ... ]. */
 function boxscore(teams: Record<string, Array<[string, string]>>): EspnSummary {
   return {
     boxscore: {
-      players: Object.entries(teams).map(([abbr, roster]) => ({
+      players: Object.entries(teams).map(([abbr, players]) => ({
         team: { abbreviation: abbr },
         statistics: [
-          { athletes: roster.map(([jersey, displayName]) => ({ athlete: { jersey, displayName } })) },
+          { athletes: players.map(([jersey, displayName]) => ({ athlete: { jersey, displayName } })) },
         ],
       })),
-    },
-    header: {
-      competitions: [
-        {
-          competitors: Object.keys(teams).map((abbr, i) => ({
-            team: { id: String(100 + i), abbreviation: abbr },
-          })),
-        },
-      ],
     },
   };
 }
 
-// Real rosters from OSU@NEB (401858531). Both teams carry a #25 and a #3 —
-// the cross-team collisions that per-play offense/defense now disambiguates.
-const GAME = boxscore({
-  OSU: [
-    ['13', 'Luke Fahey'],
-    ['4', 'Jeremiah Smith'],
-    ['86', 'Mason Williams'],
-    ['7', 'Jermaine Mathews Jr.'],
-    ['1', 'Earl Little Jr.'],
-    ['25', 'Bo Jackson'],
-    ['16', 'Dontavius Odem III'],
-  ],
-  NEB: [
-    ['10', 'Anthony Colandrea'],
-    ['3', 'Kwinten Gilmer'],
-    ['25', 'Marques Buford'],
-  ],
-});
-// OSU is competitor id "100", NEB is "101" (builder assigns in key order).
-const OSU = { offense: 'OSU', defense: 'NEB' } satisfies PlayContext;
-const NEB = { offense: 'NEB', defense: 'OSU' } satisfies PlayContext;
+/** Minimal team-roster builder: one unit group of [jersey, fullName] players. */
+function teamRoster(players: Array<[string, string]>): EspnTeamRoster {
+  return { athletes: [{ items: players.map(([jersey, displayName]) => ({ jersey, displayName })) }] };
+}
 
 describe('cleanPlayText', () => {
   it('strips leading play-clock and formation so the play leads', () => {
@@ -83,199 +55,196 @@ describe('cleanPlayText', () => {
 });
 
 describe('extractRoster', () => {
-  it('maps team+jersey to full name and keeps both teams\u2019 #25', () => {
-    const r = extractRoster(GAME);
-    expect(r.get('NEB#10')).toBe('Anthony Colandrea');
-    expect(r.get('OSU#25')).toBe('Bo Jackson');
-    expect(r.get('NEB#25')).toBe('Marques Buford');
+  it('keeps every name wearing a number, across teams and within one', () => {
+    const r = extractRoster(
+      boxscore({
+        OSU: [['25', 'Bo Jackson']],
+        NEB: [['25', 'Marques Buford'], ['25', 'Jamal Rule'], ['10', 'Anthony Colandrea']],
+      }),
+    );
+    expect(r.get('25')).toEqual(['Bo Jackson', 'Marques Buford', 'Jamal Rule']);
+    expect(r.get('10')).toEqual(['Anthony Colandrea']);
   });
 
-  it('drops within-team collisions (same number twice on one team)', () => {
-    const dup = boxscore({ OSU: [['9', 'Zion Grady'], ['9', 'Someone Else']] });
-    expect(extractRoster(dup).has('OSU#9')).toBe(false);
+  it('adds team-roster players and lists a player in both sources once', () => {
+    const r = extractRoster(boxscore({ NEB: [['11', 'Cameron Lenhardt']] }), [
+      teamRoster([['11', 'Cameron Lenhardt'], ['11', 'Demitrius Bell']]),
+    ]);
+    expect(r.get('11')).toEqual(['Cameron Lenhardt', 'Demitrius Bell']);
+  });
+
+  it('skips players with no jersey or no name', () => {
+    const r = extractRoster({}, [teamRoster([['', 'No Number'], ['12', '']])]);
+    expect(r.size).toBe(0);
   });
 });
 
-describe('buildTeamIndex + playContext', () => {
-  it('maps team ids to abbreviations and reads offense/defense from a play', () => {
-    const idx = buildTeamIndex(GAME); // OSU=100, NEB=101
-    const play: EspnPlay = {
-      teamParticipants: [
-        { id: '101', type: 'offense' },
-        { id: '100', type: 'defense' },
-      ],
-    };
-    expect(playContext(play, idx)).toEqual({ offense: 'NEB', defense: 'OSU' });
+describe('expandNames', () => {
+  const roster: Roster = new Map([
+    ['10', ['Anthony Colandrea']],
+    ['25', ['Bo Jackson', 'Marques Buford']], // shared number, different names
+    ['7', ['Jermaine Mathews Jr.']],
+    ['16', ['Dontavius Odem III']],
+    ['4', ['Jordan Smith', 'Jalen Smithson']], // same initial; surname only a prefix match
+    ['9', ['John Brown', 'James Brown']], // same initial + surname: genuinely ambiguous
+    ['3', ['James Smith']], // a second J.Smith, under another number
+    ['17', ['Kwazi Gilmer']],
+    ['5', ['Riley Van Poppel']],
+  ]);
+
+  it('expands a unique match and keeps the jersey number', () => {
+    expect(expandNames('#10 A.Colandrea pass complete', roster)).toBe(
+      '#10 Anthony Colandrea pass complete',
+    );
   });
 
-  it('falls back to start.team.id for offense when participants absent', () => {
-    const idx = buildTeamIndex(GAME);
-    expect(playContext({ start: { team: { id: '100' } } }, idx)).toEqual({ offense: 'OSU' });
+  it('tells two players wearing the same number apart by name', () => {
+    expect(expandNames('#25 B.Jackson rush right (#25 M.Buford)', roster)).toBe(
+      '#25 Bo Jackson rush right (#25 Marques Buford)',
+    );
+  });
+
+  it('handles Jr. and Roman-numeral suffixes', () => {
+    expect(expandNames('(#7 J.Mathews Jr.; #16 D.Odem III)', roster)).toBe(
+      '(#7 Jermaine Mathews Jr.; #16 Dontavius Odem III)',
+    );
+  });
+
+  it('matches the surname exactly, not as a prefix (Smith is not Smithson)', () => {
+    expect(expandNames('to #4 J.Smith for 6 yards', roster)).toBe('to #4 Jordan Smith for 6 yards');
+  });
+
+  it('expands by name when the play text and the roster disagree on the number', () => {
+    // Seen live (NEB @ OSU): the play text says #3, ESPN's roster says #17.
+    expect(expandNames('to #3 K.Gilmer caught at NEB21', roster)).toBe(
+      'to #3 Kwazi Gilmer caught at NEB21',
+    );
+  });
+
+  it('lets the number pick between two players with the same name token', () => {
+    expect(expandNames('#3 J.Smith; #4 J.Smith', roster)).toBe('#3 James Smith; #4 Jordan Smith');
+  });
+
+  it('expands a multi-word surname without doubling it', () => {
+    expect(expandNames('Offside (#44 R.Van Poppel) 5 yards', roster)).toBe(
+      'Offside (#44 Riley Van Poppel) 5 yards',
+    );
+  });
+
+  it('leaves the token when nobody matches', () => {
+    // Number not in the roster at all.
+    expect(expandNames('to #22 I.Mozee for 6 yards', roster)).toBe('to #22 I.Mozee for 6 yards');
+    // Number is in the roster, but under a different name.
+    expect(expandNames('#10 B.Laga kickoff 63 yards', roster)).toBe('#10 B.Laga kickoff 63 yards');
+  });
+
+  it('leaves the token when two players match', () => {
+    // Both wear the number.
+    expect(expandNames('#9 J.Brown rush left', roster)).toBe('#9 J.Brown rush left');
+    // Neither wears the number, so the number can't pick.
+    expect(expandNames('#12 J.Brown rush left', roster)).toBe('#12 J.Brown rush left');
+    expect(expandNames('#8 J.Smith rush left', roster)).toBe('#8 J.Smith rush left');
+  });
+
+  it('is a no-op with an empty roster or text that has no tokens', () => {
+    expect(expandNames('#10 A.Colandrea pass', new Map())).toBe('#10 A.Colandrea pass');
+    expect(expandNames('Anthony Colandrea pass complete', roster)).toBe(
+      'Anthony Colandrea pass complete',
+    );
   });
 });
 
-describe('expandNames \u2014 offense/defense disambiguation', () => {
-  const roster: Roster = extractRoster(GAME);
-
-  it('resolves the offensive passer and receiver against the offense team', () => {
-    expect(expandNames('#10 A.Colandrea pass complete to #3 K.Gilmer', roster, NEB)).toBe(
-      'Anthony Colandrea pass complete to Kwinten Gilmer',
-    );
-  });
-
-  it('resolves tacklers in the parenthetical against the defense team', () => {
-    // NEB has the ball (Colandrea->Gilmer); the OSU defenders Mathews & Little
-    // make the tackle. Offense tokens -> NEB roster, paren tokens -> OSU roster.
-    const out = expandNames(
-      '#10 A.Colandrea pass complete to #3 K.Gilmer (#7 J.Mathews Jr.; #1 E.Little Jr.)',
-      roster,
-      NEB,
-    );
-    expect(out).toBe(
-      'Anthony Colandrea pass complete to Kwinten Gilmer (Jermaine Mathews Jr.; Earl Little Jr.)',
-    );
-  });
-
-  it('disambiguates cross-team #25: OSU #25 on offense vs NEB #25 on defense', () => {
-    // OSU has the ball; #25 before paren = Bo Jackson (OSU), #25 in paren = Marques Buford (NEB).
-    const out = expandNames('#25 B.Jackson rush right (#25 M.Buford)', roster, OSU);
-    expect(out).toBe('Bo Jackson rush right (Marques Buford)');
-  });
-
-  it('expands a Roman-numeral suffix (#16 D.Odem III) \u2014 live-feed case', () => {
-    expect(expandNames('tackled by (#16 D.Odem III)', roster, NEB)).toBe(
-      'tackled by (Dontavius Odem III)',
-    );
-  });
-
-  it('leaves an unresolved token as-is when the player is not in the boxscore', () => {
-    expect(expandNames('to #22 I.Mozee for 6 yards', roster, NEB)).toBe(
-      'to #22 I.Mozee for 6 yards',
-    );
-  });
-
-  it('resolves by name even without team context when the jersey+name is unique game-wide', () => {
-    // #10 A.Colandrea is unique across both rosters, so the initial+surname pins
-    // the player with zero team ambiguity — no offense/defense context needed.
-    // (This is the kick-return property: name is authoritative, team-agnostic.)
-    expect(expandNames('#10 A.Colandrea pass', roster, {})).toBe('Anthony Colandrea pass');
-  });
-
-  it('fail-safe: a collided jersey with no context and no name match stays abbreviated', () => {
-    // Both teams wear #25; with no context AND a name ESPN abbreviates to a
-    // surname that could match either, we must not guess a team.
-    expect(expandNames('#25 X.Unknown rush', roster, {})).toBe('#25 X.Unknown rush');
-  });
-
-  it('is a no-op with an empty roster', () => {
-    expect(expandNames('#10 A.Colandrea pass', new Map(), NEB)).toBe('#10 A.Colandrea pass');
-  });
-});
-
-describe('expandNames \u2014 compound + penalty clauses', () => {
-  const roster: Roster = extractRoster(
-    boxscore({
-      OSU: [
-        ['25', 'Bo Jackson'],
-        ['51', 'Luke Montgomery'],
-        ['76', 'Jonah Cook'],
-        ['67', 'Austin Siereveld'],
-        ['13', 'Luke Fahey'],
-      ],
-      NEB: [
-        ['24', 'DeShon Foster'],
-        ['55', 'Tree Babalade'],
-        ['10', 'Anthony Colandrea'],
-      ],
-    }),
-  );
-
-  it('binds a mid-string PENALTY paren to the penalty team, not the defense', () => {
-    // OSU has the ball. The tackler (#24, in the live-ball paren) is NEB defense;
-    // the holder (#51, in the PENALTY OSU paren) is OSU \u2014 even though OSU is offense.
-    const out = expandNames(
-      '#25 B.Jackson rush left for 4 yards gain to the OSU29 (#24 D.Foster) PENALTY OSU Holding (#51 L.Montgomery) 10 yards',
-      roster,
-      OSU,
-    );
-    expect(out).toBe(
-      'Bo Jackson rush left for 4 yards gain to the OSU29 (DeShon Foster) PENALTY OSU Holding (Luke Montgomery) 10 yards',
-    );
-  });
-
-  it('resolves a live-ball play that is then penalized (compound, OSU holding on offense)', () => {
-    const out = expandNames(
-      '#13 L.Fahey rush left for 2 yards gain to the NEB44, out of bounds at NEB44 PENALTY OSU Holding (#67 A.Siereveld) 10 yards from NEB46',
-      roster,
-      OSU,
-    );
-    expect(out).toBe(
-      'Luke Fahey rush left for 2 yards gain to the NEB44, out of bounds at NEB44 PENALTY OSU Holding (Austin Siereveld) 10 yards from NEB46',
-    );
-  });
-
-  it('resolves a penalty-only play with no live-ball region (NO PLAY)', () => {
-    // Penalty team differs from offense: OSU has the ball but NEB jumped offside-equiv.
-    const out = expandNames('PENALTY NEB False Start (#55 T.Babalade) 5 yards from OSU28 to OSU33. NO PLAY', roster, OSU);
-    expect(out).toBe('PENALTY NEB False Start (Tree Babalade) 5 yards from OSU28 to OSU33. NO PLAY');
-  });
-
-  it('handles PENALTY with no named player (declined) as a no-op', () => {
-    const out = expandNames('#10 A.Colandrea sacked for loss of 2 yards (#5 R.Pettijohn) PENALTY NEB Holding declined', roster, NEB);
-    // Pettijohn not in roster -> stays; everything else untouched.
-    expect(out).toBe('Anthony Colandrea sacked for loss of 2 yards (#5 R.Pettijohn) PENALTY NEB Holding declined');
-  });
-});
-
-describe('extractPlayByPlay \u2014 end to end say-able text', () => {
-  function footballPlay(text: string, offenseId: string, defenseId: string): EspnPlay {
-    return {
-      id: 'p1',
-      sequenceNumber: '1',
-      text,
-      period: { number: 2 },
-      clock: { displayValue: '8:46' },
-      awayScore: 7,
-      homeScore: 10,
-      teamParticipants: [
-        { id: offenseId, type: 'offense' },
-        { id: defenseId, type: 'defense' },
-      ],
-    };
-  }
-
-  it('cleans, disambiguates and expands a NEB-possession play', () => {
+describe('extractPlayByPlay: say-able text end to end', () => {
+  it('cleans the play text and expands names from the summary boxscore', () => {
     const summary: EspnSummary = {
-      ...GAME,
-      drives: {
-        previous: [
-          {
-            team: { abbreviation: 'NEB' },
-            plays: [
-              footballPlay(
-                '(08:46) No Huddle-Shotgun #10 A.Colandrea pass complete short left to #3 K.Gilmer (#7 J.Mathews Jr.)',
-                '101', // NEB offense
-                '100', // OSU defense
-              ),
-            ],
-          },
-        ],
-        current: null,
-      },
+      ...boxscore({
+        NEB: [['10', 'Anthony Colandrea'], ['3', 'Kwinten Gilmer']],
+        OSU: [['7', 'Jermaine Mathews Jr.']],
+      }),
+      plays: [
+        {
+          id: 'p1',
+          text: '(08:46) No Huddle-Shotgun #10 A.Colandrea pass complete short left to #3 K.Gilmer (#7 J.Mathews Jr.)',
+          period: { number: 2 },
+          clock: { displayValue: '8:46' },
+          awayScore: 7,
+          homeScore: 10,
+        },
+      ],
     };
     const [line] = extractPlayByPlay(summary);
     expect(line.text).toBe(
-      'Anthony Colandrea pass complete short left to Kwinten Gilmer (Jermaine Mathews Jr.)',
+      '#10 Anthony Colandrea pass complete short left to #3 Kwinten Gilmer (#7 Jermaine Mathews Jr.)',
     );
     expect(line.score).toBe('7-10');
   });
+});
 
-  it('is team-agnostic: OSU possession renders the same way', () => {
-    const summary: EspnSummary = {
-      ...GAME,
-      plays: [footballPlay('(09:40) Shotgun #13 L.Fahey pass complete to #4 J.Smith, 1ST DOWN', '100', '101')],
-    };
-    const [line] = extractPlayByPlay(summary);
-    expect(line.text).toBe('Luke Fahey pass complete to Jeremiah Smith, 1ST DOWN');
+describe('fetchPlayByPlay: team rosters', () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+    jest.restoreAllMocks();
+  });
+
+  // Colandrea has a stat (boxscore). Bell has none: he is only on the team roster.
+  const tokenSummary: EspnSummary = {
+    header: { competitions: [{ competitors: [{ team: { id: '158' } }, { team: { id: '194' } }] }] },
+    ...boxscore({ NEB: [['10', 'Anthony Colandrea']] }),
+    plays: [{ id: 'p1', text: '#10 A.Colandrea pass incomplete deep left to #11 D.Bell' }],
+  };
+  const rosters: Record<string, EspnTeamRoster> = {
+    '158': teamRoster([['10', 'Anthony Colandrea'], ['11', 'Cameron Lenhardt'], ['11', 'Demitrius Bell']]),
+    '194': teamRoster([['11', 'Brandon Inniss']]),
+  };
+
+  /** Route summary and roster URLs to canned payloads; returns the fetch mock. */
+  function mockEspn(summary: EspnSummary, rosterStatus = 200): jest.Mock {
+    const mock = jest.fn(async (url: string) => {
+      const teamId = /\/teams\/(\d+)\/roster/.exec(url)?.[1];
+      if (!teamId) return { ok: true, status: 200, json: async () => summary };
+      return { ok: rosterStatus === 200, status: rosterStatus, json: async () => rosters[teamId] };
+    });
+    global.fetch = mock as unknown as typeof fetch;
+    return mock;
+  }
+  const rosterCalls = (mock: jest.Mock) =>
+    mock.mock.calls.filter(([url]) => String(url).includes('/roster'));
+
+  it('expands a player who is only on the team roster', async () => {
+    mockEspn(tokenSummary);
+    const [line] = await fetchPlayByPlay('game-expand', 'NCAAF');
+    expect(line.text).toBe(
+      '#10 Anthony Colandrea pass incomplete deep left to #11 Demitrius Bell',
+    );
+  });
+
+  it('fetches both rosters once per game, not once per poll', async () => {
+    const mock = mockEspn(tokenSummary);
+    await fetchPlayByPlay('game-once', 'NCAAF');
+    await fetchPlayByPlay('game-once', 'NCAAF');
+    expect(rosterCalls(mock)).toHaveLength(2); // two teams, one fetch each
+    expect(String(rosterCalls(mock)[0][0])).toContain('limit=');
+  });
+
+  it('still returns plays when the roster fetch fails, warns, and retries next poll', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const mock = mockEspn(tokenSummary, 500);
+    const [line] = await fetchPlayByPlay('game-fail', 'NCAAF');
+    // Boxscore names still apply; Bell stays as ESPN wrote him.
+    expect(line.text).toBe('#10 Anthony Colandrea pass incomplete deep left to #11 D.Bell');
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    await fetchPlayByPlay('game-fail', 'NCAAF');
+    expect(rosterCalls(mock)).toHaveLength(4); // failure was not cached
+  });
+
+  it('does not fetch rosters when the feed has no jersey tokens', async () => {
+    const mock = mockEspn({
+      ...tokenSummary,
+      plays: [{ id: 'p1', text: 'Anthony Colandrea pass complete to Demitrius Bell' }],
+    });
+    await fetchPlayByPlay('game-fullnames', 'NCAAF');
+    expect(rosterCalls(mock)).toHaveLength(0);
   });
 });
