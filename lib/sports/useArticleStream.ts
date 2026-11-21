@@ -140,6 +140,8 @@ export interface UseArticleStream {
   index: number;
   /** The headline of the article currently on the lens, for the phone UI. */
   currentHeadline: string;
+  /** Exact multi-line frame currently on the lens (phone preview === lens). */
+  currentFrame: string;
   loading: boolean;
   /** Fatal load error (couldn't fetch anything). Per-article issues → skipped. */
   error: string | null;
@@ -157,6 +159,13 @@ export interface UseArticleStream {
   /** Jump forward/back one window (manual override of the clock). */
   next: () => void;
   prev: () => void;
+  /**
+   * The last reachable top index. The clock + next()/prev() step by one window
+   * and clamp here, so UIs should derive "at end" from `index >= lastTop`, NOT
+   * `lines.length - 1` (which is unreachable). Single source of truth for the
+   * stepping bound so callers don't re-import lineWrapper internals.
+   */
+  lastTop: number;
 }
 
 /**
@@ -219,6 +228,10 @@ export function useArticleStream(
   }, []);
 
   const current = lines.length > 0 ? lines[Math.min(index, lines.length - 1)] : null;
+  // The exact text pushed to the lens — same getWindow() call as the push effect,
+  // so the phone preview shows what the wearer sees, not a divergent single line.
+  const currentFrame =
+    lines.length > 0 ? getWindow(lines.map((l) => l.text), index).join('\n') : '';
   const currentHeadlineRef = useRef('');
   if (current) {
     // headline = the nearest preceding head line's text
@@ -307,6 +320,7 @@ export function useArticleStream(
     lines,
     index,
     currentHeadline: currentHeadlineRef.current,
+    currentFrame,
     loading,
     error,
     skipped,
@@ -317,5 +331,6 @@ export function useArticleStream(
     pause,
     next,
     prev,
+    lastTop: Math.max(0, lines.length - WINDOW_SIZE),
   };
 }

@@ -376,7 +376,7 @@ function StreamView() {
 
   const {
     lines, index, currentHeadline, loading, error, skipped,
-    playing, done, load, play, pause, next, prev,
+    playing, done, load, play, pause, next, prev, lastTop, currentFrame,
   } = useArticleStream(core, isConnected);
 
   const onStream = useCallback((ids: string[]) => {
@@ -398,8 +398,11 @@ function StreamView() {
     return <ArticlePicker sources={STREAM_SOURCES} onStream={onStream} />;
   }
 
+  // atEnd derives from the hook's lastTop (= lines.length - WINDOW_SIZE), the
+  // actual last reachable window top. Using lines.length - 1 here left Fwd ›
+  // permanently enabled-but-dead, since the clock/next() clamp never reaches it.
   const atStart = index <= 0;
-  const atEnd = index >= Math.max(0, lines.length - 1);
+  const atEnd = index >= lastTop;
 
   return (
     <View style={styles.liveBody}>
@@ -420,8 +423,10 @@ function StreamView() {
         ) : lines.length > 0 ? (
           <>
             <Text style={styles.league} numberOfLines={2}>{currentHeadline}</Text>
+            {/* Mirror the lens exactly — currentFrame is the same windowed text
+                the wearer sees; cap at a window's worth of lines. */}
             <Text style={styles.deckText} numberOfLines={4}>
-              {lines[Math.min(index, lines.length - 1)]?.text ?? ''}
+              {currentFrame}
             </Text>
             <Text style={styles.deckCount}>line {index + 1} / {lines.length}</Text>
           </>
