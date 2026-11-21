@@ -144,6 +144,13 @@ export function playContext(
 // so we anchor on the keyword, not position 0. Team abbr is 2-4 uppercase letters.
 const PENALTY_CLAUSE = /PENALTY\s+([A-Z]{2,4})\b/g;
 
+// A special-teams parenthetical labels its occupants by ROLE: "(H: #19 …, LS: #88 …)"
+// on a FG/PAT, "(K: …)" / punter clauses on kicks. The kicking unit (holder,
+// long-snapper, kicker) is the POSSESSING team — the offense — NOT the defense
+// the tackle-parenthetical rule assumes. Verified against BYU@KU 401856866: the
+// holder #19 is on BYU (offense); the defense's #88 would mislabel the snapper.
+const SPECIAL_TEAMS_PAREN = /\((?:[HK]|LS|LG):\s/;
+
 /**
  * Expand jersey tokens to full names you can SAY. Pure, clause-aware.
  *
@@ -185,7 +192,11 @@ export function expandNames(
   const firstPenalty = boundaries[0]?.start ?? text.length;
 
   if (firstPenalty > 0) {
-    regions.push({ text: text.slice(0, firstPenalty), preTeam: ctx.offense, parenTeam: ctx.defense });
+    const liveBall = text.slice(0, firstPenalty);
+    // Tackle parentheticals belong to the defense; special-teams role
+    // parentheticals (H:/LS:/K:) belong to the kicking unit = the offense.
+    const parenTeam = SPECIAL_TEAMS_PAREN.test(liveBall) ? ctx.offense : ctx.defense;
+    regions.push({ text: liveBall, preTeam: ctx.offense, parenTeam });
   }
   for (let i = 0; i < boundaries.length; i++) {
     const start = boundaries[i].start;

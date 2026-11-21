@@ -67,3 +67,38 @@ describe('team attribution on the real NEB@OSU payload', () => {
     expect(out).toBe('tackle for loss (#99 Z.Nobody)');
   });
 });
+
+/**
+ * Special-teams parentheticals, pinned to the REAL BYU@KU payload (event
+ * 401856866), verified live 2026-11 at 3Q 8:32. ESPN text:
+ *
+ *   "#97 M.Dunn field goal attempt from 52 yards GOOD (H: #19 F.Shurtz, LS: #88 T.Smith)"
+ *
+ * The kicking unit — kicker, holder, long-snapper — is the POSSESSING team
+ * (BYU/offense). A "(H: …, LS: …)" parenthetical is NOT a tackle parenthetical:
+ * its tokens belong to the offense, not the defense. Verified against the
+ * boxscore: BYU#97=Matthias Dunn, BYU#19=Fuller Shurtz; BYU has no #88, while
+ * KU#88=Kevin Oatis. If the paren bound to defense (the old tackle rule), #88
+ * would mislabel the snapper as "Kevin Oatis" — a confident WRONG name, the one
+ * outcome the design forbids.
+ */
+const stRoster: Roster = new Map<string, string>([
+  ['BYU#97', 'Matthias Dunn'],
+  ['BYU#19', 'Fuller Shurtz'],
+  ['KU#88', 'Kevin Oatis'], // collision trap: wrong team for this play's snapper
+]);
+const BYU_KICKING: PlayContext = { offense: 'BYU', defense: 'KU' };
+
+describe('special-teams (H:/LS:) parenthetical binds to the kicking team', () => {
+  it('expands the holder to the offense and never mislabels the snapper from the defense', () => {
+    const out = expandNames(
+      '#97 M.Dunn field goal attempt from 52 yards GOOD (H: #19 F.Shurtz, LS: #88 T.Smith), clock 05:45',
+      stRoster,
+      BYU_KICKING,
+    );
+    expect(out).toContain('Matthias Dunn'); // #97, pre-paren, offense
+    expect(out).toContain('Fuller Shurtz'); // #19 holder, in-paren, BYU — the fix
+    expect(out).not.toContain('Kevin Oatis'); // #88 must NOT resolve to KU's snapper
+    expect(out).toContain('#88 T.Smith'); // stays say-able as ESPN wrote it
+  });
+});
