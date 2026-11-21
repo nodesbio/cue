@@ -15,6 +15,7 @@ import {
   saveCalibration, loadCalibration, isCalibrationStale,
   type Calibration, type Side as CalSide,
 } from '@/lib/g1/calibrationStore';
+import { WIDTH_PROBE_FRAMES } from '@/lib/g1/widthProbe';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
@@ -41,6 +42,11 @@ export default function SettingsScreen() {
   const [showLogs, setShowLogs]               = useState(false);
   const [verboseLogs, setVerboseLogs]         = useState(false);
   const [harnessRunning, setHarnessRunning]   = useState(false);
+  // Width probe (DEV-only): sends ruler/fill/word frames to the lens so you can
+  // MEASURE the real firmware wrap column instead of trusting the spec's "36".
+  // probeIdx shows which frame is on-screen; abort lets you stop mid-run.
+  const [probeIdx, setProbeIdx]               = useState<number | null>(null);
+  const probeAbort = useState<{ stop: boolean }>({ stop: false })[0];
   // Reading-eye auto-alternation (eye-health). Rotates which eye reads in mono
   // on a cadence so a single eye isn't loaded for a whole session.
   const [eyeAlternate, setEyeAlternate]       = useState(EYE_ALT_DEFAULT);
@@ -336,6 +342,36 @@ export default function SettingsScreen() {
     } finally {
       core.setTextAckObserver(null); // detach the BLE-skip ledger tap
       setHarnessRunning(false);
+    }
+  }
+
+  // ── Width probe (DEV-only) ────────────────────────────────────────────────
+  // We ship raw strings via sendText (0x71); the GLASSES FIRMWARE wraps/renders
+  // them with its own font. So the real line width is a DEVICE fact, not a code
+  // fact. This walks the probe set with a long hold on each frame so you can
+  // read the wrap column off the lens (ruler), check monospaced-vs-proportional
+  // (fill-i/W/M), and confirm the 191-byte frame cap (bytecap-200 clips). Each
+  // frame's name + byte count is logged via note() for correlation in Raw Logs.
+  const PROBE_HOLD_MS = 2800;
+  async function runWidthProbe() {
+    if (probeIdx !== null) { probeAbort.stop = true; return; } // tap again = stop
+    probeAbort.stop = false;
+    if (!verboseLogs) { core.setVerbose(true); setVerboseLogs(true); }
+    core.note(`===== WIDTH PROBE START frames=${WIDTH_PROBE_FRAMES.length} hold=${PROBE_HOLD_MS}ms =====`);
+    try {
+      for (let i = 0; i < WIDTH_PROBE_FRAMES.length; i++) {
+        if (probeAbort.stop) { core.note(`===== WIDTH PROBE ABORTED at ${i} =====`); break; }
+        const f = WIDTH_PROBE_FRAMES[i];
+        setProbeIdx(i);
+        core.note(`[PROBE ${i + 1}/${WIDTH_PROBE_FRAMES.length}] ${f.name} cols=${f.cols} bytes=${f.bytes}${f.bytes > 191 ? ' (OVER 191-BYTE CAP → tail clipped)' : ''}`);
+        // Send through the normal paced text path (same as a real reader frame).
+        await core.sendText(f.text, 1, 1, false).catch((e: any) => core.note(`[PROBE] send failed: ${e?.message ?? e}`));
+        await new Promise((r) => setTimeout(r, PROBE_HOLD_MS));
+      }
+      core.note('===== WIDTH PROBE DONE =====');
+    } finally {
+      setProbeIdx(null);
+      await core.exitToDashboard().catch(() => {});
     }
   }
 
@@ -730,6 +766,24 @@ export default function SettingsScreen() {
           >
             <Text style={[s.btnText, { color: '#ffffff' }]}>
               {harnessRunning ? '■ Stop' : '▶ Run lens race (L vs R, 160)'}
+            </Text>
+          </Pressable>
+        )}
+
+        {/* Width probe — DEV only. Walks ruler/fill/word frames at a long hold
+            so you MEASURE the firmware's real wrap column (vs the spec's "36"),
+            check monospaced-vs-proportional (fill-i/W/M wrap at same col?), and
+            confirm the 191-byte cap. Frame name + bytes log to Raw Logs below. */}
+        {__DEV__ && SHOW_DEV_HARNESS && (
+          <Pressable
+            style={[s.btn, probeIdx !== null ? s.btnDanger : s.btnSecondary, !connected && { opacity: 0.4 }]}
+            onPress={() => void runWidthProbe()}
+            disabled={!connected}
+          >
+            <Text style={[s.btnText, { color: '#ffffff' }]}>
+              {probeIdx !== null
+                ? `■ Stop  (${probeIdx + 1}/${WIDTH_PROBE_FRAMES.length}: ${WIDTH_PROBE_FRAMES[probeIdx].name})`
+                : '▶ Run width probe (measure wrap)'}
             </Text>
           </Pressable>
         )}

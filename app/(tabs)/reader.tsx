@@ -25,14 +25,44 @@ import { useFocusEffect } from 'expo-router';
 import { useG1 } from '@/lib/g1/G1Context';
 import { cardsFromNews, type NewsCard, type EspnNewsResponse } from '@/lib/sports/cards';
 import type { Topic } from '@/lib/sports/audience';
+import { wrapParagraph, MAX_CHARS } from '@/lib/teleprompter/lineWrapper';
 
 const OWNER = 'reader';
 
-/** League news endpoints we read for the ambient feed. Keyless ESPN. */
+/**
+ * Glasses line-wrap width for reader cards. The G1 font is PROPORTIONAL, not
+ * monospaced (device-measured 2026-11 via settings.tsx width probe: a 44-char
+ * mixed-case team line fits one line with room to spare; a digit ruler runs to
+ * ~64 before wrapping; all-caps W/M wrap earliest at ~36). So "chars per line"
+ * is a soft limit, not a hard one — we reuse the teleprompter's established
+ * MAX_CHARS=45 soft limit (SPEC.md §2: "~45, proportional font, treat as soft
+ * limit") rather than a separate lower number. 45 fits all real team strings;
+ * worst-case all-caps wraps a touch early, which is the accepted tradeoff. */
+const GLASSES_COLS = MAX_CHARS;
+
+/** Hands-free auto-read cycle. The reader must deliver value with NO input at all
+ *  (no SmartRemote, no touchpad, no head gesture), so each card reads itself:
+ *    headline  → hold HEADLINE_MS  → (if it has a blurb) auto-expand → hold DETAIL_MS → next
+ *  A card with no blurb just holds HEADLINE_MS and advances. These are glance-paced
+ *  guesses; tune on-device. Any gesture (head_up / tap) freezes the cycle to read. */
+const HEADLINE_MS = 5000;
+const DETAIL_MS   = 7000;
+
+/** How often to re-pull the feeds. ESPN turns over through the day; refreshing
+ *  keeps the loop fed with new material so the reader stops feeling repetitive.
+ *  New stories are merged + deduped into the pool, not replaced wholesale. */
+const REFRESH_MS = 10 * 60 * 1000;
+
+/** League news endpoints we read for the ambient feed. Keyless ESPN, limit=50
+ *  (the max it honors). Broadened beyond NBA/NFL/F1 so the pool is large and
+ *  varied enough that the cycle doesn't repeat within a sitting. */
 const FEEDS: Array<{ sport: string; league: string; label: string; url: string }> = [
-  { sport: 'basketball', league: 'nba', label: 'NBA', url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news?limit=20' },
-  { sport: 'football',   league: 'nfl', label: 'NFL', url: 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=20' },
-  { sport: 'racing',     league: 'f1',  label: 'F1',  url: 'https://site.api.espn.com/apis/site/v2/sports/racing/f1/news?limit=20' },
+  { sport: 'basketball', league: 'nba',           label: 'NBA',     url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news?limit=50' },
+  { sport: 'football',   league: 'nfl',           label: 'NFL',     url: 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50' },
+  { sport: 'racing',     league: 'f1',            label: 'F1',      url: 'https://site.api.espn.com/apis/site/v2/sports/racing/f1/news?limit=50' },
+  { sport: 'football',   league: 'college-football', label: 'CFB',  url: 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/news?limit=50' },
+  { sport: 'basketball', league: 'mens-college-basketball', label: 'NCAAB', url: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/news?limit=50' },
+  { sport: 'soccer',     league: 'eng.1',         label: 'EPL',     url: 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/news?limit=50' },
 ];
 
 /** Minimal league topic for the reader. No audience, no stance voice — we render
@@ -45,39 +75,61 @@ export default function ReaderScreen() {
   const { core, isConnected } = useG1();
   const [cards, setCards] = useState<NewsCard[]>([]);
   const [idx, setIdx] = useState(0);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(false);   // showing the blurb vs the headline
+  const [frozen, setFrozen] = useState(false);       // gesture-held so you can read at your pace
   const [loading, setLoading] = useState(true);
 
-  // Refs so the remote handler (registered once) always sees current state.
+  // Refs so the (once-registered) event handler + self-scheduling cycle always
+  // see current state without re-arming timers.
   const cardsRef = useRef<NewsCard[]>([]);
   const idxRef = useRef(0);
   const expandedRef = useRef(false);
+  const frozenRef = useRef(false);
   const connectedRef = useRef(isConnected);
+  const cycleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Cards shown since the last wrap. We advance through unseen cards first and
+   *  only reset (allowing repeats) once the whole pool has been read — so you
+   *  don't re-see story #3 while #40 is still waiting. */
+  const seenRef = useRef<Set<string>>(new Set());
   useEffect(() => { cardsRef.current = cards; }, [cards]);
   useEffect(() => { idxRef.current = idx; }, [idx]);
   useEffect(() => { expandedRef.current = expanded; }, [expanded]);
+  useEffect(() => { frozenRef.current = frozen; }, [frozen]);
   useEffect(() => { connectedRef.current = isConnected; }, [isConnected]);
 
-  // ── Fetch news once on mount (reuses the deck's cardsFromNews) ──────────────
+  // ── Fetch + periodic refresh; merge new stories into the pool, deduped ───────
   useEffect(() => {
     let alive = true;
-    (async () => {
-      const all: NewsCard[] = [];
+
+    const pull = async () => {
+      const fetched: NewsCard[] = [];
       for (const f of FEEDS) {
         try {
           const res = (await (await fetch(f.url)).json()) as EspnNewsResponse;
-          all.push(...cardsFromNews(readerTopic(f), res));
+          fetched.push(...cardsFromNews(readerTopic(f), res));
         } catch (e) {
           // Zoracon: surface, don't swallow. One dead feed shouldn't blank the reader.
           core.note(`[reader] feed failed ${f.league}: ${String(e)}`);
         }
       }
       if (!alive) return;
-      all.sort((a, b) => b.published - a.published); // freshest first
-      setCards(all);
+      setCards((prev) => {
+        // Merge by stable id (key#news:published). New stories join the pool;
+        // existing ones keep their slot so the current read position isn't jostled.
+        const byId = new Map<string, NewsCard>();
+        for (const c of prev) byId.set(c.id, c);
+        let added = 0;
+        for (const c of fetched) if (!byId.has(c.id)) { byId.set(c.id, c); added++; }
+        const merged = [...byId.values()].sort((a, b) => b.published - a.published);
+        if (added) core.note(`[reader] refresh +${added} new (pool ${merged.length})`);
+        return merged;
+      });
       setLoading(false);
-    })();
-    return () => { alive = false; };
+    };
+
+    void pull();
+    const timer = setInterval(() => { void pull(); }, REFRESH_MS);
+    return () => { alive = false; clearInterval(timer); };
   }, [core]);
 
   // ── Push the current card to the lens ──────────────────────────────────────
@@ -87,51 +139,147 @@ export default function ReaderScreen() {
     const card = list[idxRef.current];
     if (!card) return;
     const body = expandedRef.current && card.description ? card.description : card.headline;
-    // Single page for the headline; expanded blurb paginates via the engine.
-    // For tonight we send as one frame — long blurbs will clip; pagination is a
-    // follow-on (acceptance item), not needed for a usable first cut.
-    const frame = `${card.topicLabel} · ${new Date(card.published).toLocaleDateString()}\n${body}`;
+    // Word-wrap to the glasses soft limit (≤45 proportional cols, left-aligned, plain text).
+    // Header and body are separate "thoughts" → blank line between them per spec.
+    // Long words hard-break (wrapParagraph handles it) so nothing clips off-screen.
+    // Pagination of very long blurbs across frames is still a follow-on; for now a
+    // long blurb fills the lens top-down and the overflow tail is not shown.
+    const header = `${card.topicLabel} · ${new Date(card.published).toLocaleDateString()}`;
+    const frame = [
+      ...wrapParagraph(header, GLASSES_COLS),
+      '',
+      ...wrapParagraph(body, GLASSES_COLS),
+    ].join('\n');
     core.note(`[reader] push idx=${idxRef.current}/${list.length} expanded=${expandedRef.current}`);
     void core.sendText(frame, 1, 1, true, undefined, OWNER);
   }, [core]);
 
-  const advance = useCallback(() => {
+  const clearCycle = useCallback(() => {
+    if (cycleRef.current) { clearTimeout(cycleRef.current); cycleRef.current = null; }
+  }, []);
+
+  /** Pick the next card index that hasn't been shown since the last wrap. When
+   *  every card has been seen, clear the seen-set and start a fresh pass from the
+   *  freshest story — so repeats only happen after you've exhausted the pool. */
+  const nextUnseenIdx = useCallback((): number => {
+    const list = cardsRef.current;
+    if (!list.length) return 0;
+    const seen = seenRef.current;
+    // Scan forward from the current position for the first unseen card.
+    for (let step = 1; step <= list.length; step++) {
+      const i = (idxRef.current + step) % list.length;
+      if (!seen.has(list[i].id)) return i;
+    }
+    // Whole pool exhausted → reset and begin a new pass at the top (freshest).
+    seen.clear();
+    core.note('[reader] pool exhausted — starting a fresh pass');
+    return 0;
+  }, [core]);
+
+  /** Record a card as shown so nextUnseenIdx skips it until the next pass. */
+  const markSeen = useCallback((i: number) => {
+    const card = cardsRef.current[i];
+    if (card) seenRef.current.add(card.id);
+  }, []);
+
+  /** The self-driving hands-free cycle. Each call paints the current phase, then
+   *  schedules the next step — headline → (auto-expand) detail → next card → … —
+   *  so the feed reads itself with no input. While frozen, it stops rescheduling
+   *  (the current card stays on the lens until a gesture resumes it). */
+  const tick = useCallback(() => {
+    clearCycle();
     const list = cardsRef.current;
     if (!list.length) return;
-    idxRef.current = (idxRef.current + 1) % list.length;
-    expandedRef.current = false; // new card always starts collapsed
+    const card = list[idxRef.current];
+    if (!card) return;
+
+    markSeen(idxRef.current); // the card now on the lens counts as read
+    push(); // paint whatever expanded/idx currently say
+    if (frozenRef.current) return; // held for reading — don't schedule the next step
+
+    const hasDetail = !!card.description;
+    if (!expandedRef.current && hasDetail) {
+      // Phase 1 → 2: after the headline dwell, auto-expand into the blurb.
+      cycleRef.current = setTimeout(() => {
+        expandedRef.current = true;
+        setExpanded(true);
+        tick();
+      }, HEADLINE_MS);
+    } else {
+      // Phase 2 (or headline-only card): after the dwell, advance to the next unseen card.
+      const dwell = expandedRef.current ? DETAIL_MS : HEADLINE_MS;
+      cycleRef.current = setTimeout(() => {
+        idxRef.current = nextUnseenIdx();
+        expandedRef.current = false;
+        setIdx(idxRef.current);
+        setExpanded(false);
+        tick();
+      }, dwell);
+    }
+  }, [push, clearCycle, markSeen, nextUnseenIdx]);
+
+  /** Skip to the next unseen card now (single_tap / on-screen Skip). Keeps the cycle running. */
+  const skip = useCallback(() => {
+    const list = cardsRef.current;
+    if (!list.length) return;
+    idxRef.current = nextUnseenIdx();
+    expandedRef.current = false;
     setIdx(idxRef.current);
     setExpanded(false);
-    push();
-  }, [push]);
+    tick();
+  }, [tick, nextUnseenIdx]);
 
-  const toggleExpand = useCallback(() => {
+  /** Freeze / resume. head_up (or triple_tap) holds the current card AND expands it
+   *  so you can read at your own pace with no remote. head_down / another gesture
+   *  resumes the auto-cycle. This is the hands-free "look up to read" control. */
+  const freeze = useCallback(() => {
+    frozenRef.current = true;
+    setFrozen(true);
     const card = cardsRef.current[idxRef.current];
-    if (!card) return;
-    if (!card.description) {
-      core.note('[reader] expand no-op — card has no description'); // not swallowed
-      return;
+    if (card?.description && !expandedRef.current) {
+      expandedRef.current = true;
+      setExpanded(true);
     }
-    expandedRef.current = !expandedRef.current;
-    setExpanded(expandedRef.current);
-    push();
-  }, [core, push]);
+    tick(); // repaint, then (because frozen) stop scheduling
+  }, [tick]);
 
-  // ── Own the display + remote while focused ─────────────────────────────────
+  const resume = useCallback(() => {
+    frozenRef.current = false;
+    setFrozen(false);
+    tick(); // resumes scheduling from the current card
+  }, [tick]);
+
+  const toggleFreeze = useCallback(() => {
+    if (frozenRef.current) resume(); else freeze();
+  }, [freeze, resume]);
+
+  // ── Own the display + input while focused; the auto-read cycle starts on focus ─
   useFocusEffect(useCallback(() => {
     core.claimDisplay(OWNER);
+    frozenRef.current = false;    // opening Reader (re)starts the hands-free cycle
+    expandedRef.current = false;
+    setFrozen(false);
+    setExpanded(false);
+
     const handler = (event: { name: string }) => {
-      if (event.name === 'single_tap') advance();
-      else if (event.name === 'triple_tap') toggleExpand();
-      // head_up/down and everything else: ignored by the reader.
+      switch (event.name) {
+        case 'head_up':    freeze(); break;   // hands-free: look up to hold & read
+        case 'head_down':  resume(); break;   // look down to let it roll again
+        case 'triple_tap': toggleFreeze(); break; // temple touchpad / remote: hold ⇄ resume
+        case 'single_tap': skip(); break;     // temple touchpad / remote: skip now
+        // everything else ignored.
+      }
     };
     core.addEventHandler(handler);
-    push(); // paint the current card on (re)focus
+
+    tick(); // kick off the self-driving cycle immediately — value with zero input
+
     return () => {
+      clearCycle();
       core.removeEventHandler(handler);
       core.releaseDisplay(OWNER);
     };
-  }, [core, advance, toggleExpand, push]));
+  }, [core, tick, skip, freeze, resume, toggleFreeze, clearCycle]));
 
   const current = cards[idx];
 
@@ -139,7 +287,8 @@ export default function ReaderScreen() {
     <View style={styles.root}>
       <Text style={styles.title}>Ambient Reader</Text>
       <Text style={styles.hint}>
-        SmartRemote: ⏭ next headline · ▶❙❙ expand / collapse. Keep the phone in your pocket.
+        {frozen ? 'Held — reading ⏸' : 'Reading itself ▶'}. No controller needed: headlines
+        expand and advance on their own. Look up to hold &amp; read, look down to resume.
       </Text>
       {!isConnected && <Text style={styles.warn}>Glasses not connected — connect to read on the HUD.</Text>}
       {loading ? (
@@ -155,16 +304,18 @@ export default function ReaderScreen() {
           {expanded && current?.description ? (
             <Text style={styles.body}>{current.description}</Text>
           ) : current?.description ? (
-            <Text style={styles.dim}>▶❙❙ to expand</Text>
+            <Text style={styles.dim}>detail expands automatically…</Text>
           ) : (
-            <Text style={styles.dim}>(no detail to expand)</Text>
+            <Text style={styles.dim}>(headline only)</Text>
           )}
         </ScrollView>
       )}
-      {/* On-screen mirrors of the remote, for testing without the glasses. */}
+      {/* On-screen mirrors of the gestures, for testing without the glasses. */}
       <View style={styles.row}>
-        <Pressable style={styles.btn} onPress={toggleExpand}><Text style={styles.btnText}>Expand ⇄</Text></Pressable>
-        <Pressable style={styles.btn} onPress={advance}><Text style={styles.btnText}>Next ⏭</Text></Pressable>
+        <Pressable style={styles.btn} onPress={toggleFreeze}>
+          <Text style={styles.btnText}>{frozen ? 'Resume ▶' : 'Hold & read ⏸'}</Text>
+        </Pressable>
+        <Pressable style={styles.btn} onPress={skip}><Text style={styles.btnText}>Skip ⏭</Text></Pressable>
       </View>
     </View>
   );
