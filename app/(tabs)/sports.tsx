@@ -376,8 +376,24 @@ function StreamView() {
 
   const {
     lines, index, currentHeadline, loading, error, skipped,
-    playing, done, load, play, pause, next, prev, lastTop, currentFrame,
+    playing, done, load, play, pause, next, prev, lastTop, currentFrame, resume,
   } = useArticleStream(core, isConnected);
+
+  // On mount, offer to resume a stream a prior session froze (cold-kill mid-
+  // stream, #49). If one restores, drop straight out of the picker into it —
+  // the wearer woke the app to keep watching, not to re-pick. No re-fetch.
+  useEffect(() => {
+    let alive = true;
+    // resume() self-starts playback off the just-loaded snapshot (calling
+    // play() here would read stale render-time lines and no-op). We only leave
+    // the picker when a stream was actually restored.
+    void resume().then((restored) => {
+      if (alive && restored) setPicking(false);
+    });
+    return () => { alive = false; };
+    // Run once on mount; resume/play are stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onStream = useCallback((ids: string[]) => {
     setPicking(false);

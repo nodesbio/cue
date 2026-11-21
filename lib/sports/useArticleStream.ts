@@ -28,6 +28,12 @@ import {
   type ArticleRejectReason,
 } from './articleStream';
 import { markSeen } from './SeenStore';
+import {
+  saveStreamQueue,
+  saveResumeIndex,
+  clearStreamQueue,
+  loadStreamQueue,
+} from './StreamQueueStore';
 
 // Distinct per-segment owner token (#43/#49): LiveSportsView, DeckView and
 // StreamView each hold the lens under their OWN token so an outgoing segment's
@@ -152,6 +158,13 @@ export interface UseArticleStream {
   done: boolean;
   /** Load + wrap the given article ids (does not start playing). */
   load: (articleIds: string[]) => Promise<void>;
+  /**
+   * Restore a stream frozen by a prior session (cold-kill mid-stream) offline,
+   * no re-fetch, and START PLAYING it immediately (claims the lens). Resolves
+   * true if a stream was restored + started, false if nothing resumable. Do NOT
+   * call play() after — this self-starts. Corrupt snapshots surface via `error`.
+   */
+  resume: () => Promise<boolean>;
   /** Claim the lens and begin auto-advancing. */
   play: () => void;
   /** Stop advancing, blank the lens, release ownership. Keeps position. */
@@ -201,6 +214,12 @@ export function useArticleStream(
     setSkipped([]);
     setError(null);
     markedRef.current = new Set();
+
+    // A fresh pick supersedes any prior resume snapshot. Clear it now so a
+    // cold-kill BEFORE the new stream plays can't resume into last pick's prose.
+    clearStreamQueue().catch((e) => {
+      console.warn('[useArticleStream] clearStreamQueue (load) failed:', (e as Error).message);
+    });
 
     if (articleIds.length === 0) { setLines([]); return; }
 
@@ -265,6 +284,17 @@ export function useArticleStream(
     });
   }, [playing, index, lines]);
 
+  // Track the resume point as the window advances (#49 resilience). Cheap
+  // index-only write (doesn't re-serialize the prose each tick) so a cold-kill
+  // mid-stream resumes at the right line offline. A write failure is surfaced,
+  // never silenced — a stale resume point is safe, but we won't hide a fault.
+  useEffect(() => {
+    if (!playing || lines.length === 0) return;
+    saveResumeIndex(index).catch((e) => {
+      console.warn('[useArticleStream] saveResumeIndex failed:', (e as Error).message);
+    });
+  }, [playing, index, lines.length]);
+
   // The clock: advance one window per dwell while playing. Local-only (no
   // network), so it keeps ticking with the phone in a pocket.
   useEffect(() => {
@@ -277,6 +307,12 @@ export function useArticleStream(
         void core.clearDisplay('L');
         void core.clearDisplay('R');
         core.releaseDisplay(OWNER);
+        // Played to the end — nothing left to resume into, so drop the snapshot
+        // (a finished stream resuming into darkness would be the masked-empty
+        // bug this store exists to avoid).
+        clearStreamQueue().catch((e) => {
+          console.warn('[useArticleStream] clearStreamQueue failed:', (e as Error).message);
+        });
       }, dwellMs);
       return () => { if (timerRef.current) clearTimeout(timerRef.current); };
     }
@@ -291,7 +327,13 @@ export function useArticleStream(
     core.claimDisplay(OWNER);
     setDone(false);
     setPlaying(true);
-  }, [core, lines.length]);
+    // Freeze the assembled stream so a lock / background / cold-kill resumes it
+    // offline from here (#49). Written whole once at play; the per-tick effect
+    // then only updates the index. Surfaced, not silenced, on failure.
+    saveStreamQueue(lines, skipped, index).catch((e) => {
+      console.warn('[useArticleStream] saveStreamQueue failed:', (e as Error).message);
+    });
+  }, [core, lines, skipped, index]);
 
   const pause = useCallback(() => {
     setPlaying(false);
@@ -299,6 +341,38 @@ export function useArticleStream(
     void core.clearDisplay('L');
     void core.clearDisplay('R');
     core.releaseDisplay(OWNER);
+  }, [core]);
+
+  // Restore a snapshot frozen by a prior session (cold-kill / force-quit mid-
+  // stream) WITHOUT re-fetching — the prose was frozen at pick time and the
+  // network can't be assumed at 3am (#49). Returns true if a stream was
+  // restored (caller should then call play()); false if there was nothing
+  // resumable. A corrupt snapshot SURFACES via setError, not a silent no-op.
+  const resume = useCallback(async (): Promise<boolean> => {
+    let snap;
+    try {
+      snap = await loadStreamQueue();
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
+    if (!snap || snap.lines.length === 0) return false;
+    abortRef.current?.abort();
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    markedRef.current = new Set();
+    setSkipped(snap.skipped);
+    setLines(snap.lines);
+    setIndex(snap.index);
+    setError(null);
+    setDone(false);
+    // Claim + play HERE off the just-loaded snapshot, not via play(): play()'s
+    // guard reads render-time `lines`, which is still stale ([]) in this same
+    // tick right after setLines — so it would early-return and never claim the
+    // lens. We own the snapshot locally, so start it directly. The window-push
+    // effect (gated on isConnected) pushes once state commits + glasses attach.
+    core.claimDisplay(OWNER);
+    setPlaying(true);
+    return true;
   }, [core]);
 
   const next = useCallback(() => {
@@ -327,6 +401,7 @@ export function useArticleStream(
     playing,
     done,
     load,
+    resume,
     play,
     pause,
     next,
