@@ -160,4 +160,37 @@ describe('cardsFromNews', () => {
   it('returns [] for an empty payload', () => {
     expect(cardsFromNews(cavs(), {}, NOW)).toEqual([] as NewsCard[]);
   });
+
+  it('drops bare Media clip rows but keeps Media that carries its own substance', () => {
+    const payload: EspnNewsResponse = {
+      articles: [
+        // Noise: Media row whose description === headline (a raw video tile).
+        {
+          headline: 'Wizards vs. Bulls: Game Highlights',
+          description: 'Wizards vs. Bulls: Game Highlights',
+          published: iso(1 * 3600_000),
+          type: 'Media',
+        },
+        // Keep: Media row with a real, distinct blurb.
+        {
+          headline: 'Harden cooks the Pacers for 51',
+          description: 'James Harden poured in 51 to carry the Cavs past Indiana.',
+          published: iso(2 * 3600_000),
+          type: 'Media',
+        },
+      ],
+    };
+    const cards = cardsFromNews(cavs(), payload, NOW);
+    expect(cards.map((c) => c.headline)).toEqual(['Harden cooks the Pacers for 51']);
+  });
+
+  it('keeps headline-only non-Media rows (a bare Recap/Story is still conversational)', () => {
+    const payload: EspnNewsResponse = {
+      articles: [
+        { headline: 'Knicks fend off the Wolves', published: iso(1 * 3600_000), type: 'Recap' },
+      ],
+    };
+    const cards = cardsFromNews(cavs(), payload, NOW);
+    expect(cards.map((c) => c.headline)).toEqual(['Knicks fend off the Wolves']);
+  });
 });

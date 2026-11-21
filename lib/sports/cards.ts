@@ -275,6 +275,11 @@ export function cardsFromNews(topic: Topic, res: EspnNewsResponse, now = Date.no
       // description === headline for Media/highlight rows — nothing to expand to.
       const blurb = a.description?.trim();
       const description = blurb && blurb !== a.headline.trim() ? blurb : undefined;
+      // Drop raw clip labels: Media rows whose blurb adds nothing are bare video
+      // tiles like "Team vs. Team: Game Highlights" — not conversational, and
+      // headline-only so there's nothing to read. Media items that DO carry their
+      // own substance (description !== headline) are kept. Verified live 2026-11-21.
+      if (a.type === 'Media' && !description) return null;
       const card: NewsCard = {
         id: `${key}#news:${published}`,
         kind: 'news',
