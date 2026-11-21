@@ -107,7 +107,10 @@ export default function TeleprompterScreen() {
       const s = snapRef.current;
       if (s && !core.status.poweredOff) {
         core.note(`[index] reconnect resync → re-push line=${s.topIndex + 1}/${s.totalLines}`);
-        void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+        // Tagged 'teleprompter' so a live sports HUD (which holds the display
+        // owner) is NOT stomped by a background reconnect re-push. If nothing
+        // holds the lens, this passes exactly as before.
+        void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, 'teleprompter');
       }
     }
     prevConnectedRef.current = connected;
@@ -137,7 +140,8 @@ export default function TeleprompterScreen() {
         const s = snapRef.current;
         if (s && connected && !core.status.poweredOff) {
           core.note(`[index] foreground resync → re-push line=${s.topIndex + 1}/${s.totalLines}`);
-          void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+          // Tagged 'teleprompter' — defers to a live sports HUD on foreground.
+          void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, 'teleprompter');
         }
       }
       prevActiveRef.current = nowActive;
@@ -427,7 +431,8 @@ export default function TeleprompterScreen() {
     const s = snapRef.current;
     console.log(`[index] re-send effect connected=${connected} poweredOff=${poweredOff} hasSnap=${!!s}`);
     if (s) {
-      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines);
+      // Power-On / reconnect re-push — tagged so a live sports HUD wins.
+      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, 'teleprompter');
     }
   }, [connected, poweredOff]); // eslint-disable-line react-hooks/exhaustive-deps
 

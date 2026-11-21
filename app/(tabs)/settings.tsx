@@ -18,6 +18,10 @@ import {
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
+// Reading-eye auto-alternation. ON by default (killer comfort feature) — absent
+// key means ON, only an explicit 'false' turns it off. See EYE_ALT_DEFAULT.
+export const EYE_ALT_KEY       = 'eye_alternate_enabled';
+export const EYE_ALT_DEFAULT   = true;
 
 // Skew/lens-race harness buttons — internal diagnostics, hidden from the normal
 // UI. Flip to true to re-expose them during link-layer debugging. (Already
@@ -39,7 +43,7 @@ export default function SettingsScreen() {
   const [harnessRunning, setHarnessRunning]   = useState(false);
   // Reading-eye auto-alternation (eye-health). Rotates which eye reads in mono
   // on a cadence so a single eye isn't loaded for a whole session.
-  const [eyeAlternate, setEyeAlternate]       = useState(false);
+  const [eyeAlternate, setEyeAlternate]       = useState(EYE_ALT_DEFAULT);
   const logs = useLogs();
 
   // ── Calibration ───────────────────────────────────────────────────────────
@@ -336,11 +340,16 @@ export default function SettingsScreen() {
   }
 
   useEffect(() => {
-    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY]).then(pairs => {
+    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY, EYE_ALT_KEY]).then(pairs => {
       if (pairs[0][1] === 'true') setGesturesEnabled(true);
       if (pairs[1][1] === 'true') setGesturesSwapped(true);
+      // Absent → default ON; only an explicit 'false' disables it.
+      const eyeOn = pairs[2][1] === null ? EYE_ALT_DEFAULT : pairs[2][1] === 'true';
+      setEyeAlternate(eyeOn);
+      core?.setEyeAlternation(eyeOn);
     }).catch(() => {});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [core]);
 
   // Live event monitor — shows the last raw G1 gesture received
   useG1Event((e) => {
@@ -568,6 +577,7 @@ export default function SettingsScreen() {
             onValueChange={(val) => {
               setEyeAlternate(val);
               core.setEyeAlternation(val);
+              AsyncStorage.setItem(EYE_ALT_KEY, val ? 'true' : 'false').catch(() => {});
             }}
             trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
             thumbColor="#fff"

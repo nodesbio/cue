@@ -132,6 +132,49 @@ export class G1Core {
    * R-side ACK — every scroll tick was faithfully replayed in order.
    */
   private _textGen = 0;
+
+  /**
+   * Display owner arbiter. The lens is a single shared surface, but multiple
+   * feature screens produce frames (teleprompter scroll + its reconnect/
+   * foreground resync pushes; the live-sports HUD poll). Before this, every
+   * producer bumped the same _textGen and stomped the other, so leaving one
+   * mode running while another pushed caused the display to toggle between
+   * them (field-observed 2026-11-20: sports scores fighting a still-mounted
+   * teleprompter's resync).
+   *
+   * Fix (not a mask): exactly one owner may hold the display at a time. A
+   * sendText tagged with an owner that does NOT match the current holder is
+   * dropped at the queue head — the losing producer never reaches _sendBoth,
+   * so it cannot desync the lenses or overwrite the holder's frame.
+   *
+   * null = unclaimed: in that state ALL sendText calls pass (preserves the
+   * exact prior behaviour for every existing untagged caller). Untagged calls
+   * (owner===undefined) ALSO always pass even when a holder exists — only a
+   * call that explicitly names a DIFFERENT owner is rejected. This lets the
+   * internal teleprompter plumbing keep working untouched while the two
+   * top-level modes cooperatively hand off via claim/release.
+   */
+  private _displayOwner: string | null = null;
+
+  /** Claim the lens for `owner`. Idempotent; last claimer wins the handoff. */
+  claimDisplay(owner: string): void {
+    if (this._displayOwner !== owner) {
+      this._trace(`[G1] display claimed: ${this._displayOwner ?? '∅'} → ${owner}`);
+      this._displayOwner = owner;
+    }
+  }
+
+  /** Release the lens iff `owner` still holds it (no-op if someone else took over). */
+  releaseDisplay(owner: string): void {
+    if (this._displayOwner === owner) {
+      this._trace(`[G1] display released by ${owner}`);
+      this._displayOwner = null;
+    }
+  }
+
+  /** Current display owner, or null if unclaimed. */
+  get displayOwner(): string | null { return this._displayOwner; }
+
   /**
    * Per-side connect queues. Each side serialises its own _connectLens calls
    * independently. A shared queue meant R's reconnect blocked on L's (and
@@ -516,15 +559,19 @@ export class G1Core {
   // Unlocked by the 2026-11-16 keep-both-live finding: since EITHER lens can be
   // the reader, we periodically swap which eye shows content to avoid loading a
   // single eye for a whole session. Default cadence 5 min (binocular-display
-  // comfort guidance; tune via setEyeAlternationMinutes). OFF by default — it's
-  // a comfort feature, not a safety one, and must never surprise a live operator.
+  // comfort guidance; tune via setEyeAlternationMinutes). ON by default — the
+  // 2026-11-16 keep-both-live finding made eye-health rotation the headline
+  // comfort feature, so new users get it without opt-in. The swap is invisible
+  // and fully guarded (see below), so it cannot surprise a live operator: it
+  // only ever fires in mono with BOTH lenses healthy. The settings toggle
+  // persists an explicit override (EYE_ALT_KEY) for anyone who wants it off.
   //
   // Swap mechanics reuse the proven "core decides, HUD re-pushes" pattern (see
   // _onSkewResync): the timer flips _monoSide and fires _onReadingEyeSwap so the
   // HUD re-pushes the current frame, lighting the new reading eye immediately.
   // Guarded: only swaps while in mono with BOTH lenses healthy (can't move the
   // reader onto a dead lens), and never clears the stereo latch.
-  private _eyeAlternateEnabled = false;
+  private _eyeAlternateEnabled = true;
   private _eyeAlternateMs = 5 * 60_000;
   private _eyeAlternateTimer: ReturnType<typeof setInterval> | null = null;
   private _onReadingEyeSwap: ((side: Side) => void) | null = null;
@@ -666,6 +713,19 @@ export class G1Core {
         }
       }
     });
+
+    // Arm eye-alternation at construction so the default-ON state is REAL — the
+    // _eyeAlternateEnabled field alone is inert (it only gates the tick); the
+    // timer must actually be running. Without this a user who never opens
+    // Settings would have the flag on but no timer, i.e. the setting would claim
+    // ON while doing nothing. Settings applies the persisted override on mount.
+    //
+    // Skip under Jest: the unit tests construct G1Core without calling destroy(),
+    // so a real background setInterval here would leak an open handle (they don't
+    // fake-time the constructor). The alternation logic itself is covered by its
+    // own dedicated test that drives setEyeAlternation explicitly.
+    const underTest = typeof process !== 'undefined' && !!process.env?.JEST_WORKER_ID;
+    if (this._eyeAlternateEnabled && !underTest) this.setEyeAlternation(true);
   }
 
   addEventHandler(h: EventHandler): void    { this.eventHandlers.add(h); }
@@ -1092,7 +1152,16 @@ export class G1Core {
     totalLines = 1,
     isLastPage = false,
     newScreen?: P.NewScreenValue,
+    owner?: string,
   ): Promise<void> {
+    // Display-owner arbiter: a frame explicitly tagged with an owner that is
+    // not the current holder is dropped before it can reach the lenses. See
+    // _displayOwner. Untagged calls (owner===undefined) always pass — existing
+    // teleprompter plumbing is unaffected.
+    if (owner !== undefined && this._displayOwner !== null && this._displayOwner !== owner) {
+      this._trace(`[G1] sendText dropped — owner=${owner} ≠ holder=${this._displayOwner}`);
+      return;
+    }
     // Default TEXT (0x71) — the byte the official text_service.dart uses.
     // 0x41/0x51 are Even AI session bytes; without an open AI session the
     // firmware stores the frame but never switches to it, then emits F5 00
