@@ -78,8 +78,9 @@ export function cleanPlayText(text: string): string {
 // Jersey token in ESPN play text: "#10 A.Colandrea" / "#7 J.Mathews Jr." —
 // a number, then an abbreviated name (initial, dot, surname, optional suffix:
 // "Jr.", "Sr.", or a Roman numeral like "III" seen in the live feed).
+// Capture groups: 1=jersey number, 2=first-initial, 3=surname (+ optional suffix).
 const JERSEY_TOKEN =
-  /#(\d{1,2})\s+[A-Z]\.[A-Za-z'.-]+(?:\s(?:[JS]r\.|I{1,3}|IV|V))?/g;
+  /#(\d{1,2})\s+([A-Z])\.([A-Za-z'.-]+(?:\s(?:[JS]r\.|I{1,3}|IV|V))?)/g;
 
 /**
  * Which teams are on offense/defense for a single play. Abbreviations
@@ -205,8 +206,56 @@ export function expandNames(
     regions.push({ text: text.slice(start, end), preTeam: team, parenTeam: team });
   }
 
-  const resolve = (team: string | undefined) => (token: string, num: string) =>
-    team ? roster.get(`${team}#${num}`) ?? token : token;
+  // Game-wide index for NAME-FIRST resolution: jersey -> all (team, name) pairs
+  // that wear it. Built from the roster keys ("TEAM#NN" -> fullName). Because a
+  // token carries the player's initial + surname, we can usually identify the
+  // exact player WITHOUT knowing their team — which is essential on kick/punt
+  // returns, where the kicker and returner are opposite teams in one clause and
+  // the payload has no per-player team data. Clause/team logic is the fallback
+  // only when the name is ambiguous.
+  const byJersey = new Map<string, Array<{ name: string }>>();
+  for (const [key, name] of roster) {
+    const num = key.split('#')[1];
+    if (!num) continue;
+    (byJersey.get(num) ?? byJersey.set(num, []).get(num)!).push({ name });
+  }
+
+  // Resolve a token by its initial+surname against everyone wearing that jersey.
+  // Three outcomes:
+  //   'match'    exactly one holder whose name matches the token -> that name.
+  //   'conflict' holder(s) exist for the jersey but NONE matches the token's
+  //              name (e.g. ESPN "B.Laga" vs boxscore #99 "Matthew Gill"). The
+  //              names disagree, so the clause/team guess is untrustworthy —
+  //              leave the ESPN token rather than risk a confident wrong name.
+  //   'unknown'  jersey not in the roster at all -> defer to the clause fallback.
+  const byName = (
+    num: string,
+    initial: string,
+    surname: string,
+  ): { kind: 'match'; name: string } | { kind: 'conflict' } | { kind: 'unknown' } => {
+    const holders = byJersey.get(num);
+    if (!holders || holders.length === 0) return { kind: 'unknown' };
+    const sur = surname.split(' ')[0].toLowerCase(); // drop "Jr."/Roman suffix
+    const hits = holders.filter((p) => {
+      const parts = p.name.split(' ');
+      return parts[0][0] === initial && p.name.toLowerCase().includes(sur);
+    });
+    if (hits.length === 1) return { kind: 'match', name: hits[0].name };
+    return { kind: 'conflict' };
+  };
+
+  // Clause-based fallback: the region's team binding (scrimmage heuristics).
+  const byTeam = (team: string | undefined, num: string): string | undefined =>
+    team ? roster.get(`${team}#${num}`) : undefined;
+
+  const resolve =
+    (team: string | undefined) =>
+    (token: string, num: string, initial: string, surname: string): string => {
+      const n = byName(num, initial, surname);
+      if (n.kind === 'match') return n.name; // name is authoritative, team-agnostic
+      if (n.kind === 'conflict') return token; // names disagree -> never guess
+      return byTeam(team, num) ?? token; // jersey unknown game-wide -> clause fallback
+    };
 
   return regions
     .map((r) => {

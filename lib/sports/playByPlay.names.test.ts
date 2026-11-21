@@ -154,8 +154,17 @@ describe('expandNames \u2014 offense/defense disambiguation', () => {
     );
   });
 
-  it('fail-safe: leaves tokens untouched when context is missing', () => {
-    expect(expandNames('#10 A.Colandrea pass', roster, {})).toBe('#10 A.Colandrea pass');
+  it('resolves by name even without team context when the jersey+name is unique game-wide', () => {
+    // #10 A.Colandrea is unique across both rosters, so the initial+surname pins
+    // the player with zero team ambiguity — no offense/defense context needed.
+    // (This is the kick-return property: name is authoritative, team-agnostic.)
+    expect(expandNames('#10 A.Colandrea pass', roster, {})).toBe('Anthony Colandrea pass');
+  });
+
+  it('fail-safe: a collided jersey with no context and no name match stays abbreviated', () => {
+    // Both teams wear #25; with no context AND a name ESPN abbreviates to a
+    // surname that could match either, we must not guess a team.
+    expect(expandNames('#25 X.Unknown rush', roster, {})).toBe('#25 X.Unknown rush');
   });
 
   it('is a no-op with an empty roster', () => {

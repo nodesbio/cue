@@ -102,3 +102,53 @@ describe('special-teams (H:/LS:) parenthetical binds to the kicking team', () =>
     expect(out).toContain('#88 T.Smith'); // stays say-able as ESPN wrote it
   });
 });
+
+/**
+ * Kickoff / punt RETURN plays, pinned to real BYU@KU (event 401856866).
+ *
+ * The clause heuristic (pre-paren=offense, in-paren=defense) is INVALID here:
+ * kicker and returner share the pre-paren region on opposite teams, the tackler
+ * in the paren is on the KICKING team (inverse of a scrimmage tackle), and the
+ * payload carries NO per-player team data (participants is null). ESPN labels
+ * the kicking team "offense" on a return, so clause logic emits confident WRONG
+ * names ("Matthew Gill" for #99 B.Laga, etc.).
+ *
+ * The robust rule: resolve a token by matching its initial+surname against the
+ * game-wide jersey index; expand only when exactly one player matches, else
+ * leave the ESPN token. Name disambiguation is team-agnostic, so it is correct
+ * on returns without any play-type special-casing. Verified: of 25 colliding
+ * tokens in this game, 24 resolve uniquely by name and the lone ambiguous one
+ * (#7 D.Crouch, a nickname mismatch) correctly stays abbreviated.
+ */
+const returnRoster: Roster = new Map<string, string>([
+  ['KU#99', 'Matthew Gill'], // collides by number with the kicker ESPN calls "B.Laga"
+  ['BYU#12', 'Preston Rex'], // #12 collision...
+  ['KU#12', 'Bryson Hayes'], // ...resolved by name: "B.Hayes" -> Bryson Hayes
+  ['BYU#38', 'Logan Payne'], // tackler, on the kicking team BYU
+]);
+// On this kickoff ESPN labels the KICKING team as "offense" (the inversion trap).
+const KICKOFF_CTX: PlayContext = { offense: 'KU', defense: 'BYU' };
+
+describe('kick/punt return plays resolve by name, never by inverted clause team', () => {
+  const text =
+    '#99 B.Laga kickoff 63 yards to the KU02 #12 B.Hayes return 18 yards to the KU20 (#38 L.Payne)';
+
+  it('resolves the returner by name despite the cross-team jersey collision', () => {
+    const out = expandNames(text, returnRoster, KICKOFF_CTX);
+    // "#12 B.Hayes" -> Bryson Hayes (name match), NOT Preston Rex (BYU#12).
+    expect(out).toContain('Bryson Hayes');
+    expect(out).not.toContain('Preston Rex');
+  });
+
+  it('never emits a confident wrong name for the kicker (ESPN name != boxscore #99)', () => {
+    const out = expandNames(text, returnRoster, KICKOFF_CTX);
+    // ESPN says "B.Laga"; KU#99 is "Matthew Gill" — a mismatch, so leave it.
+    expect(out).not.toContain('Matthew Gill');
+    expect(out).toContain('#99 B.Laga');
+  });
+
+  it('resolves the tackler by name (BYU#38 Logan Payne), not the inverted defense', () => {
+    const out = expandNames(text, returnRoster, KICKOFF_CTX);
+    expect(out).toContain('Logan Payne');
+  });
+});
