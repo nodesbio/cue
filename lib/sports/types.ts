@@ -93,3 +93,95 @@ export interface Leader {
   /** Position abbreviation, e.g. "C" (may be empty). */
   pos: string;
 }
+
+// --- Play-by-play (ESPN summary endpoint) ---------------------------------
+
+/** One raw ESPN play, as returned under drives[].plays or a flat plays[]. */
+export interface EspnPlay {
+  id?: string;
+  sequenceNumber?: string;
+  text?: string;
+  type?: { text?: string };
+  period?: { number?: number };
+  clock?: { displayValue?: string };
+  homeScore?: number;
+  awayScore?: number;
+  scoringPlay?: boolean;
+  /**
+   * Which teams are on offense/defense for this play (football). Present on
+   * every play in the summary — this is how we disambiguate "#10" to a single
+   * team: offensive players (passer/rusher/receiver) resolve against the
+   * offense team, tacklers (in the trailing parenthetical) against the defense.
+   */
+  teamParticipants?: Array<{ id?: string; type?: 'offense' | 'defense' }>;
+  /** Possessing team on this play; fallback offense source if participants absent. */
+  start?: { team?: { id?: string } };
+}
+
+/** One ESPN drive (football), wrapping a list of plays. */
+export interface EspnDrive {
+  team?: { abbreviation?: string };
+  plays?: EspnPlay[];
+}
+
+/**
+ * ESPN summary payload (…/summary?event={id}). Plays live EITHER as a flat
+ * `plays[]` (basketball/hockey) OR nested under `drives` (football). We read
+ * whichever is present.
+ */
+export interface EspnSummary {
+  plays?: EspnPlay[];
+  drives?: {
+    current?: EspnDrive | null;
+    previous?: EspnDrive[];
+  };
+  scoringPlays?: EspnPlay[];
+  /**
+   * Per-team player stat groups. Carries jersey + full name for everyone who
+   * has recorded a stat — the join source for expanding "#10 A.Colandrea" into
+   * "Anthony Colandrea" on the lens. Keyless, same payload as plays.
+   */
+  boxscore?: {
+    players?: EspnBoxscoreTeam[];
+  };
+  /** Competitors carry team id -> abbreviation, used to map play team IDs. */
+  header?: {
+    competitions?: Array<{
+      competitors?: Array<{ team?: { id?: string; abbreviation?: string } }>;
+    }>;
+  };
+}
+
+/** One team's player stat groups inside boxscore.players. */
+export interface EspnBoxscoreTeam {
+  team?: { abbreviation?: string };
+  statistics?: Array<{
+    athletes?: Array<{
+      athlete?: { jersey?: string; displayName?: string };
+    }>;
+  }>;
+}
+
+/**
+ * team+jersey -> full name map for one game. Only unambiguous entries are
+ * present: if a jersey number maps to two different names within a team
+ * (offense/defense/ST reuse, seen with OSU #25), it is dropped rather than
+ * guessed — a wrong name on the lens is worse than an abbreviation.
+ */
+export type Roster = Map<string, string>;
+
+/** A normalized single play for the play-by-play list, newest first. */
+export interface PlayLine {
+  /** Stable key for list rendering. */
+  id: string;
+  /** The play description, e.g. "L.Martin rush middle for 4 yards". */
+  text: string;
+  /** Period number (quarter/period/half). */
+  period: number;
+  /** Game clock at the play, e.g. "9:37" (may be empty). */
+  clock: string;
+  /** Score after the play: "away-home", e.g. "0-3". */
+  score: string;
+  /** True for scoring plays — the list highlights these. */
+  scoring: boolean;
+}
