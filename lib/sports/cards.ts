@@ -32,6 +32,14 @@ import { topicKey as topicKeyOf, topicPath } from './audience';
 export const NEWS_FRESHNESS_MS = 48 * 60 * 60 * 1000;
 /** Max news cards per topic (the rest of the deck is record/standing/nextgame). */
 export const MAX_NEWS_PER_TOPIC = 2;
+/**
+ * A "next game" is only conversational if it's reasonably near. ESPN's
+ * `nextEvent` happily returns a game months out when a team is between seasons
+ * (an MLB team in November points at spring training / next season). Beyond this
+ * horizon the team is effectively out of season, so we drop the card rather than
+ * surface "the Guardians visit the Reds on Feb 19" in the middle of November.
+ */
+export const NEXT_GAME_HORIZON_MS = 10 * 24 * 60 * 60 * 1000;
 
 // ── Card model ─────────────────────────────────────────────────────────────────
 
@@ -77,6 +85,10 @@ export interface NewsCard extends CardBase {
   headline: string;
   articleType: string; // ESPN 'type': Recap | Preview | Story | Media …
   published: number;   // epoch ms
+  /** ESPN's blurb — the substance worth reading in ambient reader mode (#47).
+   *  Omitted when empty OR equal to the headline (Media/highlight rows set
+   *  description === headline, so there is nothing to expand to). */
+  description?: string;
 }
 
 export type Card = RecordCard | StandingCard | NextGameCard | NewsCard;
@@ -217,7 +229,10 @@ export function cardsFromTeam(topic: TeamTopic, res: EspnTeamResponse, now = Dat
   const ev = t.nextEvent?.[0];
   const comp = ev?.competitions?.[0];
   const kickoff = ev?.date ? Date.parse(ev.date) : NaN;
-  if (comp && Number.isFinite(kickoff)) {
+  // Skip games already started/past and games beyond the relevance horizon
+  // (out-of-season teams whose nextEvent points at next season).
+  const inHorizon = Number.isFinite(kickoff) && kickoff >= now && kickoff - now <= NEXT_GAME_HORIZON_MS;
+  if (comp && inHorizon) {
     const me = comp.competitors?.find((c) => c.team?.id === topic.teamId);
     const other = comp.competitors?.find((c) => c.team?.id !== topic.teamId);
     const opponent = other?.team?.displayName;
@@ -256,6 +271,10 @@ export function cardsFromNews(topic: Topic, res: EspnNewsResponse, now = Date.no
       const published = a.published ? Date.parse(a.published) : NaN;
       if (!a.headline || !Number.isFinite(published)) return null;
       if (now - published > NEWS_FRESHNESS_MS) return null; // stale
+      // Keep the blurb only when it adds something over the headline. ESPN sets
+      // description === headline for Media/highlight rows — nothing to expand to.
+      const blurb = a.description?.trim();
+      const description = blurb && blurb !== a.headline.trim() ? blurb : undefined;
       const card: NewsCard = {
         id: `${key}#news:${published}`,
         kind: 'news',
@@ -266,6 +285,7 @@ export function cardsFromNews(topic: Topic, res: EspnNewsResponse, now = Date.no
         articleType: a.type ?? '',
         published,
         freshAt: published,
+        description,
         text: renderText('news', topic.stance, label, { headline: a.headline }),
       };
       return card;

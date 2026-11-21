@@ -66,6 +66,15 @@ const SCAN_TIMEOUT_MS = 12_000;
 // Faster cap — 30 s is too long during a live session. Keeps retrying at 10 s.
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 10000];
 
+/**
+ * Implicit display owner for untagged sendText calls — the original teleprompter
+ * writer predates the owner arbiter. Tagging untagged frames with this lets a
+ * non-teleprompter owner (e.g. the Sports deck, 'sports') suppress stray legacy
+ * re-pushes while it holds the display. Exported so the teleprompter screen tags
+ * its own explicit pushes with the identical string. See the arbiter in sendText.
+ */
+export const LEGACY_OWNER = 'teleprompter';
+
 function uint8ToBase64(data: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
@@ -1154,12 +1163,17 @@ export class G1Core {
     newScreen?: P.NewScreenValue,
     owner?: string,
   ): Promise<void> {
-    // Display-owner arbiter: a frame explicitly tagged with an owner that is
-    // not the current holder is dropped before it can reach the lenses. See
-    // _displayOwner. Untagged calls (owner===undefined) always pass — existing
-    // teleprompter plumbing is unaffected.
-    if (owner !== undefined && this._displayOwner !== null && this._displayOwner !== owner) {
-      this._trace(`[G1] sendText dropped — owner=${owner} ≠ holder=${this._displayOwner}`);
+    // Display-owner arbiter. A frame reaches the lenses only if its owner is the
+    // current holder (or the display is unclaimed). Untagged frames are the
+    // LEGACY teleprompter writer — its background re-push handlers (skew-resync,
+    // reading-eye swap) and onFrame pushes fire from core timers that keep
+    // running regardless of foreground tab. Treating untagged as implicitly
+    // 'teleprompter' is what closes the hole: while the Sports deck holds the
+    // display, a stale teleprompter re-push (incl. a MONO one-eye push) can no
+    // longer stomp one lens and split-brain the HUD. See _displayOwner / #43.
+    const effectiveOwner = owner ?? LEGACY_OWNER;
+    if (this._displayOwner !== null && this._displayOwner !== effectiveOwner) {
+      this._trace(`[G1] sendText dropped — owner=${effectiveOwner} ≠ holder=${this._displayOwner}`);
       return;
     }
     // Default TEXT (0x71) — the byte the official text_service.dart uses.
