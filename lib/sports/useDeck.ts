@@ -21,7 +21,9 @@ import type { Card } from './cards';
 import { fetchTopicCards } from './cards';
 import { buildDeck } from './deck';
 
-const OWNER = 'sports';
+// Distinct per-segment owner token (#43): see useArticleStream for rationale.
+// Shared 'sports' tokens let an unmounting segment release the incoming claim.
+const OWNER = 'sports.deck';
 
 export interface UseDeck {
   deck: Card[];

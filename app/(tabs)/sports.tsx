@@ -26,19 +26,39 @@ import { AudienceBuilder } from '@/components/AudienceBuilder';
 import { listAudiences } from '@/lib/sports/AudienceStore';
 import type { Audience } from '@/lib/sports/audience';
 import { useDeck } from '@/lib/sports/useDeck';
+import { ArticlePicker, type NewsSource } from '@/components/ArticlePicker';
+import { useArticleStream } from '@/lib/sports/useArticleStream';
+import { teamNewsUrl, leagueNewsUrl } from '@/lib/sports/newsFeed';
+
+/**
+ * Stream sources for the article picker (#49). OSU is the configured example
+ * here — a UI fixture, not library-level hardcoding. The library (newsFeed) is
+ * sport/team-agnostic; this screen picks which team/league to browse. Swapping
+ * teams is a config change, not a code change.
+ */
+const STREAM_SOURCES: NewsSource[] = [
+  { id: 'osu-team', label: 'Ohio State', url: teamNewsUrl('football/college-football', '194', 50) },
+  { id: 'cfb', label: 'College FB', url: leagueNewsUrl('football/college-football', 50) },
+];
 
 const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM'];
 
 /** Which Sports surface is showing. */
-type SportsMode = 'live' | 'audiences' | 'deck';
+type SportsMode = 'live' | 'audiences' | 'deck' | 'stream';
 
 /** No live-game promotion in the standalone deck yet (#46 v1). */
 const NO_LIVE: ReadonlySet<string> = new Set<string>();
+
+// Distinct lens-owner token for the live HUD (#43). DeckView and StreamView own
+// 'sports.deck' / 'sports.stream' via their hooks; keeping these separate means
+// an outgoing segment's releaseDisplay on unmount can't clear the incoming one.
+const LIVE_OWNER = 'sports.live';
 
 const MODE_LABEL: Record<SportsMode, string> = {
   live: 'Live',
   audiences: 'Audiences',
   deck: 'Deck',
+  stream: 'Stream',
 };
 
 const C = {
@@ -69,7 +89,7 @@ export default function SportsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.segmentRow}>
-        {(['live', 'audiences', 'deck'] as SportsMode[]).map((m) => {
+        {(['live', 'audiences', 'deck', 'stream'] as SportsMode[]).map((m) => {
           const on = mode === m;
           return (
             <Pressable
@@ -88,6 +108,7 @@ export default function SportsScreen() {
       {mode === 'live' && <LiveSportsView />}
       {mode === 'audiences' && <AudienceBuilder />}
       {mode === 'deck' && <DeckView />}
+      {mode === 'stream' && <StreamView />}
     </SafeAreaView>
   );
 }
@@ -107,7 +128,7 @@ function LiveSportsView() {
   useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
 
   // Tear down the feed on unmount and hand the lens back to whoever's next.
-  useEffect(() => () => { feedRef.current?.stop(); core.releaseDisplay('sports'); }, [core]);
+  useEffect(() => () => { feedRef.current?.stop(); core.releaseDisplay(LIVE_OWNER); }, [core]);
 
   const start = useCallback(() => {
     feedRef.current?.stop();
@@ -117,7 +138,7 @@ function LiveSportsView() {
     // line over our scores (the toggling bug). Claiming makes sports the sole
     // owner; teleprompter pushes tagged 'teleprompter' are dropped until we
     // release on stop.
-    core.claimDisplay('sports');
+    core.claimDisplay(LIVE_OWNER);
     const feed = new SportsFeed({
       leagues,
       pollMs: DEFAULT_POLL_MS,
@@ -127,7 +148,7 @@ function LiveSportsView() {
         // txReady). Guarding here avoids enqueuing frames that would be dropped.
         if (isConnectedRef.current && !core.status.poweredOff) {
           core.note('[sports] push HUD frame');
-          void core.sendText(frame, 1, 1, true, undefined, 'sports');
+          void core.sendText(frame, 1, 1, true, undefined, LIVE_OWNER);
         }
       },
       onError: (e) => setError(e instanceof Error ? e.message : String(e)),
@@ -141,7 +162,7 @@ function LiveSportsView() {
     feedRef.current?.stop();
     feedRef.current = null;
     // Release the lens so the teleprompter (or a future mode) can own it again.
-    core.releaseDisplay('sports');
+    core.releaseDisplay(LIVE_OWNER);
     setLive(false);
   }, [core]);
 
@@ -339,6 +360,108 @@ function DeckView() {
   );
 }
 
+/**
+ * StreamView — the core loop (#49). Two phases on one surface:
+ *   1. PICK: browse team/league news, tap to queue (ArticlePicker).
+ *   2. STREAM: full article prose auto-advances past your eyes on the lens,
+ *      hands-free, phone in pocket; plays through then goes dark (sleep-safe).
+ *
+ * onStream hands the queued ids to useArticleStream, which pre-wraps all prose
+ * BEFORE playing (survives backgrounding) and claims the lens on play. "Back to
+ * picking" pauses (releasing the lens via the #43 arbiter) and returns to phase 1.
+ */
+function StreamView() {
+  const { core, isConnected } = useG1();
+  const [picking, setPicking] = useState(true);
+
+  const {
+    lines, index, currentHeadline, loading, error, skipped,
+    playing, done, load, play, pause, next, prev,
+  } = useArticleStream(core, isConnected);
+
+  const onStream = useCallback((ids: string[]) => {
+    setPicking(false);
+    // Pre-wrap all prose up front, then auto-play — no network mid-stream.
+    void load(ids).then(() => play());
+  }, [load, play]);
+
+  const backToPicking = useCallback(() => {
+    pause(); // releases the lens (#43 arbiter)
+    setPicking(true);
+  }, [pause]);
+
+  // Tear down on unmount: hand the lens back to whoever's next. Must match the
+  // token useArticleStream claims under ('sports.stream'), else this is a no-op.
+  useEffect(() => () => { core.releaseDisplay('sports.stream'); }, [core]);
+
+  if (picking) {
+    return <ArticlePicker sources={STREAM_SOURCES} onStream={onStream} />;
+  }
+
+  const atStart = index <= 0;
+  const atEnd = index >= Math.max(0, lines.length - 1);
+
+  return (
+    <View style={styles.liveBody}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Stream</Text>
+        <Text style={[styles.conn, { color: isConnected ? C.accent : C.dim }]}>
+          {isConnected ? '● glasses' : '○ no glasses'}
+        </Text>
+      </View>
+
+      <View style={styles.deckCard}>
+        {loading ? (
+          <Text style={styles.deckMuted}>Preparing prose…</Text>
+        ) : error ? (
+          <Text style={[styles.deckMuted, { color: C.hot }]}>⚠ {error}</Text>
+        ) : done ? (
+          <Text style={styles.deckMuted}>Stream complete. Lens is dark.</Text>
+        ) : lines.length > 0 ? (
+          <>
+            <Text style={styles.league} numberOfLines={2}>{currentHeadline}</Text>
+            <Text style={styles.deckText} numberOfLines={4}>
+              {lines[Math.min(index, lines.length - 1)]?.text ?? ''}
+            </Text>
+            <Text style={styles.deckCount}>line {index + 1} / {lines.length}</Text>
+          </>
+        ) : (
+          <Text style={styles.deckMuted}>Nothing to stream.</Text>
+        )}
+      </View>
+
+      {/* Surfaced unstreamable articles — never silently dropped (Zoracon). */}
+      {skipped.length > 0 && (
+        <View style={styles.skipBox}>
+          {skipped.map((s) => (
+            <Text key={s.articleId} style={styles.skipText} numberOfLines={1}>
+              ⤫ {s.reason === 'video' ? 'video (no prose)' : s.reason === 'empty-body' ? 'empty body' : 'fetch failed'} · {s.articleId}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {lines.length > 0 && !done && (
+        <View style={styles.deckNav}>
+          <Pressable onPress={prev} disabled={atStart} style={[styles.navBtn, atStart && styles.navBtnOff]} hitSlop={8}>
+            <Text style={styles.navText}>‹ Back</Text>
+          </Pressable>
+          <Pressable onPress={playing ? pause : play} style={[styles.cta, { flex: 1, marginHorizontal: 8 }, playing && styles.ctaLive]}>
+            <Text style={styles.ctaText}>{playing ? 'Pause' : 'Play'}</Text>
+          </Pressable>
+          <Pressable onPress={next} disabled={atEnd} style={[styles.navBtn, atEnd && styles.navBtnOff]} hitSlop={8}>
+            <Text style={styles.navText}>Fwd ›</Text>
+          </Pressable>
+        </View>
+      )}
+
+      <Pressable onPress={backToPicking} hitSlop={6}>
+        <Text style={styles.status}>‹ Back to picking</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   liveBody: { flex: 1, paddingHorizontal: 16 },
@@ -385,4 +508,6 @@ const styles = StyleSheet.create({
   navBtn: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: C.border },
   navBtnOff: { opacity: 0.35 },
   navText: { color: C.text, fontSize: 15, fontWeight: '700' },
+  skipBox: { marginTop: 10, gap: 2 },
+  skipText: { color: C.hot, fontSize: 11, fontWeight: '600' },
 });

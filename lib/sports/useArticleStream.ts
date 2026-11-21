@@ -1,0 +1,274 @@
+/**
+ * useArticleStream — ambient, auto-advancing prose stream for the lens (#49).
+ *
+ * The sibling of useDeck: same display-owner arbitration and push gating (the
+ * #43 arbiter), but instead of stepping through cards on user taps, it streams
+ * the FULL prose of selected articles past your eyes on a clock — hands-free,
+ * phone-in-pocket. "Pick articles on the phone, stream the prose on the lens."
+ *
+ * UNTETHERED DESIGN (this is built for TestFlight on a real device):
+ *   - Prose is fetched + wrapped into a FLAT line list BEFORE streaming starts.
+ *     Once playing, advancing is pure local state — no network mid-stream, so a
+ *     backgrounded app / pocketed phone doesn't stall the feed.
+ *   - Fetch failures are surfaced per-article (video / empty-body / network),
+ *     never silently skipped into a blank stretch (Zoracon). Unstreamable
+ *     articles are reported in `skipped`, not hidden.
+ *   - Play-through-then-dark: at the end it blanks the lens and releases the
+ *     owner — no infinite glow at 3am (sleep-safe).
+ *
+ * Team/league-agnostic: it consumes article ids. It knows nothing about OSU.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { G1Core } from '../g1/G1Core';
+import { wrapScript, MAX_CHARS, WINDOW_SIZE, getWindow } from '../teleprompter/lineWrapper';
+import {
+  fetchArticleBody,
+  ArticleUnavailableError,
+  type ArticleProse,
+  type ArticleRejectReason,
+} from './articleStream';
+
+// Distinct per-segment owner token (#43/#49): LiveSportsView, DeckView and
+// StreamView each hold the lens under their OWN token so an outgoing segment's
+// releaseDisplay on unmount cannot clear the incoming segment's fresh claim.
+// The arbiter keys only on this string — shared tokens are indistinguishable.
+const OWNER = 'sports.stream';
+
+/** Default dwell per lens window while auto-advancing (ms). Reading pace. */
+export const DEFAULT_DWELL_MS = 5500;
+
+/** One article that could not be streamed, with a surfaced reason. */
+export interface SkippedArticle {
+  articleId: string;
+  reason: ArticleRejectReason | 'network';
+  detail: string;
+}
+
+/** A streamed line with the article it belongs to (for phone-side progress). */
+export interface StreamLine {
+  articleId: string;
+  /** True on the first line of an article (headline boundary / "new story"). */
+  isHead: boolean;
+  text: string;
+}
+
+/** Result of assembling a queue of article ids into a flat lens line list. */
+export interface AssembledStream {
+  lines: StreamLine[];
+  skipped: SkippedArticle[];
+}
+
+/**
+ * Pure stream assembly — fetch each article id in order, wrap its prose into
+ * ≤45-col lens lines, and flatten into one list. Unstreamable articles (video,
+ * empty body, network) are collected into `skipped` with a surfaced reason,
+ * never silently dropped into a blank stretch (Zoracon).
+ *
+ * Team/league-agnostic and network-injectable so it's unit-testable without a
+ * device or live ESPN. The hook is a thin React wrapper over this.
+ *
+ * @param fetchBody  injected fetcher (production: fetchArticleBody).
+ * @param articleIds queue order == read order.
+ */
+export async function assembleStream(
+  fetchBody: (id: string, signal?: AbortSignal) => Promise<ArticleProse>,
+  articleIds: readonly string[],
+  signal?: AbortSignal,
+): Promise<AssembledStream> {
+  const lines: StreamLine[] = [];
+  const skipped: SkippedArticle[] = [];
+
+  for (const id of articleIds) {
+    if (signal?.aborted) break;
+    let prose: ArticleProse;
+    try {
+      prose = await fetchBody(id, signal);
+    } catch (e) {
+      if (signal?.aborted) break;
+      if (e instanceof ArticleUnavailableError) {
+        skipped.push({ articleId: id, reason: e.reason, detail: e.message });
+      } else {
+        // Real network/HTTP failure — surface it, don't bury it (Zoracon).
+        skipped.push({ articleId: id, reason: 'network', detail: (e as Error).message });
+      }
+      continue;
+    }
+    // The fetch may have resolved concurrently with an abort (phone locked
+    // mid-request). Re-check before committing this article's lines, so an
+    // aborted stream never grows after the fact (untethered correctness).
+    if (signal?.aborted) break;
+    const head = wrapScript(prose.headline, MAX_CHARS);
+    head.forEach((t, i) => lines.push({ articleId: id, isHead: i === 0, text: t }));
+    for (const t of wrapScript(prose.body, MAX_CHARS)) {
+      lines.push({ articleId: id, isHead: false, text: t });
+    }
+  }
+  return { lines, skipped };
+}
+
+export interface UseArticleStream {
+  /** Flat, wrapped, ≤45-col lines across all streamable queued articles. */
+  lines: StreamLine[];
+  /** Index of the current line (top of the lens window). */
+  index: number;
+  /** The headline of the article currently on the lens, for the phone UI. */
+  currentHeadline: string;
+  loading: boolean;
+  /** Fatal load error (couldn't fetch anything). Per-article issues → skipped. */
+  error: string | null;
+  /** Articles that couldn't be streamed, each with a surfaced reason. */
+  skipped: SkippedArticle[];
+  playing: boolean;
+  /** True once the stream has played to the end (and gone dark). */
+  done: boolean;
+  /** Load + wrap the given article ids (does not start playing). */
+  load: (articleIds: string[]) => Promise<void>;
+  /** Claim the lens and begin auto-advancing. */
+  play: () => void;
+  /** Stop advancing, blank the lens, release ownership. Keeps position. */
+  pause: () => void;
+  /** Jump forward/back one window (manual override of the clock). */
+  next: () => void;
+  prev: () => void;
+}
+
+/**
+ * @param core        G1Core for lens I/O + display arbitration.
+ * @param isConnected lens link is usable (gates the actual push).
+ * @param dwellMs     per-window dwell while auto-advancing (default reading pace).
+ */
+export function useArticleStream(
+  core: G1Core,
+  isConnected: boolean,
+  dwellMs: number = DEFAULT_DWELL_MS,
+): UseArticleStream {
+  const [lines, setLines] = useState<StreamLine[]>([]);
+  const [index, setIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState<SkippedArticle[]>([]);
+  const [playing, setPlaying] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const abortRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = useCallback(async (articleIds: string[]) => {
+    abortRef.current?.abort();
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    setPlaying(false);
+    setDone(false);
+    setIndex(0);
+    setSkipped([]);
+    setError(null);
+
+    if (articleIds.length === 0) { setLines([]); return; }
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true);
+
+    const { lines: out, skipped: skips } = await assembleStream(
+      fetchArticleBody,
+      articleIds,
+      ctrl.signal,
+    );
+
+    if (ctrl.signal.aborted) return;
+    setLines(out);
+    setSkipped(skips);
+    if (out.length === 0) {
+      setError(
+        skips.length > 0
+          ? 'None of the selected articles had readable prose.'
+          : 'Nothing to stream.',
+      );
+    }
+    setLoading(false);
+  }, []);
+
+  const current = lines.length > 0 ? lines[Math.min(index, lines.length - 1)] : null;
+  const currentHeadlineRef = useRef('');
+  if (current) {
+    // headline = the nearest preceding head line's text
+    for (let i = Math.min(index, lines.length - 1); i >= 0; i--) {
+      if (lines[i].isHead) { currentHeadlineRef.current = lines[i].text; break; }
+    }
+  }
+
+  // Push the current window whenever index changes while playing + connected.
+  useEffect(() => {
+    if (!playing || lines.length === 0) return;
+    if (isConnected && !core.status.poweredOff) {
+      const frame = getWindow(lines.map((l) => l.text), index).join('\n');
+      void core.sendText(frame, 1, 1, true, undefined, OWNER);
+    }
+  }, [playing, index, lines, isConnected, core]);
+
+  // The clock: advance one window per dwell while playing. Local-only (no
+  // network), so it keeps ticking with the phone in a pocket.
+  useEffect(() => {
+    if (!playing || lines.length === 0) return;
+    if (index >= lines.length - WINDOW_SIZE) {
+      // Reached the end — go dark and release (sleep-safe, no infinite glow).
+      timerRef.current = setTimeout(() => {
+        setPlaying(false);
+        setDone(true);
+        void core.clearDisplay('L');
+        void core.clearDisplay('R');
+        core.releaseDisplay(OWNER);
+      }, dwellMs);
+      return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    }
+    timerRef.current = setTimeout(() => {
+      setIndex((i) => Math.min(i + WINDOW_SIZE, Math.max(0, lines.length - WINDOW_SIZE)));
+    }, dwellMs);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [playing, index, lines.length, dwellMs, core]);
+
+  const play = useCallback(() => {
+    if (lines.length === 0) return;
+    core.claimDisplay(OWNER);
+    setDone(false);
+    setPlaying(true);
+  }, [core, lines.length]);
+
+  const pause = useCallback(() => {
+    setPlaying(false);
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    void core.clearDisplay('L');
+    void core.clearDisplay('R');
+    core.releaseDisplay(OWNER);
+  }, [core]);
+
+  const next = useCallback(() => {
+    setIndex((i) => Math.min(i + WINDOW_SIZE, Math.max(0, lines.length - WINDOW_SIZE)));
+  }, [lines.length]);
+
+  const prev = useCallback(() => {
+    setIndex((i) => Math.max(i - WINDOW_SIZE, 0));
+  }, []);
+
+  // Release the lens + abort fetches on unmount.
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    core.releaseDisplay(OWNER);
+    abortRef.current?.abort();
+  }, [core]);
+
+  return {
+    lines,
+    index,
+    currentHeadline: currentHeadlineRef.current,
+    loading,
+    error,
+    skipped,
+    playing,
+    done,
+    load,
+    play,
+    pause,
+    next,
+    prev,
+  };
+}
