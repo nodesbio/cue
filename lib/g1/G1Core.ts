@@ -168,7 +168,7 @@ export class G1Core {
   /** Claim the lens for `owner`. Idempotent; last claimer wins the handoff. */
   claimDisplay(owner: string): void {
     if (this._displayOwner !== owner) {
-      this._trace(`[G1] display claimed: ${this._displayOwner ?? '∅'} → ${owner}`);
+      this._log(`[G1] display claimed: ${this._displayOwner ?? '∅'} → ${owner}`);
       this._displayOwner = owner;
     }
   }
@@ -176,7 +176,7 @@ export class G1Core {
   /** Release the lens iff `owner` still holds it (no-op if someone else took over). */
   releaseDisplay(owner: string): void {
     if (this._displayOwner === owner) {
-      this._trace(`[G1] display released by ${owner}`);
+      this._log(`[G1] display released by ${owner}`);
       this._displayOwner = null;
     }
   }
@@ -1201,7 +1201,11 @@ export class G1Core {
     // longer stomp one lens and split-brain the HUD. See _displayOwner / #43.
     const effectiveOwner = owner ?? LEGACY_OWNER;
     if (this._displayOwner !== null && this._displayOwner !== effectiveOwner) {
-      this._trace(`[G1] sendText dropped — owner=${effectiveOwner} ≠ holder=${this._displayOwner}`);
+      // A tagged sender losing a frame is a HUD-loss signal, so it is always
+      // logged. Untagged teleprompter re-pushes are dropped by design while
+      // another mode holds the lens; those stay trace-only (high volume).
+      const dropped = `[G1] sendText dropped — owner=${effectiveOwner} ≠ holder=${this._displayOwner}`;
+      if (owner === undefined) this._trace(dropped); else this._log(dropped);
       return;
     }
     // Default TEXT (0x71) — the byte the official text_service.dart uses.
@@ -1370,6 +1374,7 @@ export class G1Core {
    * which causes the firmware to blank the display.
    */
   async clearDisplay(side: Side): Promise<void> {
+    this._log(`[G1] clearDisplay [${side}] sending silent(true), holder=${this._displayOwner ?? '∅'}`);
     return this._enqueue(async () => {
       await this._send(side, P.silent(true));
     });
