@@ -30,7 +30,7 @@ export default function PairingSuccessScreen() {
         </Text>
       </View>
 
-      <Pressable style={s.btn} onPress={() => router.replace('/')}>
+      <Pressable style={s.btn} onPress={() => router.dismissTo('/')}>
         <Text style={s.btnText}>Start Using Cue →</Text>
       </Pressable>
     </SafeAreaView>

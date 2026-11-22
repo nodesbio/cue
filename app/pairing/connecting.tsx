@@ -62,7 +62,10 @@ export default function PairingConnectingScreen() {
       }).start();
       setTimeout(() => {
         if (returnTo) {
-          router.replace(returnTo as any);
+          // dismissTo, not replace: replace swaps this screen for a NEW (tabs)
+          // route on the root stack, leaving the original tabs mounted
+          // underneath — two Teleprompter screens then handle every remote press.
+          router.dismissTo(returnTo as any);
         } else {
           router.replace({ pathname: '/pairing/success', params: { serial } });
         }
