@@ -812,7 +812,7 @@ export default function SettingsScreen() {
           >
             {logs.length === 0
               ? <Text style={s.logLine}>— no logs yet —</Text>
-              : [...logs].reverse().map((line, i) => (
+              : logs.slice(-300).reverse().map((line, i) => (
                   <Text key={i} style={s.logLine} selectable>{line}</Text>
                 ))
             }

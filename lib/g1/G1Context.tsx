@@ -84,8 +84,10 @@ function _loadPairedIds(serial: string): Partial<Record<'L' | 'R', string>> | un
 }
 
 // ── Log buffer ─────────────────────────────────────────────────────────────
-// Module-level ring buffer: survives Fast Refresh, max 200 lines.
-const LOG_MAX = 1000;
+// Module-level ring buffer: survives Fast Refresh. Sized for a field session:
+// 1000 lines covered roughly 20 minutes. The Settings view shows only the
+// newest lines; the shared export is the whole buffer.
+const LOG_MAX = 5000;
 const _logBuffer: string[] = [];
 const _logListeners = new Set<() => void>();
 

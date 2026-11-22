@@ -1224,7 +1224,7 @@ export class G1Core {
       }
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
       this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
-      this._trace(`[G1] sendText seq=${packet[1]} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
+      this._log(`[G1] sendText seq=${packet[1]} owner=${effectiveOwner} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
     }, /* paced */ true);
   }
