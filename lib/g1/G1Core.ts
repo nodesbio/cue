@@ -245,6 +245,8 @@ export class G1Core {
   private _pairedIds: Partial<Record<Side, string>> = {};
   /** Lens peripheral ids verified against the paired serial. Persist these. */
   get pairedIds(): Partial<Record<Side, string>> { return { ...this._pairedIds }; }
+  /** The serial the core is bound to. pairedIds belong to this serial and no other. */
+  get pairedSerial(): string | null { return this._pairedSerial; }
   /**
    * Timestamp (ms) of the last silent(true) send per side, used to rate-limit
    * connection_error re-silences and avoid a re-silence storm.
@@ -940,8 +942,19 @@ export class G1Core {
   }
 
   async connect(channel?: string, knownIds?: Partial<Record<Side, string>>): Promise<void> {
-    // Bind to the requested pair before any device selection runs.
     if (channel && channel !== this._pairedSerial) {
+      // Switching pairs. An attempt already in flight checks each advertisement
+      // against the bound serial as it arrives, so rebinding under it can keep one
+      // lens from each pair. Let it settle first.
+      if (this._connectingPromise) await this._connectingPromise.catch(() => {});
+      // Anything held (or queued to reconnect) belongs to the previous pair. This
+      // used to rebind and then hit the isConnected return below, so the caller
+      // was told the new pair was connected while the old one stayed up.
+      if (this.devices.L || this.devices.R || this._reconnectTimers.L || this._reconnectTimers.R) {
+        this._log(`[G1] connect(${channel}): dropping lenses held for ${this._pairedSerial ?? 'an unverified pair'}`);
+        await this.disconnect();
+      }
+      // Bind to the requested pair before any device selection runs.
       this._pairedSerial = channel;
       this._pairedIds = {};
     }

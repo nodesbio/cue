@@ -73,7 +73,7 @@ function makeStubCore(): G1Core {
 
 export const PAIRED_SERIAL_KEY = 'g1_paired_serial';
 /** Per-serial CoreBluetooth peripheral ids: { L?: uuid, R?: uuid }. */
-const PAIRED_IDS_KEY = (serial: string) => `g1_paired_ids_${serial}`;
+const PAIRED_IDS_KEY = (serial: string) => `g1_paired_ids_v2_${serial}`;
 
 // Module-level mirror of the persisted ids so the mount-time connect() can be
 // seeded synchronously after the serial read resolves.
@@ -291,12 +291,18 @@ export function G1Provider({ children }: { children: React.ReactNode }) {
 
   // Persist verified lens peripheral ids whenever the core learns one. Cold-start
   // resume on iOS has no mfr data, so these ids are the only pair verification.
+  //
+  // Keyed by the serial the CORE is bound to, not this context's pairedSerial.
+  // pairedSerial only changes after connect() resolves, so while switching pairs
+  // the new pair's ids were being saved under the old pair's serial, and the
+  // next launch trusted them. The v2 key drops anything saved that way.
   const pairedIdsJson = JSON.stringify(coreRef.current.pairedIds);
+  const boundSerial = coreRef.current.pairedSerial;
   useEffect(() => {
-    if (!pairedSerial || pairedIdsJson === '{}') return;
-    _pairedIdsCache = { serial: pairedSerial, ids: JSON.parse(pairedIdsJson) };
-    AsyncStorage.setItem(PAIRED_IDS_KEY(pairedSerial), pairedIdsJson).catch(() => {});
-  }, [pairedSerial, pairedIdsJson]);
+    if (!boundSerial || pairedIdsJson === '{}') return;
+    _pairedIdsCache = { serial: boundSerial, ids: JSON.parse(pairedIdsJson) };
+    AsyncStorage.setItem(PAIRED_IDS_KEY(boundSerial), pairedIdsJson).catch(() => {});
+  }, [boundSerial, pairedIdsJson]);
 
   // Re-push stored brightness whenever glasses become connected/reconnect.
   const isConnectedForEffect = !!(status?.left.txReady || status?.right.txReady);
