@@ -27,7 +27,7 @@ import type { G1Core } from '@/lib/g1/G1Core';
 import { useLivePlay } from '@/lib/sports/useLivePlay';
 import { SportsFeed, DEFAULT_POLL_MS } from '@/lib/sports/SportsFeed';
 import { LEAGUE_LABEL } from '@/lib/sports/espn';
-import { fetchPlayByPlay } from '@/lib/sports/playByPlay';
+import { fetchPlayByPlay, periodLabel } from '@/lib/sports/playByPlay';
 import type { GameSnapshot, League, PlayLine } from '@/lib/sports/types';
 import { AudienceBuilder } from '@/components/AudienceBuilder';
 import { listAudiences } from '@/lib/sports/AudienceStore';
@@ -51,7 +51,7 @@ const STREAM_SOURCES: NewsSource[] = buildStreamSources(50);
 // NOTE: must stay in sync with the League union + ENDPOINTS map in espn.ts.
 // CFB (NCAAF) matters on football Saturdays — omitting it made the Live feed
 // surface a stale low-activity basketball game instead of OSU@NEB / WAKE@GT.
-const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM', 'NCAAF'];
+const ALL_LEAGUES: League[] = ['NBA', 'NHL', 'NCAAM', 'NCAAW', 'NCAAF', 'NFL'];
 
 /** Which Sports surface is showing. */
 type SportsMode = 'live' | 'audiences' | 'deck' | 'stream';
@@ -197,11 +197,29 @@ function LiveSportsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagues]);
 
+  // The open game follows the feed. `selected` is the snapshot from the tap, so
+  // on its own the sheet header keeps the score and clock from when it opened.
+  // If the game drops off the live list (final), keep the last snapshot.
+  const selectedGame = useMemo(
+    () => (selected ? games.find((g) => g.gameId === selected.gameId) ?? selected : null),
+    [selected, games],
+  );
+
   const updatedLabel = useMemo(() => {
     if (!lastUpdate) return '';
     const secs = Math.round((Date.now() - lastUpdate) / 1000);
     return secs < 5 ? 'just now' : `${secs}s ago`;
   }, [lastUpdate]);
+
+  // One status line for every feed state, so the line is always there.
+  const statusLine = live
+    ? (error ? `⚠ ${error}` : `Updated ${updatedLabel} · polling every ${DEFAULT_POLL_MS / 1000}s`)
+    : games.length > 0
+      ? 'Feed stopped · scores below are not updating'
+      : 'Feed off';
+  // The top row is tagged only while the feed is running with the glasses up.
+  // (It used to be tagged whenever it was first in the list, even after Stop.)
+  const onLens = live && isConnected;
 
   return (
     <View style={styles.liveBody}>
@@ -212,8 +230,14 @@ function LiveSportsView() {
         </Text>
       </View>
 
-      {/* League filter */}
-      <View style={styles.leagueRow}>
+      {/* League filter. Scrolls sideways: six chips are wider than the screen,
+          and in a plain row the last ones sat off the edge, unreachable. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.leagueScroll}
+        contentContainerStyle={styles.leagueScrollContent}
+      >
         {ALL_LEAGUES.map((lg) => {
           const on = leagues.includes(lg);
           return (
@@ -226,18 +250,20 @@ function LiveSportsView() {
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
 
       {/* Start / stop */}
       <Pressable onPress={live ? stop : start} style={[styles.cta, live && styles.ctaLive]}>
         <Text style={styles.ctaText}>{live ? 'Stop feed' : 'Start 24/7 feed'}</Text>
       </Pressable>
 
-      {live && (
-        <Text style={styles.status}>
-          {error ? `⚠ ${error}` : `Updated ${updatedLabel} · polling every ${DEFAULT_POLL_MS / 1000}s`}
-        </Text>
-      )}
+      {/* Always rendered, with a reserved line, so starting or stopping the feed
+          moves nothing below it. */}
+      <Text style={styles.feedStatus} numberOfLines={2}>{statusLine}</Text>
+      <Text style={styles.scoreHelp} numberOfLines={2}>
+        Lens priority (0–100): highest is listed first. A close score counts most; the second
+        half, the last minutes of a period, and the postseason add to it.
+      </Text>
 
       {/* Ranked list */}
       <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 24 }}>
@@ -247,34 +273,37 @@ function LiveSportsView() {
         {games.map((g, i) => (
           <Pressable
             key={g.gameId}
-            style={({ pressed }) => [styles.game, pressed && styles.gamePressed]}
+            style={({ pressed }) => [styles.game, styles.gameStack, pressed && styles.gamePressed]}
             onPress={() => setSelected(g)}
             accessibilityRole="button"
             accessibilityLabel={`${g.away} at ${g.home}, play by play`}
           >
-            <View style={styles.gameLeft}>
-              <Text style={styles.league}>{LEAGUE_LABEL[g.league]}</Text>
-              <Text style={styles.matchup}>{g.away} {g.awayScore} · {g.home} {g.homeScore}</Text>
-              <Text style={styles.gameStatus}>{g.status}</Text>
-              {g.leaders.length > 0 && (
-                <Text style={styles.leaders} numberOfLines={1}>
-                  {g.leaders
-                    .map((l) => `${l.player} ${l.value} ${l.stat}`)
-                    .join('  ·  ')}
+            <View style={styles.gameTop}>
+              <View style={styles.gameLeft}>
+                <Text style={styles.league} numberOfLines={1}>
+                  {LEAGUE_LABEL[g.league]}
+                  {onLens && i === 0 && <Text style={styles.onGlasses}>{'  ·  ON LENS'}</Text>}
                 </Text>
-              )}
+                <Text style={styles.matchup} numberOfLines={1}>{g.away} {g.awayScore} · {g.home} {g.homeScore}</Text>
+                <Text style={styles.gameStatus} numberOfLines={1}>{g.status}</Text>
+              </View>
+              <View style={styles.gameRight}>
+                <Text style={[styles.score, { color: heat(g.excitement) }]}>{g.excitement}</Text>
+                <Text style={styles.scoreLabel}>priority</Text>
+                <Text style={styles.tapHint}>tap ›</Text>
+              </View>
             </View>
-            <View style={styles.gameRight}>
-              <Text style={[styles.score, { color: heat(g.excitement) }]}>{g.excitement}</Text>
-              {i === 0 && <Text style={styles.onGlasses}>on lens</Text>}
-              <Text style={styles.tapHint}>tap ›</Text>
-            </View>
+            {/* Full card width and always rendered, so every card is the same
+                height whether or not the game has leaders. */}
+            <Text style={styles.leaders} numberOfLines={1}>
+              {g.leaders.map((l) => `${l.player} ${l.value} ${l.stat}`).join('  ·  ') || ' '}
+            </Text>
           </Pressable>
         ))}
       </ScrollView>
 
       <PlayByPlayModal
-        game={selected}
+        game={selectedGame}
         core={core}
         isConnected={isConnected}
         onClose={() => setSelected(null)}
@@ -318,15 +347,21 @@ function PlayByPlayModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game]);
 
+  // Key the fetch on the game's identity, not the snapshot object: the parent
+  // hands down a fresh snapshot on every feed poll, and that must not restart
+  // the play-by-play load.
+  const gameId = game?.gameId;
+  const league = game?.league;
+
   useEffect(() => {
-    if (!game) return;
+    if (!gameId || !league) return;
     let cancelled = false;
     const ctrl = new AbortController();
 
     const load = async (initial: boolean) => {
       if (initial) setLoading(true);
       try {
-        const lines = await fetchPlayByPlay(game.gameId, game.league, ctrl.signal);
+        const lines = await fetchPlayByPlay(gameId, league, ctrl.signal);
         if (!cancelled) {
           setPlays(lines);
           setErr(null);
@@ -347,7 +382,7 @@ function PlayByPlayModal({
       ctrl.abort();
       clearInterval(timer);
     };
-  }, [game]);
+  }, [gameId, league]);
 
   // Reset transient state when the modal closes so the next open starts clean.
   useEffect(() => {
@@ -418,7 +453,9 @@ function PlayByPlayModal({
             {plays.map((p) => (
               <View key={p.id} style={[styles.pbpRow, p.scoring && styles.pbpScoring]}>
                 <View style={styles.pbpMeta}>
-                  <Text style={styles.pbpClock}>Q{p.period} {p.clock}</Text>
+                  <Text style={styles.pbpClock}>
+                    {[league ? periodLabel(league, p.period) : '', p.clock].filter(Boolean).join(' ')}
+                  </Text>
                   {p.score !== '' && <Text style={styles.pbpScore}>{p.score}</Text>}
                 </View>
                 <Text style={[styles.pbpText, p.scoring && styles.pbpTextScoring]}>{p.text}</Text>
@@ -680,24 +717,33 @@ const styles = StyleSheet.create({
   title: { color: C.text, fontSize: 24, fontWeight: '700' },
   conn: { fontSize: 13, fontWeight: '600' },
   leagueRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  chip: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: C.border },
+  // flexGrow 0: a horizontal ScrollView otherwise grows to share the column's height.
+  leagueScroll: { flexGrow: 0, marginBottom: 12, flexShrink: 0 },
+  leagueScrollContent: { gap: 8, alignItems: 'center' },
+  // Live view's own status line (styles.status is shared with the other views).
+  feedStatus: { color: C.dim, fontSize: 12, marginTop: 8, textAlign: 'center', lineHeight: 16, minHeight: 16 },
+  scoreHelp: { color: C.dim, fontSize: 11, lineHeight: 15, marginTop: 6 },
+  gameStack: { flexDirection: 'column', alignItems: 'stretch' },
+  gameTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  scoreLabel: { color: C.dim, fontSize: 10, lineHeight: 12, fontWeight: '700', letterSpacing: 0.5 },
+  chip: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: C.border, minHeight: 34, alignItems: 'center', justifyContent: 'center' },
   chipOn: { backgroundColor: C.card, borderColor: C.accent },
-  chipText: { color: C.dim, fontSize: 13, fontWeight: '600' },
+  chipText: { color: C.dim, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   chipTextOn: { color: C.text },
-  cta: { backgroundColor: C.accent, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+  cta: { backgroundColor: C.accent, borderRadius: 10, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: C.accent },
   ctaLive: { backgroundColor: C.card, borderWidth: 1, borderColor: C.hot },
   ctaText: { color: C.text, fontSize: 16, fontWeight: '700' },
   status: { color: C.dim, fontSize: 12, marginTop: 8, textAlign: 'center' },
-  list: { marginTop: 16 },
+  list: { marginTop: 16, flex: 1 },
   empty: { color: C.dim, textAlign: 'center', marginTop: 40, fontSize: 14 },
   game: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.card, borderRadius: 10, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.border },
   gameLeft: { flex: 1 },
-  league: { color: C.dim, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
-  matchup: { color: C.text, fontSize: 16, fontWeight: '600', marginTop: 2 },
-  gameStatus: { color: C.dim, fontSize: 12, marginTop: 2 },
-  leaders: { color: C.accent, fontSize: 12, marginTop: 3, fontWeight: '600' },
-  gameRight: { alignItems: 'flex-end', marginLeft: 12 },
-  score: { fontSize: 22, fontWeight: '800' },
+  league: { color: C.dim, fontSize: 11, fontWeight: '700', letterSpacing: 1, lineHeight: 14 },
+  matchup: { color: C.text, fontSize: 16, fontWeight: '600', marginTop: 2, lineHeight: 22 },
+  gameStatus: { color: C.dim, fontSize: 12, marginTop: 2, lineHeight: 16 },
+  leaders: { color: C.accent, fontSize: 12, marginTop: 6, fontWeight: '600', lineHeight: 16, minHeight: 16 },
+  gameRight: { alignItems: 'flex-end', marginLeft: 12, minWidth: 56 },
+  score: { fontSize: 22, fontWeight: '800', lineHeight: 26 },
   onGlasses: { color: C.accent, fontSize: 10, fontWeight: '700', marginTop: 2 },
   gamePressed: { opacity: 0.6 },
   tapHint: { color: C.dim, fontSize: 11, fontWeight: '600', marginTop: 2 },

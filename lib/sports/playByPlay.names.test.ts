@@ -11,6 +11,7 @@
  */
 import {
   cleanPlayText,
+  periodLabel,
   expandNames,
   extractPlayByPlay,
   extractRoster,
@@ -246,5 +247,91 @@ describe('fetchPlayByPlay: team rosters', () => {
     });
     await fetchPlayByPlay('game-fullnames', 'NCAAF');
     expect(rosterCalls(mock)).toHaveLength(0);
+  });
+});
+
+describe('cleanPlayText — final period', () => {
+  it('drops the final period of a one-sentence play', () => {
+    expect(cleanPlayText('Jaloni Cambridge Steal.')).toBe('Jaloni Cambridge Steal');
+    expect(cleanPlayText('Jayda Clark misses 9-foot jumper')).toBe('Jayda Clark misses 9-foot jumper');
+    expect(cleanPlayText('(Shotgun) J.Allen pass short right to K.Coleman for 7 yards (J.Holland).')).toMatch(/\(J\.Holland\)$/);
+  });
+
+  it('keeps it on multi-sentence text and on a closing Jr./Sr.', () => {
+    const two = 'J.Cook left end for 3 yards. PENALTY on MIA, Offside, declined.';
+    expect(cleanPlayText(two)).toBe(two);
+    expect(cleanPlayText('Tackled by #7 J.Mathews Jr.')).toBe('Tackled by #7 J.Mathews Jr.');
+  });
+});
+
+describe('periodLabel', () => {
+  it('names periods the way each league does', () => {
+    expect(periodLabel('NCAAW', 3)).toBe('Q3');
+    expect(periodLabel('NFL', 4)).toBe('Q4');
+    expect(periodLabel('NCAAM', 2)).toBe('H2');
+    expect(periodLabel('NHL', 2)).toBe('P2');
+  });
+
+  it('labels overtime past regulation, and nothing for an unknown period', () => {
+    expect(periodLabel('NBA', 5)).toBe('OT');
+    expect(periodLabel('NCAAM', 4)).toBe('2OT');
+    expect(periodLabel('NHL', 4)).toBe('OT');
+    expect(periodLabel('NFL', 0)).toBe('');
+  });
+});
+
+describe('expandNames: NFL text (no jersey number)', () => {
+  // Hand-built. NFL play text names a player "T.Etienne", with no number.
+  const nfl: Roster = new Map([
+    ['1', ['Travis Etienne']],
+    ['33', ['Jordan Lynch']],
+    ['2', ['Tyrique Stevenson']],
+    ['0', ['Keon Coleman']],
+    ['14', ['Amon-Ra St. Brown']],
+    ['9', ['Jaylon Johnson', 'Juwan Johnson']],
+    ['4', ['Kaytron Allen']],
+    ['8', ['Kyle Allen']],
+  ]);
+
+  it('expands a name that has no number, and adds no number', () => {
+    expect(expandNames('T.Etienne left end to NO 7 for no gain (J.Lynch; T.Stevenson).', nfl)).toBe(
+      'Travis Etienne left end to NO 7 for no gain (Jordan Lynch; Tyrique Stevenson).',
+    );
+  });
+
+  it('keeps the sentence period that follows a name', () => {
+    expect(expandNames('pass incomplete deep left to K.Coleman.', nfl)).toBe(
+      'pass incomplete deep left to Keon Coleman.',
+    );
+  });
+
+  it('expands a name behind a team prefix', () => {
+    expect(expandNames('PENALTY on CHI-T.Stevenson, Defensive Holding, 5 yards', nfl)).toBe(
+      'PENALTY on CHI-Tyrique Stevenson, Defensive Holding, 5 yards',
+    );
+  });
+
+  it('uses a longer first-name prefix to tell two players apart', () => {
+    expect(expandNames('Ja.Johnson and Ju.Johnson, not J.Johnson', nfl)).toBe(
+      'Jaylon Johnson and Juwan Johnson, not J.Johnson',
+    );
+  });
+
+  it('leaves the token when two players match', () => {
+    const text = 'K.Allen to MIA 27 for 22 yards';
+    expect(expandNames(text, nfl)).toBe(text);
+  });
+
+  it('does not read the start of the next word as a Roman-numeral suffix', () => {
+    expect(expandNames('pass intended for K.Coleman INTERCEPTED by T.Stevenson at CHI 20', nfl)).toBe(
+      'pass intended for Keon Coleman INTERCEPTED by Tyrique Stevenson at CHI 20',
+    );
+    expect(expandNames('#0 K.Coleman INTERCEPTED', nfl)).toBe('#0 Keon Coleman INTERCEPTED');
+  });
+
+  it('expands a multi-word surname without doubling it', () => {
+    expect(expandNames('pass short right to A.St. Brown to DET 40', nfl)).toBe(
+      'pass short right to Amon-Ra St. Brown to DET 40',
+    );
   });
 });

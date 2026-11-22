@@ -66,7 +66,9 @@ const ENDPOINTS: Record<League, string> = {
   NBA: 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
   NHL: 'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard',
   NCAAM: 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard',
+  NCAAW: 'https://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard',
   NCAAF: 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard',
+  NFL: 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
 };
 
 /** Human label for a league (used in the HUD line). */
@@ -74,7 +76,9 @@ export const LEAGUE_LABEL: Record<League, string> = {
   NBA: 'NBA',
   NHL: 'NHL',
   NCAAM: 'NCAA',
+  NCAAW: 'NCAAW',
   NCAAF: 'CFB',
+  NFL: 'NFL',
 };
 
 /**
@@ -122,14 +126,14 @@ async function fetchBoard(league: League, signal?: AbortSignal): Promise<EspnSco
 }
 
 /**
- * Fetch and rank live games across the requested leagues (default: all three),
+ * Fetch and rank live games across the requested leagues (default: all of them),
  * merged and sorted by excitement. A single league's failure does not sink the
  * whole call — it's logged and skipped, matching the Python original's per-sport
  * try/except. (This is NOT masking a bug: ESPN routinely 503s one sport while
  * the others are fine; the caller still gets a useful feed.)
  */
 export async function fetchLiveGames(
-  leagues: League[] = ['NBA', 'NHL', 'NCAAM', 'NCAAF'],
+  leagues: League[] = ['NBA', 'NHL', 'NCAAM', 'NCAAW', 'NCAAF', 'NFL'],
   signal?: AbortSignal,
 ): Promise<GameSnapshot[]> {
   const results = await Promise.allSettled(

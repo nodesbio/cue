@@ -28,12 +28,13 @@ function marginPoints(margin: number): number {
 /**
  * First period that counts as "the back half" of the game for the time-pressure
  * bonus. Basketball/hockey split into halves-worth-of-drama at period 2; football
- * has 4 quarters, so the back half starts at period 3. Default is the
+ * and women's college basketball have 4 quarters, so the back half starts at
+ * period 3. Default is the
  * basketball-tuned value (2) so league-less callers (and the original tests)
  * keep their proven behavior.
  */
 function latePeriodStart(league?: League): number {
-  return league === 'NCAAF' ? 3 : 2;
+  return league === 'NCAAF' || league === 'NFL' || league === 'NCAAW' ? 3 : 2;
 }
 
 /**

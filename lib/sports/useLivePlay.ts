@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { G1Core } from '../g1/G1Core';
 import { wrapScript, MAX_CHARS, getWindow } from '../teleprompter/lineWrapper';
-import { fetchPlayByPlay } from './playByPlay';
+import { fetchPlayByPlay, periodLabel } from './playByPlay';
 import type { League, PlayLine } from './types';
 
 // Distinct per-segment owner token (#43): the live-play lens view holds the
@@ -44,9 +44,9 @@ export const LIVE_POLL_MS = 15000;
  * window. Pure + exported so the exact lens framing is unit-testable without a
  * device, and so the phone preview can render the identical frame.
  */
-export function framePlay(play: PlayLine): string {
+export function framePlay(play: PlayLine, league: League): string {
   const meta = [
-    play.period > 0 ? `Q${play.period}` : '',
+    periodLabel(league, play.period),
     play.clock,
     play.score,
   ]
@@ -114,7 +114,7 @@ export function useLivePlay(
         if (newest.id !== pushedIdRef.current) {
           pushedIdRef.current = newest.id;
           if (isConnected && !core.status.poweredOff) {
-            void core.sendText(framePlay(newest), 1, 1, true, undefined, OWNER);
+            void core.sendText(framePlay(newest, league), 1, 1, true, undefined, OWNER);
           }
         }
       } catch (e) {
@@ -161,6 +161,6 @@ export function useLivePlay(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentFrame = current ? framePlay(current) : '';
+  const currentFrame = current ? framePlay(current, league) : '';
   return { current, currentFrame, streaming, error, start, stop };
 }

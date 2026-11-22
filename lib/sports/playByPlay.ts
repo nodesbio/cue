@@ -74,23 +74,40 @@ export function cleanPlayText(text: string): string {
     .trim()
     .replace(/^\(\d{1,2}:\d{2}\)\s*/, '')
     .replace(/^(No[- ]Huddle[- ]?)?(Shotgun|Pistol|Under Center)?[- ]*/i, '')
-    .trim();
+    .trim()
+    .replace(FINAL_PERIOD, '$1');
 }
 
-// Jersey token in ESPN play text: "#10 A.Colandrea" / "#7 J.Mathews Jr." —
-// a number, then an abbreviated name (initial, dot, surname, optional suffix:
-// "Jr.", "Sr.", or a Roman numeral like "III" seen in the live feed).
-// Capture groups: 1=jersey number, 2=first-initial, 3=surname (+ optional suffix).
-const JERSEY_TOKEN =
-  /#(\d{1,2})\s+([A-Z])\.([A-Za-z'.-]+(?:\s(?:[JS]r\.|I{1,3}|IV|V))?)/g;
+// ESPN ends some one-sentence plays with a period and not others ("Steal." next
+// to "misses 9-foot jumper"), so the list reads unevenly. Drop the final period
+// of a single-sentence play. Left alone: multi-sentence text (an inner ". "),
+// where stripping only the last one would be the uneven result, and a closing
+// "Jr." / "Sr.", where the period belongs to the name.
+const FINAL_PERIOD = /^((?:(?!\.\s).)*(?<![JS]r))\.$/s;
+
+// Abbreviated player name in ESPN play text. Two forms:
+//   college: "#10 A.Colandrea" / "#7 J.Mathews Jr."   (jersey number first)
+//   NFL:     "T.Etienne" / "Ja.Johnson" / "CHI-J.Johnson"   (no number; a longer
+//            first-name prefix where one initial would fit two teammates)
+// then an optional suffix: "Jr.", "Sr.", or a Roman numeral ("III"). The numeral
+// must end at a word boundary, or "K.Coleman INTERCEPTED" loses its "I".
+// The surname stops before a period, so the one ending a sentence stays put.
+// Capture groups: 1=jersey number (college only), 2=first-name prefix,
+// 3=first surname word, 4=suffix.
+const NAME_TOKEN =
+  /(?:#(\d{1,2})\s+|(?<![\w.#']))([A-Z][a-z]{0,2})\.(St\.|[A-Za-z'-]+)(\s(?:[JS]r\.|(?:I{1,3}|IV|V)\b))?/g;
 
 /**
  * Expand jersey tokens to full names you can SAY, keeping ESPN's number:
  *
  *   "#10 A.Colandrea pass complete" -> "#10 Anthony Colandrea pass complete"
+ *   "T.Etienne left end (J.Lynch)"   -> "Travis Etienne left end (Jordan Lynch)"
+ *
+ * NFL text has no number, and none is added.
  *
  * Pure. A token is matched on first initial + surname:
- *   1. among the players wearing that number;
+ *   1. among the players wearing that number (college text only; NFL text
+ *      has no number, so it starts at 2);
  *   2. if none of them has that name, across the whole roster. ESPN's play
  *      text and its rosters often disagree on a player's number (8 of 71
  *      tokens in NEB @ OSU, 2026-11), so the name is the half to trust.
@@ -105,18 +122,18 @@ export function expandNames(text: string, roster: Roster): string {
 
   let out = '';
   let done = 0; // how much of `text` is already in `out`
-  for (const m of text.matchAll(JERSEY_TOKEN)) {
-    const [token, num, initial, surname] = m;
-    const sur = surname.split(/\s/)[0].toLowerCase(); // drop "Jr."/Roman suffix
+  for (const m of text.matchAll(NAME_TOKEN)) {
+    const [token, num, prefix, surname] = m;
+    const sur = surname.toLowerCase();
     // Exact name parts, not substrings: "Smith" must not match "Smithson".
     // First part supplies the initial; any later part may be the surname
     // (handles "Van Jefferson", "St. Brown").
     const named = (names: string[]) =>
       names.filter((name) => {
         const [first, ...rest] = name.split(/\s+/);
-        return first[0]?.toUpperCase() === initial && rest.some((part) => part.toLowerCase() === sur);
+        return first.toLowerCase().startsWith(prefix.toLowerCase()) && rest.some((part) => part.toLowerCase() === sur);
       });
-    const wearing = named(roster.get(num) ?? []);
+    const wearing = num ? named(roster.get(num) ?? []) : [];
     const hits = wearing.length > 0 ? wearing : named(everyone);
     if (hits.length !== 1) continue;
 
@@ -128,7 +145,7 @@ export function expandNames(text: string, roster: Roster): string {
     const tail = after.length > 0 ? ` ${after.join(' ')}` : '';
     const tokenEnd = m.index + token.length;
 
-    out += `${text.slice(done, m.index)}#${num} ${hits[0]}`;
+    out += `${text.slice(done, m.index)}${num ? `#${num} ` : ''}${hits[0]}`;
     done = tokenEnd + (tail && text.startsWith(tail, tokenEnd) ? tail.length : 0);
   }
   return out + text.slice(done);
@@ -138,8 +155,32 @@ const SPORT_PATH: Record<League, string> = {
   NBA: 'basketball/nba',
   NHL: 'hockey/nhl',
   NCAAM: 'basketball/mens-college-basketball',
+  NCAAW: 'basketball/womens-college-basketball',
   NCAAF: 'football/college-football',
+  NFL: 'football/nfl',
 };
+
+/** Regulation periods per league, and the letter its periods go by. */
+const PERIODS: Record<League, { count: number; prefix: string }> = {
+  NBA: { count: 4, prefix: 'Q' },
+  NHL: { count: 3, prefix: 'P' },
+  NCAAM: { count: 2, prefix: 'H' },
+  NCAAW: { count: 4, prefix: 'Q' },
+  NCAAF: { count: 4, prefix: 'Q' },
+  NFL: { count: 4, prefix: 'Q' },
+};
+
+/**
+ * Short label for a period number: "Q3", "H2" (men's college halves), "P2"
+ * (hockey), then "OT", "2OT"… past regulation. Empty when the period is unknown.
+ */
+export function periodLabel(league: League, period: number): string {
+  if (!(period > 0)) return '';
+  const { count, prefix } = PERIODS[league];
+  if (period <= count) return `${prefix}${period}`;
+  const extra = period - count;
+  return extra === 1 ? 'OT' : `${extra}OT`;
+}
 
 /** Normalize one raw ESPN play into a PlayLine, expanding say-able names. */
 function toPlayLine(p: EspnPlay, index: number, roster: Roster): PlayLine {
@@ -237,9 +278,9 @@ export async function fetchPlayByPlay(
   // alone whenever two players could be meant. (An earlier merge of this
   // endpoint was reverted for wrong names: Appendix C, 2026-11.)
   //
-  // Only fetched when the feed actually uses jersey tokens.
+  // Only fetched when the feed actually abbreviates names.
   let teamRosters: EspnTeamRoster[] = [];
-  if (rawPlays(summary).some((p) => (p.text ?? '').search(JERSEY_TOKEN) >= 0)) {
+  if (rawPlays(summary).some((p) => (p.text ?? '').search(NAME_TOKEN) >= 0)) {
     const key = `${league}:${gameId}`;
     let pending = teamRosterCache.get(key);
     if (!pending) {

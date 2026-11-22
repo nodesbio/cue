@@ -91,7 +91,13 @@ describe('calculateExcitement', () => {
     // +20 — unlike basketball, where period 2 is. Period 3 earns it.
     expect(calculateExcitement(game({ period: 2, homeScore: 20, awayScore: 8 }), 'NCAAF')).toBe(10);
     expect(calculateExcitement(game({ period: 3, homeScore: 20, awayScore: 8 }), 'NCAAF')).toBe(30);
+    // NFL has the same four-quarter shape as college football.
+    expect(calculateExcitement(game({ period: 2, homeScore: 20, awayScore: 8 }), 'NFL')).toBe(10);
+    expect(calculateExcitement(game({ period: 3, homeScore: 20, awayScore: 8 }), 'NFL')).toBe(30);
     // Same event, basketball semantics: period 2 IS the back half → +20.
     expect(calculateExcitement(game({ period: 2, homeScore: 20, awayScore: 8 }), 'NCAAM')).toBe(30);
+    // Women's college basketball plays four quarters, so period 2 is still the first half.
+    expect(calculateExcitement(game({ period: 2, homeScore: 20, awayScore: 8 }), 'NCAAW')).toBe(10);
+    expect(calculateExcitement(game({ period: 3, homeScore: 20, awayScore: 8 }), 'NCAAW')).toBe(30);
   });
 });
