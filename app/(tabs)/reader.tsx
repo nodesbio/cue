@@ -113,17 +113,18 @@ export default function ReaderScreen() {
         }
       }
       if (!alive) return;
-      setCards((prev) => {
-        // Merge by stable id (key#news:published). New stories join the pool;
-        // existing ones keep their slot so the current read position isn't jostled.
-        const byId = new Map<string, NewsCard>();
-        for (const c of prev) byId.set(c.id, c);
-        let added = 0;
-        for (const c of fetched) if (!byId.has(c.id)) { byId.set(c.id, c); added++; }
-        const merged = [...byId.values()].sort((a, b) => b.published - a.published);
-        if (added) core.note(`[reader] refresh +${added} new (pool ${merged.length})`);
-        return merged;
-      });
+      // Merge by stable id (key#news:published). New stories join the pool;
+      // existing ones keep their slot so the current read position isn't jostled.
+      // Merged from cardsRef, not inside a setCards updater: an updater runs
+      // during render, and logging from one re-rendered the log listener mid-render.
+      const byId = new Map<string, NewsCard>();
+      for (const c of cardsRef.current) byId.set(c.id, c);
+      let added = 0;
+      for (const c of fetched) if (!byId.has(c.id)) { byId.set(c.id, c); added++; }
+      const merged = [...byId.values()].sort((a, b) => b.published - a.published);
+      cardsRef.current = merged;
+      setCards(merged);
+      if (added) core.note(`[reader] refresh +${added} new (pool ${merged.length})`);
       setLoading(false);
     };
 
