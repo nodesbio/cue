@@ -68,7 +68,7 @@ export interface UseLivePlay {
   error: string | null;
   /** Claim the lens and begin pushing the newest play as plays land. */
   start: () => void;
-  /** Stop polling, blank the lens, release ownership. */
+  /** Stop polling, blank the lens with an empty frame, release ownership. */
   stop: () => void;
 }
 
@@ -142,24 +142,18 @@ export function useLivePlay(
   const stop = useCallback(() => {
     setStreaming(false);
     pushedIdRef.current = null;
-    void core.clearDisplay('L');
-    void core.clearDisplay('R');
-    core.releaseDisplay(OWNER);
+    // Not clearDisplay(): that sends silent(true), the Power Off packet, and
+    // nothing wakes the lens afterwards, so the next game and the top-game HUD
+    // were drawn to a display that was asleep.
+    core.yieldDisplay(OWNER);
   }, [core]);
 
   // Safety net: if this hook unmounts while still streaming (tab switch, nav
   // away), release the lens so we don't strand ownership (#43). Mirrors the
   // release-on-unmount guard in useArticleStream.
-  useEffect(() => {
-    return () => {
-      if (streaming) {
-        void core.clearDisplay('L');
-        void core.clearDisplay('R');
-        core.releaseDisplay(OWNER);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // yieldDisplay is a no-op unless this hook holds the lens, so it needs no
+  // streaming check (the old one read the first render's value, always false).
+  useEffect(() => () => core.yieldDisplay(OWNER), [core]);
 
   const currentFrame = current ? framePlay(current, league) : '';
   return { current, currentFrame, streaming, error, start, stop };
