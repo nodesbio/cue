@@ -58,7 +58,7 @@ jest.mock('react-native-ble-plx', () => ({
   BleErrorCode: { DeviceDisconnected: 201, OperationCancelled: 2 },
 }));
 
-import { G1Core } from './G1Core';
+import { G1Core, LEGACY_OWNER } from './G1Core';
 
 describe('G1Core claim/release', () => {
   function makeCore(): G1Core {
@@ -88,5 +88,75 @@ describe('G1Core claim/release', () => {
     c.claimDisplay('teleprompter');
     c.claimDisplay('sports');
     expect(c.displayOwner).toBe('sports');
+  });
+});
+
+// Tab handoff (#43 follow-up). The lens must follow the selected tab: a Sports
+// writer that is still running when the wearer opens the Teleprompter has to
+// give the lens up, and the Teleprompter has to take it.
+describe('G1Core tab handoff', () => {
+  function makeConnectedCore() {
+    const c = new G1Core();
+    c.status.left.txReady = true;
+    c.status.right.txReady = true;
+    // A frame that survives the owner arbiter is queued; a dropped one is not.
+    const queued = jest.spyOn(c as any, '_enqueue').mockResolvedValue(undefined);
+    return { c, queued };
+  }
+
+  it('while Sports holds the lens, teleprompter frames are dropped', async () => {
+    const { c, queued } = makeConnectedCore();
+    c.claimDisplay('sports.live');
+    await c.sendText('teleprompter line'); // untagged = teleprompter
+    expect(queued).not.toHaveBeenCalled();
+  });
+
+  it('after Sports yields and Teleprompter claims, only teleprompter frames pass', async () => {
+    const { c, queued } = makeConnectedCore();
+    c.claimDisplay('sports.live');
+
+    c.yieldDisplay('sports.live');   // Sports tab blur
+    c.claimDisplay(LEGACY_OWNER);    // Teleprompter tab focus
+    queued.mockClear();
+
+    await c.sendText('late score', 1, 1, true, undefined, 'sports.live');
+    expect(queued).not.toHaveBeenCalled();
+    await c.sendText('teleprompter line');
+    expect(queued).toHaveBeenCalledTimes(1);
+  });
+
+  it('yield by the holder blanks the lens with a text frame, then releases', () => {
+    const { c } = makeConnectedCore();
+    const sendText = jest.spyOn(c, 'sendText');
+    const clearDisplay = jest.spyOn(c, 'clearDisplay');
+    c.claimDisplay('sports.deck');
+    c.yieldDisplay('sports.deck');
+    expect(sendText).toHaveBeenCalledWith(' ', 1, 1, true, undefined, 'sports.deck');
+    // Never silent(true): that is the Power Off packet.
+    expect(clearDisplay).not.toHaveBeenCalled();
+    expect(c.displayOwner).toBeNull();
+  });
+
+  it('yield by a non-holder writes nothing and leaves the holder in place', () => {
+    const { c } = makeConnectedCore();
+    const sendText = jest.spyOn(c, 'sendText');
+    c.claimDisplay(LEGACY_OWNER);
+    c.yieldDisplay('sports.deck');
+    expect(sendText).not.toHaveBeenCalled();
+    expect(c.displayOwner).toBe(LEGACY_OWNER);
+  });
+
+  it('yield while powered off or disconnected releases without writing', () => {
+    const { c } = makeConnectedCore();
+    const sendText = jest.spyOn(c, 'sendText');
+    c.status.poweredOff = true;
+    c.claimDisplay('sports.deck');
+    c.yieldDisplay('sports.deck');
+    c.status.poweredOff = false;
+    c.status.right.txReady = false;
+    c.claimDisplay('sports.deck');
+    c.yieldDisplay('sports.deck');
+    expect(sendText).not.toHaveBeenCalled();
+    expect(c.displayOwner).toBeNull();
   });
 });

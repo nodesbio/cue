@@ -21,6 +21,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
+import { LEGACY_OWNER } from '@/lib/g1/G1Core';
+import { useFocusEffect } from 'expo-router';
 import { loadCalibration } from '@/lib/g1/calibrationStore';
 import {
   TeleprompterEngine,
@@ -115,6 +117,18 @@ export default function TeleprompterScreen() {
     }
     prevConnectedRef.current = connected;
   }, [connected, core]);
+
+  // The selected tab owns the lens. Take it on focus and re-push the current
+  // line, so coming back from another tab doesn't leave the lens blank until
+  // the next scroll. Released on blur, as Reader does.
+  useFocusEffect(useCallback(() => {
+    core.claimDisplay(LEGACY_OWNER);
+    const s = snapRef.current;
+    if (s && connectedRef.current && !core.status.poweredOff) {
+      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, LEGACY_OWNER);
+    }
+    return () => core.releaseDisplay(LEGACY_OWNER);
+  }, [core]));
 
   // ── Foreground resync (lock-screen recovery) ─────────────────────────────
   // While the phone is locked/backgrounded iOS keeps the BLE connection up but

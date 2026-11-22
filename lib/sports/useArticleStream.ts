@@ -339,9 +339,7 @@ export function useArticleStream(
   const pause = useCallback(() => {
     setPlaying(false);
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    void core.clearDisplay('L');
-    void core.clearDisplay('R');
-    core.releaseDisplay(OWNER);
+    core.yieldDisplay(OWNER);
   }, [core]);
 
   // Restore a snapshot frozen by a prior session (cold-kill / force-quit mid-

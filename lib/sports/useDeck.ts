@@ -122,10 +122,8 @@ export function useDeck(
 
   const pause = useCallback(() => {
     setPlaying(false);
-    // Blank the lens (same-seq blank both sides) and hand ownership back.
-    void core.clearDisplay('L');
-    void core.clearDisplay('R');
-    core.releaseDisplay(OWNER);
+    // Blank the lens and hand ownership back.
+    core.yieldDisplay(OWNER);
   }, [core]);
 
   const next = useCallback(() => {

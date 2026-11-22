@@ -10,6 +10,7 @@
  * Highly demo-able and shareable (watch the game without looking at your phone).
  */
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Modal,
@@ -175,6 +176,12 @@ function LiveSportsView() {
     core.releaseDisplay(LIVE_OWNER);
     setLive(false);
   }, [core]);
+
+  // The selected tab owns the lens: leaving Sports blanks it and stops the feed.
+  useFocusEffect(useCallback(() => () => {
+    core.yieldDisplay(LIVE_OWNER);
+    stop();
+  }, [core, stop]));
 
   // Restarting with a changed league set while live.
   const toggleLeague = useCallback((lg: League) => {
@@ -452,6 +459,9 @@ function DeckView() {
   const { deck, index, current, loading, error, playing, next, prev, pause, play, refresh } =
     useDeck(core, audience, NO_LIVE, connected);
 
+  // The selected tab owns the lens: leaving Sports pauses the deck.
+  useFocusEffect(useCallback(() => () => pause(), [pause]));
+
   const atStart = index <= 0;
   const atEnd = index >= deck.length - 1;
 
@@ -550,6 +560,9 @@ function StreamView() {
     lines, index, currentHeadline, loading, error, skipped,
     playing, done, load, play, pause, next, prev, lastTop, currentFrame, resume,
   } = useArticleStream(core, isConnected);
+
+  // The selected tab owns the lens: leaving Sports pauses the stream.
+  useFocusEffect(useCallback(() => () => pause(), [pause]));
 
   // On mount, offer to resume a stream a prior session froze (cold-kill mid-
   // stream, #49). If one restores, drop straight out of the picker into it —

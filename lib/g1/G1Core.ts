@@ -181,6 +181,21 @@ export class G1Core {
     }
   }
 
+  /**
+   * Hand the lens over when the holder's tab loses focus: blank it, then
+   * release. The blank is an owner-tagged TEXT frame rather than clearDisplay():
+   * clearDisplay() is not owner-gated, so on a tab switch it could blank the
+   * lens after the next tab has already drawn, and it sends silent(true), the
+   * same packet Power Off sends. A non-holder yields nothing.
+   */
+  yieldDisplay(owner: string): void {
+    if (this._displayOwner !== owner) return;
+    if (this.isConnected && !this.status.poweredOff) {
+      void this.sendText(' ', 1, 1, true, undefined, owner);
+    }
+    this.releaseDisplay(owner);
+  }
+
   /** Current display owner, or null if unclaimed. */
   get displayOwner(): string | null { return this._displayOwner; }
 
