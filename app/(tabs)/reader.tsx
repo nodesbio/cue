@@ -7,8 +7,8 @@
  * phone leaving your pocket (the whole point: fiddling with a phone mid-conversation
  * reads as rude; a remote in your hand does not).
  *
- *   single_tap  (SmartRemote >>)         → next headline
- *   triple_tap  (SmartRemote play/pause) → expand ⇄ collapse the current headline
+ *   next  (SmartRemote >>)         → next headline
+ *   select  (SmartRemote play/pause) → expand ⇄ collapse the current headline
  *
  * SCOPE / HONEST LIMITS (see docs/issues/47 + #43):
  *   - This owns the display ('reader') via the arbiter, so stray teleprompter
@@ -219,7 +219,7 @@ export default function ReaderScreen() {
     }
   }, [push, clearCycle, markSeen, nextUnseenIdx]);
 
-  /** Skip to the next unseen card now (single_tap / on-screen Skip). Keeps the cycle running. */
+  /** Skip to the next unseen card now (next / on-screen Skip). Keeps the cycle running. */
   const skip = useCallback(() => {
     const list = cardsRef.current;
     if (!list.length) return;
@@ -230,7 +230,7 @@ export default function ReaderScreen() {
     tick();
   }, [tick, nextUnseenIdx]);
 
-  /** Freeze / resume. head_up (or triple_tap) holds the current card AND expands it
+  /** Freeze / resume. head_up (or select) holds the current card AND expands it
    *  so you can read at your own pace with no remote. head_down / another gesture
    *  resumes the auto-cycle. This is the hands-free "look up to read" control. */
   const freeze = useCallback(() => {
@@ -266,8 +266,8 @@ export default function ReaderScreen() {
       switch (event.name) {
         case 'head_up':    freeze(); break;   // hands-free: look up to hold & read
         case 'head_down':  resume(); break;   // look down to let it roll again
-        case 'triple_tap': toggleFreeze(); break; // temple touchpad / remote: hold ⇄ resume
-        case 'single_tap': skip(); break;     // temple touchpad / remote: skip now
+        case 'select': toggleFreeze(); break; // temple touchpad / remote: hold ⇄ resume
+        case 'next': skip(); break;     // temple touchpad / remote: skip now
         // everything else ignored.
       }
     };

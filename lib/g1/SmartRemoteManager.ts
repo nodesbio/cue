@@ -7,9 +7,9 @@
  *
  * Button → G1Event mapping
  * ─────────────────────────
- *   Next Track  (▶▶)  →  single_tap   (advance one cue line)
- *   Prev Track  (◀◀)  →  double_tap   (go back one cue line)
- *   Play/Pause  (⏯)   →  triple_tap   (toggle play/pause)
+ *   Next Track  (▶▶)  →  next   (advance one cue line)
+ *   Prev Track  (◀◀)  →  prev   (go back one cue line)
+ *   Play/Pause  (⏯)   →  select   (toggle play/pause)
  *
  * HOW IT STEALS MEDIA KEYS FROM SPOTIFY
  * ──────────────────────────────────────
@@ -133,11 +133,11 @@ class SmartRemoteManager {
     MusicControl.enableControl(Command.play,            true);
     MusicControl.enableControl(Command.pause,           true);
 
-    MusicControl.on(Command.nextTrack,       () => { this._log('nextTrack → single_tap');       this._emit('single_tap'); });
-    MusicControl.on(Command.previousTrack,   () => { this._log('previousTrack → double_tap');   this._emit('double_tap'); });
-    MusicControl.on(Command.togglePlayPause, () => { this._log('togglePlayPause → triple_tap'); this._emit('triple_tap'); });
-    MusicControl.on(Command.play,            () => { this._log('play → triple_tap');            this._emit('triple_tap'); });
-    MusicControl.on(Command.pause,           () => { this._log('pause → triple_tap');           this._emit('triple_tap'); });
+    MusicControl.on(Command.nextTrack,       () => { this._log('nextTrack → next');       this._emit('next'); });
+    MusicControl.on(Command.previousTrack,   () => { this._log('previousTrack → prev');   this._emit('prev'); });
+    MusicControl.on(Command.togglePlayPause, () => { this._log('togglePlayPause → select'); this._emit('select'); });
+    MusicControl.on(Command.play,            () => { this._log('play → select');            this._emit('select'); });
+    MusicControl.on(Command.pause,           () => { this._log('pause → select');           this._emit('select'); });
 
     this.running = true;
     this._log('Media key interception active.');
@@ -181,7 +181,7 @@ class SmartRemoteManager {
 
   private _emit(name: string): void {
     // Collapse same-event repeats within PRESS_DEDUP_MS. play/pause/toggle all
-    // map to triple_tap, so a single press that fires toggle+play would emit
+    // map to select, so a single press that fires toggle+play would emit
     // twice; keying on the LOGICAL name (not the raw command) dedups that too.
     const now = Date.now();
     const last = this.lastEmitAt[name] ?? 0;

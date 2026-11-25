@@ -181,7 +181,7 @@ describe('mono-fallback — clean-mono is home base', () => {
   });
 
   it('isMono reflects drop state — the seam the UI gates the Next key on', async () => {
-    // The Next (single_tap) key is dual-purpose: first press drops to mono, every
+    // The Next (primary) key is dual-purpose: first press drops to mono, every
     // press after advances a line. index.tsx gates that on core.isMono, so this
     // getter must flip exactly with _monoSide.
     const { anyCore, core } = makeCore();

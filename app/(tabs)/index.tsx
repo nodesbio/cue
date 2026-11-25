@@ -237,8 +237,8 @@ export default function TeleprompterScreen() {
   //   head_up (no prior down, or down timed out) → play / stopRewind / advance
   //
   // Media remote (works regardless of gesturesEnabled):
-  //   single_tap → next line   (G1 touchbar or remote)
-  //   double_tap → prev line   (SmartRemote ◀◀ only — the G1 never emits a
+  //   next → next line   (G1 touchbar or remote)
+  //   prev → prev line   (SmartRemote ◀◀ only — the G1 never emits a
   //                             double-tap; F5 00 is 'exit_to_dashboard', a
   //                             firmware screen-rejection signal, and is
   //                             deliberately NOT mapped to any gesture)
@@ -295,9 +295,9 @@ export default function TeleprompterScreen() {
 
     const isUp      = event.name === 'head_up';
     const isDown    = event.name === 'head_down';
-    const isTap     = event.name === 'single_tap';
-    const isDblTap  = event.name === 'double_tap';
-    const isTriTap  = event.name === 'triple_tap';
+    const isTap     = event.name === 'next';
+    const isDblTap  = event.name === 'prev';
+    const isTriTap  = event.name === 'select';
 
     // Display takeover events — Even AI overlay or dashboard stole the HUD.
     // On any display-takeover event (dashboard open OR close, Even AI start),
@@ -315,12 +315,12 @@ export default function TeleprompterScreen() {
     if (!isUp && !isDown && !isTap && !isDblTap && !isTriTap) return;
 
     // ── Dedup ────────────────────────────────────────────────────────────
-    // triple_tap is EXCLUDED: it's already de-bursted at the source by
+    // select is EXCLUDED: it's already de-bursted at the source by
     // SmartRemoteManager.PRESS_DEDUP_MS (250ms, tuned below human double-press
     // cadence so deliberate rapid presses pass through). Re-deduping here with
     // SmartRemoteManager.PRESS_DEDUP_MS (250ms) is the primary echo guard; this
     // index-level window is a harmless second line. With the double-press
-    // apparatus gone, triple_tap is now a single idempotent action (pause+resync
+    // apparatus gone, select is now a single idempotent action (pause+resync
     // or resume) so it can be deduped like every other event — there is no
     // second press to protect.
     const now = Date.now();
@@ -329,7 +329,7 @@ export default function TeleprompterScreen() {
 
     // ── Media remote ─────────────────────────────────────────────────────
     // Tap events work independently of gesturesEnabled — the remote is always live.
-    // single_tap = SmartRemote Next (>>). Dual-purpose, gated on mono state so
+    // next = SmartRemote Next (>>). Dual-purpose, gated on mono state so
     // the operator's thumb never leaves one key:
     //   • FIRST press (still stereo) → emergencyMono(): kill the doubled echo and
     //     session-latch stereo OFF. The on-stage safety action.
@@ -367,12 +367,12 @@ export default function TeleprompterScreen() {
       }
       return;
     }
-    // double_tap = SmartRemote Prev (<<) = rewind one line. Operator uses this.
+    // prev = SmartRemote Prev (<<) = rewind one line. Operator uses this.
     if (isDblTap) {
       engineRef.current?.prev();
       return;
     }
-    // triple_tap = SmartRemote play/pause button. A single press is the whole
+    // select = SmartRemote play/pause button. A single press is the whole
     // interface: playing → pause-and-resync, paused → resume. See
     // handlePlayButton for the first-principle rationale.
     if (isTriTap) {

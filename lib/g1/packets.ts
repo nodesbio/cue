@@ -103,11 +103,11 @@ export const EVENT_NAMES: Record<number, string> = {
   // App.exitAll()). The firmware emits it ~1/s while it is rejecting the
   // current screen (see NewScreen doc). Gesture handlers must ignore it.
   0x00: 'exit_to_dashboard',
-  0x01: 'single_tap',
+  0x01: 'next',
   0x02: 'head_up',
   0x03: 'head_down',
-  0x04: 'triple_tap',
-  0x05: 'triple_tap',
+  0x04: 'select',
+  0x05: 'select',
   0x06: 'glasses_worn',
   0x07: 'glasses_off',
   0x08: 'in_case',

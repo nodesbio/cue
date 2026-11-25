@@ -6,9 +6,9 @@
  *     intervals survive an app kill mid-session.
  *   - the G1 input surface (useG1Event): ONE subscription covers both glasses
  *     taps and the SmartRemote media buttons (see G1Context.useG1Event). Mapping:
- *         single_tap (▶▶)  → next   (navigation only)
- *         double_tap (◀◀)  → prev   (navigation only)
- *         triple_tap (⏯)   → markDone (reveal, then Grade.Good)
+ *         next (▶▶)  → next   (navigation only)
+ *         prev (◀◀)  → prev   (navigation only)
+ *         select (⏯)   → markDone (reveal, then Grade.Good)
  *
  * Grades mutate the *persisted* deck (the full card list), not just the session
  * queue, so a card's new due-date is remembered next time the deck is opened.
@@ -138,9 +138,9 @@ export function useReviewSession(
   useG1Event((e) => {
     if (!handlers.current.enabled) return;
     switch (e.name) {
-      case 'single_tap': handlers.current.next(); break;
-      case 'double_tap': handlers.current.prev(); break;
-      case 'triple_tap': handlers.current.markDone(); break;
+      case 'next': handlers.current.next(); break;
+      case 'prev': handlers.current.prev(); break;
+      case 'select': handlers.current.markDone(); break;
     }
   });
 

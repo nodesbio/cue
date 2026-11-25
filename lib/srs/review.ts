@@ -7,9 +7,9 @@
  * without a device.
  *
  * INPUT MODEL (confirmed with John, hardware-grounded against SmartRemoteManager):
- *   next  (▶▶ / single_tap) → advance through the deck   — NAVIGATION ONLY
- *   prev  (◀◀ / double_tap) → rewind through the deck     — NAVIGATION ONLY
- *   done  (⏯ / triple_tap)  → "mark done" = Grade.Good    — GRADES + reschedules
+ *   next  (▶▶ / next) → advance through the deck   — NAVIGATION ONLY
+ *   prev  (◀◀ / prev) → rewind through the deck     — NAVIGATION ONLY
+ *   done  (⏯ / select)  → "mark done" = Grade.Good    — GRADES + reschedules
  *
  * So scrubbing never changes a card's memory; only an explicit "mark done"
  * commits a grade. A card the wearer never marks done stays due and resurfaces.
