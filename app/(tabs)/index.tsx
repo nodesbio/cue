@@ -21,6 +21,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
+import { useLensOwnership } from '@/lib/g1/useLensOwner';
 import { LEGACY_OWNER } from '@/lib/g1/G1Core';
 import { useFocusEffect } from 'expo-router';
 import { loadCalibration } from '@/lib/g1/calibrationStore';
@@ -136,14 +137,26 @@ export default function TeleprompterScreen() {
   // The selected tab owns the lens. Take it on focus and re-push the current
   // line, so coming back from another tab doesn't leave the lens blank until
   // the next scroll. Released on blur, as Reader does.
+  //
+  // Only the focus-bound claim/yield uses the shared arbiter hook. The engine
+  // onFrame and the skew/eye-swap/takeover re-anchors deliberately stay as raw
+  // UNtagged sendText calls: an untagged frame always passes the arbiter even
+  // when another owner (a live sports HUD) holds the lens, which is exactly the
+  // owner-agnostic recovery semantics those paths need. Routing them through
+  // lens.push (LEGACY_OWNER-tagged) would get them dropped under sports.
+  const lens = useLensOwnership(core, connected, LEGACY_OWNER);
   useFocusEffect(useCallback(() => {
-    core.claimDisplay(LEGACY_OWNER);
+    lens.start();
     const s = snapRef.current;
-    if (s && connectedRef.current && !core.status.poweredOff) {
-      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, LEGACY_OWNER);
+    if (s) {
+      lens.push(s.frame, {
+        curLine: s.topIndex + 1,
+        totalLines: s.totalLines,
+        isLastPage: s.topIndex + 1 >= s.totalLines,
+      });
     }
-    return () => core.yieldDisplay(LEGACY_OWNER);
-  }, [core]));
+    return () => lens.stop();
+  }, [lens]));
 
   // ── Foreground resync (lock-screen recovery) ─────────────────────────────
   // While the phone is locked/backgrounded iOS keeps the BLE connection up but
