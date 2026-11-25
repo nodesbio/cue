@@ -20,7 +20,7 @@
  *     so we never strand a stale frame on the lens or blank another owner's.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { G1Core } from './G1Core';
 import type { NewScreenValue } from './packets';
 
@@ -121,9 +121,12 @@ export function useLensOwnership(
     core.yieldDisplay(owner);
   }, [core, owner]);
 
+  // toggle reads `on` via ownedRef so its identity is stable — otherwise it
+  // would change every render that flips `on`, churning any consumer that holds
+  // the hook's return in a dep array.
   const toggle = useCallback(() => {
-    on ? stop() : start();
-  }, [on, start, stop]);
+    ownedRef.current ? stop() : start();
+  }, [start, stop]);
 
   const connectedRef = useRef(isConnected);
   useEffect(() => { connectedRef.current = isConnected; }, [isConnected]);
@@ -147,7 +150,16 @@ export function useLensOwnership(
   // Last line of defence: unmount must not leave a claimed, stale lens.
   useEffect(() => () => { core.yieldDisplay(owner); }, [core, owner]);
 
-  return { on, start, stop, toggle, push };
+  // Stable object identity across renders. Consumers put `lens` in useCallback
+  // dep arrays (e.g. sports' start/stop, which feed a useFocusEffect cleanup); a
+  // fresh object every render would churn those callbacks and re-fire the focus
+  // cleanup, which calls stop() — killing the feed the instant Start sets `on`.
+  // `on` is the only value that changes, so the memo depends on it plus the
+  // (stable) callbacks.
+  return useMemo(
+    () => ({ on, start, stop, toggle, push }),
+    [on, start, stop, toggle, push],
+  );
 }
 
 export interface UseLensOwner {
@@ -183,5 +195,11 @@ export function useLensOwner(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lens.on, text, isConnected, curLine, totalLines, lastPage, newScreen]);
 
-  return { on: lens.on, start: lens.start, stop: lens.stop, toggle: lens.toggle };
+  // Stable identity (same reasoning as useLensOwnership): consumers hold this in
+  // dep arrays / focus-effect cleanups. A fresh object per render re-fires those
+  // cleanups → stop() → the lens is released the tick after it's claimed.
+  return useMemo(
+    () => ({ on: lens.on, start: lens.start, stop: lens.stop, toggle: lens.toggle }),
+    [lens.on, lens.start, lens.stop, lens.toggle],
+  );
 }

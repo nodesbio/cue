@@ -184,9 +184,13 @@ function LiveSportsView() {
   }, [lens]);
 
   // The selected tab owns the lens: leaving Sports blanks it and stops the feed.
-  useFocusEffect(useCallback(() => () => {
-    stop();
-  }, [stop]));
+  // stopRef keeps the cleanup's identity stable so this focus effect fires only
+  // on real focus/blur — NOT every time `stop`'s identity changes (it changes
+  // when `live`/`on` flips, and a re-fired cleanup would call stop() and kill
+  // the feed the instant Start runs).
+  const stopRef = useRef(stop);
+  useEffect(() => { stopRef.current = stop; }, [stop]);
+  useFocusEffect(useCallback(() => () => { stopRef.current(); }, []));
 
   // Restarting with a changed league set while live.
   const toggleLeague = useCallback((lg: League) => {

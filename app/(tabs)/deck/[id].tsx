@@ -11,7 +11,7 @@
  * of this commit to avoid touching the killer-feature lens arbiter.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { getDeckMeta, type DeckMeta } from '@/lib/srs/registry';
@@ -56,7 +56,13 @@ export default function DeckReviewScreen() {
   const lens = useDeckLens(core, isConnected, lensFrame, true);
 
   // Leaving the Deck tab must hand the lens back (never strand a stale card).
-  useFocusEffect(useCallback(() => () => lens.stop(), [lens]));
+  // Via a ref so the cleanup's identity is stable: `lens` re-identifies when
+  // lens.on flips (i.e. the instant "to lens" claims the display), and a
+  // [lens]-keyed focus effect would then re-fire its cleanup → lens.stop(),
+  // releasing the lens the tick after it was claimed (claim→release→blank).
+  const lensStopRef = useRef(lens.stop);
+  useEffect(() => { lensStopRef.current = lens.stop; }, [lens.stop]);
+  useFocusEffect(useCallback(() => () => lensStopRef.current(), []));
 
   const editDeck = useCallback(() => {
     router.push({ pathname: '/deck/new', params: { id } });
