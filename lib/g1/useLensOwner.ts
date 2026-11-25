@@ -20,7 +20,7 @@
  *     so we never strand a stale frame on the lens or blank another owner's.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { G1Core } from './G1Core';
 import type { NewScreenValue } from './packets';
 
@@ -63,44 +63,60 @@ export function resolveIsLastPage(curLine: number, totalLines: number, explicit?
   return explicit ?? curLine >= totalLines;
 }
 
-export interface UseLensOwner {
+/** A single guarded frame push. */
+export interface LensPushArgs extends LensFrameOpts {}
+
+export interface UseLensOwnership {
   /** True while this owner holds the lens. */
   on: boolean;
-  /** Claim the lens and begin mirroring `frame`. */
+  /** Claim the lens. Safe to call repeatedly. */
   start: () => void;
   /** Blank the lens and hand ownership back. */
   stop: () => void;
   /** Convenience toggle for a single Play/Pause control. */
   toggle: () => void;
+  /**
+   * Push one frame NOW, guarded (active + non-empty + connected + powered on).
+   * Returns true if the write was issued. Imperative producers (timer state
+   * machines, gesture handlers) call this at their own sequencing points so
+   * each logical frame maps to exactly one BLE write — sendText does NOT dedupe
+   * identical strings, so "push only at logical events" is the caller's policy.
+   */
+  push: (frame: string, args?: LensPushArgs) => boolean;
 }
 
 /**
- * Mirror `frame` to the lens under `owner` while active.
- *
- * @param core        the shared G1 core
- * @param isConnected both lenses usable (the screen's connection state)
- * @param owner       the producer's distinct arbiter token (e.g. 'reader')
- * @param frame       the text to show — caller composes it; empty is not pushed
- * @param opts        enabled + paging options
+ * Lifecycle half of the lens arbiter: claim on start, yield on stop/disable/
+ * unmount, plus a guarded imperative `push`. This is the single source of truth
+ * for ownership; producers choose their own frame-invalidation policy (reactive
+ * via useLensOwner, or imperative by calling push() directly). The arbiter in
+ * G1Core.sendText still has the final say on a tagged frame.
  */
-export function useLensOwner(
+export function useLensOwnership(
   core: G1Core,
   isConnected: boolean,
   owner: string,
-  frame: string,
-  opts: UseLensOwnerOpts = {},
-): UseLensOwner {
-  const { enabled = true, curLine = 1, totalLines = 1, isLastPage, newScreen } = opts;
+  opts: { enabled?: boolean } = {},
+): UseLensOwnership {
+  const { enabled = true } = opts;
   const [on, setOn] = useState(false);
+
+  // Synchronous ownership flag. `on` (React state) lags one render behind the
+  // claim; an imperative producer that claims then push()es in the SAME tick
+  // (e.g. reader's focus effect → tick() → push()) must not have that first
+  // frame dropped. ownedRef tracks the claim synchronously so push() is correct
+  // immediately, while `on` still drives rendering.
+  const ownedRef = useRef(false);
 
   const start = useCallback(() => {
     if (!enabled) return;
     core.claimDisplay(owner);
+    ownedRef.current = true;
     setOn(true);
-    // The push happens in the effect below once `on` flips true.
   }, [core, owner, enabled]);
 
   const stop = useCallback(() => {
+    ownedRef.current = false;
     setOn(false);
     core.yieldDisplay(owner);
   }, [core, owner]);
@@ -109,14 +125,18 @@ export function useLensOwner(
     on ? stop() : start();
   }, [on, start, stop]);
 
-  // Push whenever the mirrored frame (or paging) changes while on + connected.
-  const text = frame.trim();
-  const lastPage = resolveIsLastPage(curLine, totalLines, isLastPage);
-  useEffect(() => {
-    if (shouldPushFrame({ on, frame: text, isConnected, poweredOff: core.status.poweredOff })) {
-      void core.sendText(text, curLine, totalLines, lastPage, newScreen, owner);
+  const connectedRef = useRef(isConnected);
+  useEffect(() => { connectedRef.current = isConnected; }, [isConnected]);
+
+  const push = useCallback((frame: string, args: LensPushArgs = {}): boolean => {
+    const text = frame.trim();
+    if (!shouldPushFrame({ on: ownedRef.current, frame: text, isConnected: connectedRef.current, poweredOff: core.status.poweredOff })) {
+      return false;
     }
-  }, [on, text, isConnected, core, owner, curLine, totalLines, lastPage, newScreen]);
+    const { curLine = 1, totalLines = 1, isLastPage, newScreen } = args;
+    void core.sendText(text, curLine, totalLines, resolveIsLastPage(curLine, totalLines, isLastPage), newScreen, owner);
+    return true;
+  }, [core, owner]);
 
   // If the producer gets disabled (e.g. tab blur) while mirroring, hand the lens
   // back rather than stranding the last frame on the glasses.
@@ -127,5 +147,41 @@ export function useLensOwner(
   // Last line of defence: unmount must not leave a claimed, stale lens.
   useEffect(() => () => { core.yieldDisplay(owner); }, [core, owner]);
 
-  return { on, start, stop, toggle };
+  return { on, start, stop, toggle, push };
+}
+
+export interface UseLensOwner {
+  on: boolean;
+  start: () => void;
+  stop: () => void;
+  toggle: () => void;
+}
+
+/**
+ * Reactive-frame wrapper over useLensOwnership: mirror `frame` to the lens under
+ * `owner`, re-pushing whenever the frame (or paging) changes while active. For
+ * producers whose display IS a function of render state (study decks, simple
+ * single-frame surfaces). Imperative producers should use useLensOwnership +
+ * push() directly instead, to control exactly when writes happen.
+ */
+export function useLensOwner(
+  core: G1Core,
+  isConnected: boolean,
+  owner: string,
+  frame: string,
+  opts: UseLensOwnerOpts = {},
+): UseLensOwner {
+  const { enabled = true, curLine = 1, totalLines = 1, isLastPage, newScreen } = opts;
+  const lens = useLensOwnership(core, isConnected, owner, { enabled });
+
+  const text = frame.trim();
+  const lastPage = resolveIsLastPage(curLine, totalLines, isLastPage);
+  // Re-push on any frame/paging change while active + connected.
+  useEffect(() => {
+    lens.push(text, { curLine, totalLines, isLastPage: lastPage, newScreen });
+    // `lens.push` is stable; depend on the frame/paging inputs + active flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lens.on, text, isConnected, curLine, totalLines, lastPage, newScreen]);
+
+  return { on: lens.on, start: lens.start, stop: lens.stop, toggle: lens.toggle };
 }

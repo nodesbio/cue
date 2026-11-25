@@ -23,6 +23,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useG1 } from '@/lib/g1/G1Context';
+import { useLensOwnership } from '@/lib/g1/useLensOwner';
 import { cardsFromNews, type NewsCard, type EspnNewsResponse } from '@/lib/sports/cards';
 import type { Topic } from '@/lib/sports/audience';
 import { wrapParagraph, MAX_CHARS } from '@/lib/teleprompter/lineWrapper';
@@ -73,6 +74,11 @@ function readerTopic(f: { sport: string; league: string; label: string }): Topic
 
 export default function ReaderScreen() {
   const { core, isConnected } = useG1();
+  // Lifecycle + guarded push for the shared lens arbiter. The reader is an
+  // imperative timer state machine, so it uses the lifecycle hook (claim on
+  // focus / yield on blur+unmount) and calls lens.push() at its own sequencing
+  // points — NOT the reactive useLensOwner wrapper, which would double-write.
+  const lens = useLensOwnership(core, isConnected, OWNER);
   const [cards, setCards] = useState<NewsCard[]>([]);
   const [idx, setIdx] = useState(0);
   const [expanded, setExpanded] = useState(false);   // showing the blurb vs the headline
@@ -85,7 +91,6 @@ export default function ReaderScreen() {
   const idxRef = useRef(0);
   const expandedRef = useRef(false);
   const frozenRef = useRef(false);
-  const connectedRef = useRef(isConnected);
   const cycleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Cards shown since the last wrap. We advance through unseen cards first and
    *  only reset (allowing repeats) once the whole pool has been read — so you
@@ -95,7 +100,6 @@ export default function ReaderScreen() {
   useEffect(() => { idxRef.current = idx; }, [idx]);
   useEffect(() => { expandedRef.current = expanded; }, [expanded]);
   useEffect(() => { frozenRef.current = frozen; }, [frozen]);
-  useEffect(() => { connectedRef.current = isConnected; }, [isConnected]);
 
   // ── Fetch + periodic refresh; merge new stories into the pool, deduped ───────
   useEffect(() => {
@@ -136,7 +140,7 @@ export default function ReaderScreen() {
   // ── Push the current card to the lens ──────────────────────────────────────
   const push = useCallback(() => {
     const list = cardsRef.current;
-    if (!list.length || !connectedRef.current || core.status.poweredOff) return;
+    if (!list.length) return;
     const card = list[idxRef.current];
     if (!card) return;
     const body = expandedRef.current && card.description ? card.description : card.headline;
@@ -152,8 +156,9 @@ export default function ReaderScreen() {
       ...wrapParagraph(body, GLASSES_COLS),
     ].join('\n');
     core.note(`[reader] push idx=${idxRef.current}/${list.length} expanded=${expandedRef.current}`);
-    void core.sendText(frame, 1, 1, true, undefined, OWNER);
-  }, [core]);
+    // lens.push owns the connected/poweredOff guard + arbiter owner tag.
+    lens.push(frame);
+  }, [core, lens]);
 
   const clearCycle = useCallback(() => {
     if (cycleRef.current) { clearTimeout(cycleRef.current); cycleRef.current = null; }
@@ -256,7 +261,7 @@ export default function ReaderScreen() {
 
   // ── Own the display + input while focused; the auto-read cycle starts on focus ─
   useFocusEffect(useCallback(() => {
-    core.claimDisplay(OWNER);
+    lens.start();                 // claim the lens (synchronous; push() is safe now)
     frozenRef.current = false;    // opening Reader (re)starts the hands-free cycle
     expandedRef.current = false;
     setFrozen(false);
@@ -278,9 +283,9 @@ export default function ReaderScreen() {
     return () => {
       clearCycle();
       core.removeEventHandler(handler);
-      core.yieldDisplay(OWNER);
+      lens.stop();
     };
-  }, [core, tick, skip, freeze, resume, toggleFreeze, clearCycle]));
+  }, [core, lens, tick, skip, freeze, resume, toggleFreeze, clearCycle]));
 
   const current = cards[idx];
 

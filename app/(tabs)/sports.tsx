@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { useG1 } from '@/lib/g1/G1Context';
+import { useLensOwnership } from '@/lib/g1/useLensOwner';
 import type { G1Core } from '@/lib/g1/G1Core';
 import { useLivePlay } from '@/lib/sports/useLivePlay';
 import { SportsFeed, DEFAULT_POLL_MS } from '@/lib/sports/SportsFeed';
@@ -138,11 +139,15 @@ function LiveSportsView() {
   const [selected, setSelected] = useState<GameSnapshot | null>(null);
 
   const feedRef = useRef<SportsFeed | null>(null);
-  const isConnectedRef = useRef(isConnected);
-  useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
+
+  // Shared lens arbiter (same hook reader uses). SportsFeed.onFrame is an
+  // imperative producer firing at the poll cadence, so this uses the lifecycle
+  // hook + guarded lens.push() — NOT the reactive wrapper. lens.push owns the
+  // connected/poweredOff guard and the LIVE_OWNER arbiter tag.
+  const lens = useLensOwnership(core, isConnected, LIVE_OWNER);
 
   // Tear down the feed on unmount and hand the lens back to whoever's next.
-  useEffect(() => () => { feedRef.current?.stop(); core.yieldDisplay(LIVE_OWNER); }, [core]);
+  useEffect(() => () => { feedRef.current?.stop(); lens.stop(); }, [lens]);
 
   const start = useCallback(() => {
     feedRef.current?.stop();
@@ -152,39 +157,36 @@ function LiveSportsView() {
     // line over our scores (the toggling bug). Claiming makes sports the sole
     // owner; teleprompter pushes tagged 'teleprompter' are dropped until we
     // release on stop.
-    core.claimDisplay(LIVE_OWNER);
+    lens.start();
     const feed = new SportsFeed({
       leagues,
       pollMs: DEFAULT_POLL_MS,
       onGames: (g) => { setGames(g); setLastUpdate(Date.now()); },
       onFrame: (frame) => {
-        // Only push to the lenses when both are usable (isConnected = AND of
-        // txReady). Guarding here avoids enqueuing frames that would be dropped.
-        if (isConnectedRef.current && !core.status.poweredOff) {
-          core.note('[sports] push HUD frame');
-          void core.sendText(frame, 1, 1, true, undefined, LIVE_OWNER);
-        }
+        // lens.push guards on connected (AND of txReady) + powered-on and only
+        // enqueues frames that would actually render.
+        core.note('[sports] push HUD frame');
+        lens.push(frame);
       },
       onError: (e) => setError(e instanceof Error ? e.message : String(e)),
     });
     feedRef.current = feed;
     feed.start();
     setLive(true);
-  }, [leagues, core]);
+  }, [leagues, core, lens]);
 
   const stop = useCallback(() => {
     feedRef.current?.stop();
     feedRef.current = null;
     // Blank + release so the teleprompter (or a future mode) can own it again.
-    core.yieldDisplay(LIVE_OWNER);
+    lens.stop();
     setLive(false);
-  }, [core]);
+  }, [lens]);
 
   // The selected tab owns the lens: leaving Sports blanks it and stops the feed.
   useFocusEffect(useCallback(() => () => {
-    core.yieldDisplay(LIVE_OWNER);
     stop();
-  }, [core, stop]));
+  }, [stop]));
 
   // Restarting with a changed league set while live.
   const toggleLeague = useCallback((lg: League) => {
