@@ -820,6 +820,17 @@ export default function SettingsScreen() {
         )}
 
         {/* ── About ──────────────────────────────────────────── */}
+        {/* ── Tools ──────────────────────────────────────────── */}
+        <Text style={s.section}>Tools</Text>
+        <Pressable style={s.row} onPress={() => router.push('/live')}>
+          <View style={s.rowText}>
+            <Text style={s.label}>● Live Mirror</Text>
+            <Text style={s.sub}>Type and it appears on the glasses as you go</Text>
+          </View>
+          <Text style={s.value}>›</Text>
+        </Pressable>
+
+        {/* ── About ──────────────────────────────────────────── */}
         <Text style={s.section}>About</Text>
         <View style={s.row}><Text style={s.label}>Version</Text><Text style={s.value}>1.0.0</Text></View>
         <View style={s.row}><Text style={s.label}>Bundle</Text><Text style={s.value}>bio.nodes.cue</Text></View>

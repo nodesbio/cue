@@ -36,6 +36,7 @@ import {
 import { getEngine } from '@/lib/teleprompter/engine';
 import { remainingSeconds, formatClock } from '@/lib/teleprompter/readTime';
 import { getScript, setMarker, clearMarker, type ResumeMarker } from '@/lib/scripts/ScriptStore';
+import * as Inbox from '@/lib/scripts/Inbox';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,20 @@ export default function TeleprompterScreen() {
     }
     prevConnectedRef.current = connected;
   }, [connected, core]);
+
+  // Share-to-Cue drain. Text shared from another app is deposited into the
+  // Inbox by app/_layout.tsx; this screen consumes it (Inbox.ts's documented
+  // contract). Drain on mount — a cold-start share lands in the slot before this
+  // screen exists, so take() picks it up here — and on every warm deposit via
+  // subscribe. Loads straight to the engine so the HUD is primed immediately.
+  useEffect(() => {
+    const drain = () => {
+      const text = Inbox.take();
+      if (text?.trim()) getEngine().loadScript(text);
+    };
+    drain();
+    return Inbox.subscribe(drain);
+  }, []);
 
   // The selected tab owns the lens. Take it on focus and re-push the current
   // line, so coming back from another tab doesn't leave the lens blank until
