@@ -13,10 +13,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { getDeckMeta, type DeckMeta } from '@/lib/srs/registry';
 import { loadDeck } from '@/lib/srs/store';
 import { useReviewSession } from '@/lib/srs/useReviewSession';
+import { useDeckLens, composeLensFrame } from '@/lib/srs/useDeckLens';
+import { useG1 } from '@/lib/g1/G1Context';
 import type { Card } from '@/lib/srs/card';
 import { ReviewCard } from '@/components/ReviewCard';
 
@@ -46,6 +48,16 @@ export default function DeckReviewScreen() {
   // Hook must run every render (rules-of-hooks); feed [] until cards resolve.
   const review = useReviewSession(id, cards ?? [], true);
 
+  // Lens mirroring: show the current card on the glasses. The frame tracks the
+  // on-screen reveal — prompt alone, then prompt + answer once revealed — so the
+  // wearer reads the same thing hands-free that they'd tap to see on the phone.
+  const { core, isConnected } = useG1();
+  const lensFrame = composeLensFrame(review.current, review.revealed);
+  const lens = useDeckLens(core, isConnected, lensFrame, true);
+
+  // Leaving the Deck tab must hand the lens back (never strand a stale card).
+  useFocusEffect(useCallback(() => () => lens.stop(), [lens]));
+
   const editDeck = useCallback(() => {
     router.push({ pathname: '/deck/new', params: { id } });
   }, [id]);
@@ -62,6 +74,9 @@ export default function DeckReviewScreen() {
         <View style={s.body}>
           <View style={s.topRow}>
             <Text style={s.name} numberOfLines={1}>{meta?.name ?? 'Deck'}</Text>
+            <Text style={[s.conn, { color: isConnected ? C.accent : C.dim }]}>
+              {isConnected ? '● glasses' : '○ no glasses'}
+            </Text>
             <Pressable onPress={editDeck} hitSlop={8}><Text style={s.edit}>Edit</Text></Pressable>
           </View>
 
@@ -71,7 +86,24 @@ export default function DeckReviewScreen() {
               <Pressable onPress={editDeck} style={s.cta}><Text style={s.ctaText}>Add cards</Text></Pressable>
             </View>
           ) : (
-            <ReviewCard review={review} deckLabel={(meta?.name ?? 'DECK').toUpperCase()} />
+            <ReviewCard
+              review={review}
+              deckLabel={(meta?.name ?? 'DECK').toUpperCase()}
+              centerSlot={
+                <Pressable
+                  onPress={lens.toggle}
+                  disabled={!isConnected}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={lens.on ? 'Stop showing on glasses' : 'Show on glasses'}
+                  style={[s.lensBtn, lens.on && s.lensBtnOn, !isConnected && s.lensBtnOff]}
+                >
+                  <Text style={[s.lensText, lens.on && s.lensTextOn]}>
+                    {lens.on ? '● on lens' : isConnected ? 'to lens' : 'no glasses'}
+                  </Text>
+                </Pressable>
+              }
+            />
           )}
 
           {cards.length > 0 && (
@@ -91,7 +123,13 @@ const s = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   name: { color: C.text, fontSize: 22, fontWeight: '700', flex: 1 },
+  conn: { fontSize: 12, fontWeight: '600', marginLeft: 12 },
   edit: { color: C.accent, fontSize: 15, fontWeight: '600', marginLeft: 12 },
+  lensBtn: { flex: 1, marginHorizontal: 8, borderColor: C.accent, borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  lensBtnOn: { backgroundColor: C.accent, borderColor: C.accent },
+  lensBtnOff: { borderColor: C.border },
+  lensText: { color: C.accent, fontSize: 14, fontWeight: '700' },
+  lensTextOn: { color: '#06220f' },
   error: { color: C.hot, fontSize: 14, margin: 20, lineHeight: 20 },
   emptyBody: { color: C.dim, fontSize: 15, textAlign: 'center', marginBottom: 20 },
   cta: { backgroundColor: C.accent, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 24 },
