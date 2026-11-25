@@ -1,28 +1,16 @@
 /**
  * useDeckLens.ts — mirror a review card to the G1 lens (SRS Phase 3, follow-up).
  *
- * The Sports deck mirrors its card to the glasses via useDeck, which is welded to
- * the sports network fetch + ranked-deck index. A manual deck has none of that:
- * useReviewSession already owns "the current card", so lens mirroring reduces to
- * the arbiter dance alone — claim on start, push the card text while on, blank +
- * yield on stop/blur/unmount. This hook is that dance and nothing else, so the
- * study path reuses the exact lens contract without dragging in sports plumbing.
- *
- * Owner token is 'deck.manual' — distinct from 'sports.deck'/'sports.live' so the
- * arbiter treats a study deck as its own display claimant (last claimer wins the
- * handoff; a stray sports push tagged with a different owner is rejected).
- *
- * Contract mirrors useDeck exactly (verified against lib/sports/useDeck.ts):
- *   - start():  claimDisplay(OWNER); the push effect fires once `on` flips true.
- *   - push:     only when on && connected && !poweredOff (guard avoids enqueuing
- *               frames the arbiter/tx would drop).
- *   - stop():   yieldDisplay(OWNER) — blanks via a space frame THEN releases, so
- *               we never strand a stale card on the lens (not clearDisplay, which
- *               isn't owner-gated and could blank another owner's frame).
+ * A manual study deck's lens needs are the plain arbiter dance: useReviewSession
+ * already owns "the current card", so there's no network/index plumbing like the
+ * sports deck. This is now a thin wrapper over useLensOwner (the shared primitive)
+ * that fixes the owner token to 'deck.manual' and keeps the deck-specific frame
+ * composition (composeLensFrame). All claim/push/yield/guard behaviour lives in
+ * useLensOwner so every lens producer shares one implementation.
  */
 
-import { useCallback, useEffect, useState } from 'react';
 import type { G1Core } from '@/lib/g1/G1Core';
+import { useLensOwner, type UseLensOwner } from '@/lib/g1/useLensOwner';
 import type { Card } from '@/lib/srs/card';
 
 /** Distinct lens-owner token for manually-authored study decks. */
@@ -40,26 +28,15 @@ export function composeLensFrame(card: Card | null, revealed: boolean): string {
   return revealed ? `${card.prompt}\n\n${card.answer}` : card.prompt;
 }
 
-export interface UseDeckLens {
-  /** True while the deck holds the lens. */
-  on: boolean;
-  /** Claim the lens and begin mirroring the current card. */
-  start: () => void;
-  /** Blank the lens and hand ownership back. */
-  stop: () => void;
-  /** Convenience toggle for a single Play/Pause control. */
-  toggle: () => void;
-}
+export type UseDeckLens = UseLensOwner;
 
 /**
- * Mirror `text` to the lens while active.
+ * Mirror `text` to the lens while active, under the 'deck.manual' owner.
  *
  * @param core        the shared G1 core
- * @param isConnected both lenses usable (the screen's isConnected AND)
- * @param text        the frame to show — caller composes it (e.g. prompt, or
- *                    prompt + revealed answer). Empty/whitespace is not pushed.
- * @param enabled     false disables start() entirely (e.g. deck not focused);
- *                    an already-active session is stopped when this goes false.
+ * @param isConnected both lenses usable (the screen's isConnected)
+ * @param text        the frame to show — caller composes it (see composeLensFrame)
+ * @param enabled     false disables start() and stops an active session
  */
 export function useDeckLens(
   core: G1Core,
@@ -67,41 +44,5 @@ export function useDeckLens(
   text: string,
   enabled = true,
 ): UseDeckLens {
-  const [on, setOn] = useState(false);
-
-  const start = useCallback(() => {
-    if (!enabled) return;
-    core.claimDisplay(DECK_MANUAL_OWNER);
-    setOn(true);
-    // The push happens in the effect below once `on` flips true.
-  }, [core, enabled]);
-
-  const stop = useCallback(() => {
-    setOn(false);
-    core.yieldDisplay(DECK_MANUAL_OWNER);
-  }, [core]);
-
-  const toggle = useCallback(() => {
-    on ? stop() : start();
-  }, [on, start, stop]);
-
-  // Push to the lens whenever the mirrored text changes while on + connected.
-  const frame = text.trim();
-  useEffect(() => {
-    if (!on || !frame) return;
-    if (isConnected && !core.status.poweredOff) {
-      void core.sendText(frame, 1, 1, true, undefined, DECK_MANUAL_OWNER);
-    }
-  }, [on, frame, isConnected, core]);
-
-  // If the deck gets disabled (e.g. tab loses focus) while mirroring, hand the
-  // lens back rather than stranding the last card on the glasses.
-  useEffect(() => {
-    if (!enabled && on) stop();
-  }, [enabled, on, stop]);
-
-  // Last line of defence: unmount must not leave a claimed, stale lens.
-  useEffect(() => () => { core.yieldDisplay(DECK_MANUAL_OWNER); }, [core]);
-
-  return { on, start, stop, toggle };
+  return useLensOwner(core, isConnected, DECK_MANUAL_OWNER, text, { enabled });
 }
