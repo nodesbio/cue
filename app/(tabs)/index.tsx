@@ -127,7 +127,7 @@ export default function TeleprompterScreen() {
     if (s && connectedRef.current && !core.status.poweredOff) {
       void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, LEGACY_OWNER);
     }
-    return () => core.releaseDisplay(LEGACY_OWNER);
+    return () => core.yieldDisplay(LEGACY_OWNER);
   }, [core]));
 
   // ── Foreground resync (lock-screen recovery) ─────────────────────────────

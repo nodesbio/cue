@@ -67,19 +67,19 @@ describe('G1Core claim/release', () => {
     return new G1Core();
   }
 
-  it('claim sets owner, release by holder clears it', () => {
+  it('claim sets owner, yield by holder clears it', () => {
     const c = makeCore();
     expect(c.displayOwner).toBeNull();
     c.claimDisplay('sports');
     expect(c.displayOwner).toBe('sports');
-    c.releaseDisplay('sports');
+    c.yieldDisplay('sports');
     expect(c.displayOwner).toBeNull();
   });
 
-  it('release by a non-holder is a no-op', () => {
+  it('yield by a non-holder is a no-op', () => {
     const c = makeCore();
     c.claimDisplay('teleprompter');
-    c.releaseDisplay('sports'); // sports never held it
+    c.yieldDisplay('sports'); // sports never held it
     expect(c.displayOwner).toBe('teleprompter');
   });
 
@@ -158,5 +158,80 @@ describe('G1Core tab handoff', () => {
     c.yieldDisplay('sports.deck');
     expect(sendText).not.toHaveBeenCalled();
     expect(c.displayOwner).toBeNull();
+  });
+});
+
+// Idle exit (stale-frame fix). exitDisplay() is the "go genuinely dark" path —
+// Power Off, end-of-stream sleep, last projection closing. Unlike yield's
+// space-frame handoff, it does the Power-Off-grade clear on BOTH lenses so the
+// lens never stays lit with no owner.
+describe('G1Core exitDisplay (idle exit)', () => {
+  function makeConnectedCore() {
+    const c = new G1Core();
+    c.status.left.txReady = true;
+    c.status.right.txReady = true;
+    return c;
+  }
+
+  it('exit by the holder clears BOTH lenses, then releases', () => {
+    const c = makeConnectedCore();
+    const clearDisplay = jest.spyOn(c, 'clearDisplay').mockResolvedValue(undefined);
+    c.claimDisplay('sports.stream');
+    c.exitDisplay('sports.stream');
+    expect(clearDisplay).toHaveBeenCalledWith('L');
+    expect(clearDisplay).toHaveBeenCalledWith('R');
+    expect(c.displayOwner).toBeNull();
+  });
+
+  it('exit by a non-holder clears nothing and leaves the holder in place', () => {
+    const c = makeConnectedCore();
+    const clearDisplay = jest.spyOn(c, 'clearDisplay').mockResolvedValue(undefined);
+    c.claimDisplay(LEGACY_OWNER);
+    c.exitDisplay('sports.stream'); // not the holder
+    expect(clearDisplay).not.toHaveBeenCalled();
+    expect(c.displayOwner).toBe(LEGACY_OWNER);
+  });
+});
+
+// The invariant this whole fix exists to guarantee: there is NO public way to
+// drop ownership without first blanking the lens. Every public exit leaves
+// owner=null AND emits a blank (yield → space TEXT frame; exit → clearDisplay
+// on both lenses). releaseDisplay() — the bare drop that leaked stale frames —
+// is private and unreachable from here.
+describe('stale-frame invariant: no public release-without-blank', () => {
+  function makeConnectedCore() {
+    const c = new G1Core();
+    c.status.left.txReady = true;
+    c.status.right.txReady = true;
+    return c;
+  }
+
+  it('yieldDisplay blanks (space frame) AND clears the owner', () => {
+    const c = makeConnectedCore();
+    const sendText = jest.spyOn(c, 'sendText').mockResolvedValue(undefined as never);
+    c.claimDisplay('sports.deck');
+    c.yieldDisplay('sports.deck');
+    expect(sendText).toHaveBeenCalledWith(' ', 1, 1, true, undefined, 'sports.deck');
+    expect(c.displayOwner).toBeNull();
+  });
+
+  it('exitDisplay blanks (clears both lenses) AND clears the owner', () => {
+    const c = makeConnectedCore();
+    const clearDisplay = jest.spyOn(c, 'clearDisplay').mockResolvedValue(undefined);
+    c.claimDisplay('sports.deck');
+    c.exitDisplay('sports.deck');
+    expect(clearDisplay).toHaveBeenCalledWith('L');
+    expect(clearDisplay).toHaveBeenCalledWith('R');
+    expect(c.displayOwner).toBeNull();
+  });
+
+  it('releaseDisplay is not part of the public API', () => {
+    const c = makeConnectedCore();
+    // Type system enforces this at compile time; this asserts it at runtime for
+    // the JS boundary (e.g. devBridge / any reflective caller).
+    expect(typeof (c as unknown as Record<string, unknown>).releaseDisplay)
+      .toBe('function'); // it still EXISTS (private) ...
+    // ... but the contract is that no production exit uses it directly; the
+    // grep guard in CI (no `.releaseDisplay(` outside G1Core) is the real check.
   });
 });

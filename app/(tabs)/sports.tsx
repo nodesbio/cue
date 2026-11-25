@@ -139,7 +139,7 @@ function LiveSportsView() {
   useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
 
   // Tear down the feed on unmount and hand the lens back to whoever's next.
-  useEffect(() => () => { feedRef.current?.stop(); core.releaseDisplay(LIVE_OWNER); }, [core]);
+  useEffect(() => () => { feedRef.current?.stop(); core.yieldDisplay(LIVE_OWNER); }, [core]);
 
   const start = useCallback(() => {
     feedRef.current?.stop();
@@ -172,8 +172,8 @@ function LiveSportsView() {
   const stop = useCallback(() => {
     feedRef.current?.stop();
     feedRef.current = null;
-    // Release the lens so the teleprompter (or a future mode) can own it again.
-    core.releaseDisplay(LIVE_OWNER);
+    // Blank + release so the teleprompter (or a future mode) can own it again.
+    core.yieldDisplay(LIVE_OWNER);
     setLive(false);
   }, [core]);
 
@@ -630,7 +630,7 @@ function StreamView() {
 
   // Tear down on unmount: hand the lens back to whoever's next. Must match the
   // token useArticleStream claims under ('sports.stream'), else this is a no-op.
-  useEffect(() => () => { core.releaseDisplay('sports.stream'); }, [core]);
+  useEffect(() => () => { core.yieldDisplay('sports.stream'); }, [core]);
 
   if (picking) {
     return <ArticlePicker sources={STREAM_SOURCES} onStream={onStream} />;

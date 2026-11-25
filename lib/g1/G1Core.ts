@@ -173,8 +173,16 @@ export class G1Core {
     }
   }
 
-  /** Release the lens iff `owner` still holds it (no-op if someone else took over). */
-  releaseDisplay(owner: string): void {
+  /**
+   * Release the lens iff `owner` still holds it (no-op if someone else took over).
+   *
+   * PRIVATE on purpose: a bare release drops ownership but leaves the last frame
+   * lit on the lens — the "stale frame" bug class. External callers must exit via
+   * yieldDisplay() (handoff: blank-via-space + release) or clearDisplay() (idle
+   * exit: Power-Off-grade blank). This primitive only ever runs *after* a blank,
+   * from inside yieldDisplay. See the exit-policy map / stale-frame fix.
+   */
+  private releaseDisplay(owner: string): void {
     if (this._displayOwner === owner) {
       this._log(`[G1] display released by ${owner}`);
       this._displayOwner = null;
@@ -193,6 +201,21 @@ export class G1Core {
     if (this.isConnected && !this.status.poweredOff) {
       void this.sendText(' ', 1, 1, true, undefined, owner);
     }
+    this.releaseDisplay(owner);
+  }
+
+  /**
+   * IDLE exit: nobody is taking the lens next (Power Off, go-to-sleep auto-exit,
+   * last projection closing). Unlike yieldDisplay()'s handoff — which blanks with
+   * an owner-tagged space so the *incoming* tab can immediately overwrite without
+   * a flicker — an idle exit does the Power-Off-grade clear on BOTH lenses, then
+   * drops ownership. Use yieldDisplay() for tab/stop handoffs; use this only when
+   * the lens should go genuinely dark. A non-holder exits nothing.
+   */
+  exitDisplay(owner: string): void {
+    if (this._displayOwner !== owner) return;
+    void this.clearDisplay('L');
+    void this.clearDisplay('R');
     this.releaseDisplay(owner);
   }
 

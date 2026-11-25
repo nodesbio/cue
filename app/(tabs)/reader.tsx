@@ -278,7 +278,7 @@ export default function ReaderScreen() {
     return () => {
       clearCycle();
       core.removeEventHandler(handler);
-      core.releaseDisplay(OWNER);
+      core.yieldDisplay(OWNER);
     };
   }, [core, tick, skip, freeze, resume, toggleFreeze, clearCycle]));
 

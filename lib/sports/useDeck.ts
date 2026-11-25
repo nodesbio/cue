@@ -138,7 +138,7 @@ export function useDeck(
 
   // Release the lens on unmount if we still hold it.
   useEffect(() => () => {
-    core.releaseDisplay(OWNER);
+    core.yieldDisplay(OWNER);
     abortRef.current?.abort();
   }, [core]);
 

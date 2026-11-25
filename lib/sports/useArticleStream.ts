@@ -305,9 +305,9 @@ export function useArticleStream(
       timerRef.current = setTimeout(() => {
         setPlaying(false);
         setDone(true);
-        void core.clearDisplay('L');
-        void core.clearDisplay('R');
-        core.releaseDisplay(OWNER);
+        // End of stream → genuinely dark (sleep-safe, no infinite glow), no
+        // handoff. exitDisplay = Power-Off-grade clear on both lenses + release.
+        core.exitDisplay(OWNER);
         // Played to the end — nothing left to resume into, so drop the snapshot
         // (a finished stream resuming into darkness would be the masked-empty
         // bug this store exists to avoid).
@@ -385,7 +385,7 @@ export function useArticleStream(
   // Release the lens + abort fetches on unmount.
   useEffect(() => () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    core.releaseDisplay(OWNER);
+    core.yieldDisplay(OWNER);
     abortRef.current?.abort();
   }, [core]);
 
