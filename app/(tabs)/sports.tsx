@@ -33,6 +33,9 @@ import { AudienceBuilder } from '@/components/AudienceBuilder';
 import { listAudiences } from '@/lib/sports/AudienceStore';
 import type { Audience } from '@/lib/sports/audience';
 import { useDeck } from '@/lib/sports/useDeck';
+import { useReviewSession } from '@/lib/srs/useReviewSession';
+import { sportsToSrs } from '@/lib/srs/sources/sports';
+import { Grade } from '@/lib/srs/card';
 import { ArticlePicker, type NewsSource } from '@/components/ArticlePicker';
 import { useArticleStream } from '@/lib/sports/useArticleStream';
 import { buildStreamSources } from '@/lib/sports/streamSources';
@@ -493,14 +496,35 @@ function DeckView() {
   }, []);
 
   const audience = audiences.find((a) => a.id === audienceId) ?? null;
-  const { deck, index, current, loading, error, playing, next, prev, pause, play, refresh } =
-    useDeck(core, audience, NO_LIVE, connected);
+
+  // useDeck: fetch sports cards + own the lens. deckSource is the raw sports
+  // Card[]; the review session (below) derives SRS cards from it. The revealed
+  // answer flows back in as the lens override — Play-to-lens shows the answer.
+  //
+  // Data flow is a DAG, not a loop: deckSource is produced by the network fetch
+  // (independent of the session); srsCards + revealedAnswer derive from it; the
+  // override only changes when the fetch settles or the wearer toggles reveal,
+  // both of which converge in one extra render — no runtime cycle.
+  const [revealedAnswer, setRevealedAnswer] = useState<string | null>(null);
+
+  const { deck: deckSource, loading, error, playing, pause, play, refresh } =
+    useDeck(core, audience, NO_LIVE, connected, revealedAnswer);
+
+  const srsCards = useMemo(
+    () => (audience ? sportsToSrs(audience.id, deckSource, Date.now()) : []),
+    [audience?.id, deckSource],
+  );
+  const review = useReviewSession(audience?.id ?? '__none__', srsCards, connected);
+
+  // Mirror the revealed answer into state so useDeck re-pushes on reveal.
+  const liveAnswer = review.revealed && review.current ? review.current.answer : null;
+  useEffect(() => { setRevealedAnswer(liveAnswer); }, [liveAnswer]);
 
   // The selected tab owns the lens: leaving Sports pauses the deck.
   useFocusEffect(useCallback(() => () => pause(), [pause]));
 
-  const atStart = index <= 0;
-  const atEnd = index >= deck.length - 1;
+  const current = review.current;
+  const done = review.ready && !current;
 
   return (
     <View style={styles.liveBody}>
@@ -531,47 +555,77 @@ function DeckView() {
         <Text style={styles.empty}>No audiences yet. Build one in the Audiences tab.</Text>
       )}
 
-      {/* Card viewer */}
+      {/* Review card */}
       {audience && (
-        <View style={styles.deckCard}>
-          {loading ? (
+        <Pressable
+          style={styles.deckCard}
+          onPress={() => review.reveal()}
+          disabled={!current || review.revealed}
+        >
+          {loading && srsCards.length === 0 ? (
             <Text style={styles.deckMuted}>Loading cards…</Text>
           ) : error ? (
             <Text style={[styles.deckMuted, { color: C.hot }]}>⚠ {error}</Text>
+          ) : review.error ? (
+            <Text style={[styles.deckMuted, { color: C.hot }]}>⚠ Couldn’t load your progress. Tap Refresh to rebuild.</Text>
+          ) : done ? (
+            <Text style={styles.deckMuted}>✓ All caught up. Nothing due right now.</Text>
           ) : current ? (
             <>
               <View style={styles.deckMeta}>
-                <Text style={styles.league}>{current.topicLabel.toUpperCase()}</Text>
-                <View style={[styles.stanceBadge, current.stance === 'know' ? styles.stanceKnow : styles.stanceLearn]}>
-                  <Text style={styles.stanceText}>{current.stance === 'know' ? 'SHARE' : 'ASK'}</Text>
+                <Text style={styles.league}>{audience.name.toUpperCase()}</Text>
+                <View style={[styles.stanceBadge, review.revealed ? styles.stanceKnow : styles.stanceLearn]}>
+                  <Text style={styles.stanceText}>{review.revealed ? 'ANSWER' : 'RECALL'}</Text>
                 </View>
               </View>
-              <Text style={styles.deckText}>{current.text}</Text>
-              <Text style={styles.deckCount}>{index + 1} / {deck.length}</Text>
+              <Text style={styles.deckText}>{current.prompt}</Text>
+              {review.revealed ? (
+                <Text style={[styles.deckText, { marginTop: 14, color: C.accent }]}>{current.answer}</Text>
+              ) : (
+                <Text style={[styles.deckMuted, { marginTop: 14 }]}>Tap to reveal</Text>
+              )}
+              <Text style={styles.deckCount}>{review.remaining} due</Text>
             </>
           ) : (
             <Text style={styles.deckMuted}>No cards for this audience right now.</Text>
           )}
+        </Pressable>
+      )}
+
+      {/* Grade row (shown once revealed) or nav (before reveal) */}
+      {current && review.revealed && (
+        <View style={styles.deckNav}>
+          <Pressable onPress={() => review.grade(Grade.Again)} style={[styles.navBtn, { flex: 1, marginRight: 6, borderColor: C.hot }]} hitSlop={6}>
+            <Text style={[styles.navText, { textAlign: 'center' }]}>Again</Text>
+          </Pressable>
+          <Pressable onPress={() => review.grade(Grade.Hard)} style={[styles.navBtn, { flex: 1, marginHorizontal: 6 }]} hitSlop={6}>
+            <Text style={[styles.navText, { textAlign: 'center' }]}>Hard</Text>
+          </Pressable>
+          <Pressable onPress={() => review.markDone()} style={[styles.cta, { flex: 1, marginHorizontal: 6 }]} hitSlop={6}>
+            <Text style={[styles.ctaText, { textAlign: 'center' }]}>Good</Text>
+          </Pressable>
+          <Pressable onPress={() => review.grade(Grade.Easy)} style={[styles.navBtn, { flex: 1, marginLeft: 6, borderColor: C.accent }]} hitSlop={6}>
+            <Text style={[styles.navText, { textAlign: 'center' }]}>Easy</Text>
+          </Pressable>
         </View>
       )}
 
-      {/* Navigation + play/pause */}
-      {current && (
+      {current && !review.revealed && (
         <View style={styles.deckNav}>
-          <Pressable onPress={prev} disabled={atStart} style={[styles.navBtn, atStart && styles.navBtnOff]} hitSlop={8}>
+          <Pressable onPress={() => review.prev()} style={styles.navBtn} hitSlop={8}>
             <Text style={styles.navText}>‹ Prev</Text>
           </Pressable>
           <Pressable onPress={playing ? pause : play} style={[styles.cta, { flex: 1, marginHorizontal: 8 }, playing && styles.ctaLive]}>
             <Text style={styles.ctaText}>{playing ? 'Pause lens' : 'Play to lens'}</Text>
           </Pressable>
-          <Pressable onPress={next} disabled={atEnd} style={[styles.navBtn, atEnd && styles.navBtnOff]} hitSlop={8}>
+          <Pressable onPress={() => review.next()} style={styles.navBtn} hitSlop={8}>
             <Text style={styles.navText}>Next ›</Text>
           </Pressable>
         </View>
       )}
 
       {audience && !loading && (
-        <Pressable onPress={refresh} hitSlop={6}>
+        <Pressable onPress={() => { review.restart(); refresh(); }} hitSlop={6}>
           <Text style={styles.status}>↻ Refresh cards</Text>
         </Pressable>
       )}

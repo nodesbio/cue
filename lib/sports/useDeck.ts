@@ -55,6 +55,14 @@ export function useDeck(
   audience: Audience | null,
   liveTopicKeys: ReadonlySet<string>,
   isConnected: boolean,
+  /**
+   * Optional text to mirror to the lens INSTEAD of the current card's own text.
+   * The SRS review flow (DeckView) passes the revealed card's *answer* here so
+   * Play-to-lens shows what the wearer chose to reveal. Changes to this value
+   * re-trigger the push effect, so toggling reveal updates the lens. When
+   * null/undefined the hook uses the current card's text (teleprompter mode).
+   */
+  lensTextOverride?: string | null,
 ): UseDeck {
   const [deck, setDeck] = useState<Card[]>([]);
   const [index, setIndex] = useState(0);
@@ -105,14 +113,16 @@ export function useDeck(
 
   const current = deck.length > 0 ? deck[Math.min(index, deck.length - 1)] : null;
 
-  // Push the current card whenever it changes while playing + connected.
-  const currentText = current?.text ?? '';
+  // Push to the lens whenever the mirrored text changes while playing +
+  // connected. Prefer an explicit override (SRS revealed answer) over the
+  // current card's own text, so the review flow controls what the lens shows.
+  const lensText = (lensTextOverride ?? current?.text ?? '').trim();
   useEffect(() => {
-    if (!playing || !currentText) return;
+    if (!playing || !lensText) return;
     if (isConnected && !core.status.poweredOff) {
-      void core.sendText(currentText, 1, 1, true, undefined, OWNER);
+      void core.sendText(lensText, 1, 1, true, undefined, OWNER);
     }
-  }, [playing, currentText, isConnected, core]);
+  }, [playing, lensText, isConnected, core]);
 
   const play = useCallback(() => {
     core.claimDisplay(OWNER);
