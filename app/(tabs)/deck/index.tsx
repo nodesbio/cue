@@ -13,8 +13,11 @@
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { listDecks, unregisterDeck, type DeckMeta } from '@/lib/srs/registry';
-import { deleteDeck } from '@/lib/srs/store';
+import { listDecks, registerDeck, unregisterDeck, type DeckMeta } from '@/lib/srs/registry';
+import { deleteDeck, saveDeck } from '@/lib/srs/store';
+import { parseDeckFile, importDeckFile, DeckFileError } from '@/lib/srs/deckio';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 
 const C = {
   bg: '#0a0a0a', card: '#141414', border: '#1f1f1f',
@@ -45,6 +48,33 @@ export default function DecksScreen() {
 
   useFocusEffect(reload);
 
+  // Import: pick a .cuedeck.json, validate it, and persist it as a BRAND-NEW deck
+  // (fresh id + re-based card ids) so importing never overwrites an existing deck.
+  // A re-import of the same file simply creates a second copy — expected and safe.
+  const [importing, setImporting] = useState(false);
+  const importDeck = useCallback(async () => {
+    setImporting(true);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'public.json', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const raw = await new FileSystem.File(res.assets[0].uri).text();
+      const file = parseDeckFile(raw); // throws DeckFileError on anything malformed
+      const { meta, cards } = importDeckFile(file);
+      await saveDeck(meta.id, cards); // cards first — meta pointing at missing cards is worse
+      await registerDeck(meta);
+      reload();
+      Alert.alert('Deck imported', `“${meta.name}” added with ${meta.cardCount} ${meta.cardCount === 1 ? 'card' : 'cards'}.`);
+    } catch (e) {
+      const msg = e instanceof DeckFileError ? e.message : (e as Error).message;
+      Alert.alert('Import failed', msg);
+    } finally {
+      setImporting(false);
+    }
+  }, [reload]);
+
   const confirmDelete = useCallback((deck: DeckMeta) => {
     Alert.alert(
       `Delete “${deck.name}”?`,
@@ -67,9 +97,14 @@ export default function DecksScreen() {
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
         <Text style={s.title}>Decks</Text>
-        <Pressable onPress={() => router.push('/deck/new')} hitSlop={8} style={s.newBtn}>
-          <Text style={s.newText}>+ New</Text>
-        </Pressable>
+        <View style={s.headerBtns}>
+          <Pressable onPress={importDeck} disabled={importing} hitSlop={8} style={s.importBtn}>
+            <Text style={s.importText}>{importing ? '…' : '↓ Import'}</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push('/deck/new')} hitSlop={8} style={s.newBtn}>
+            <Text style={s.newText}>+ New</Text>
+          </Pressable>
+        </View>
       </View>
 
       {error ? (
@@ -82,6 +117,9 @@ export default function DecksScreen() {
           </Text>
           <Pressable onPress={() => router.push('/deck/new')} style={s.cta}>
             <Text style={s.ctaText}>Create your first deck</Text>
+          </Pressable>
+          <Pressable onPress={importDeck} disabled={importing} hitSlop={8} style={s.emptyImport}>
+            <Text style={s.emptyImportText}>{importing ? 'Importing…' : 'or import a .cuedeck file'}</Text>
           </Pressable>
         </View>
       ) : (
@@ -111,8 +149,13 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
   title: { color: C.text, fontSize: 28, fontWeight: '800' },
+  headerBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   newBtn: { borderColor: C.accent, borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7 },
   newText: { color: C.accent, fontSize: 14, fontWeight: '700' },
+  importBtn: { borderColor: C.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 },
+  importText: { color: C.dim, fontSize: 14, fontWeight: '700' },
+  emptyImport: { marginTop: 18, paddingVertical: 6 },
+  emptyImportText: { color: C.dim, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
   errorBox: { color: C.hot, fontSize: 14, margin: 20, lineHeight: 20 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTitle: { color: C.text, fontSize: 20, fontWeight: '700', marginBottom: 10 },

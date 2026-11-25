@@ -12,13 +12,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { getDeckMeta, type DeckMeta } from '@/lib/srs/registry';
 import { loadDeck } from '@/lib/srs/store';
 import { useReviewSession } from '@/lib/srs/useReviewSession';
 import { useDeckLens, composeLensFrame } from '@/lib/srs/useDeckLens';
+import { serializeDeck, deckFileName } from '@/lib/srs/deckio';
 import { useG1 } from '@/lib/g1/G1Context';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import type { Card } from '@/lib/srs/card';
 import { ReviewCard } from '@/components/ReviewCard';
 
@@ -68,6 +71,35 @@ export default function DeckReviewScreen() {
     router.push({ pathname: '/deck/new', params: { id } });
   }, [id]);
 
+  // Export: write the deck to a temp .cuedeck.json and hand it to the OS share
+  // sheet (AirDrop / Files / Messages / email). Cards carry their SRS state so a
+  // shared deck can keep earned intervals; the importer decides whether to reset.
+  const [exporting, setExporting] = useState(false);
+  const exportDeck = useCallback(async () => {
+    if (!cards || cards.length === 0) return;
+    setExporting(true);
+    try {
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Sharing unavailable', 'This device cannot share files.');
+        return;
+      }
+      const json = serializeDeck(meta?.name ?? 'Deck', cards);
+      const file = new FileSystem.File(FileSystem.Paths.cache, deckFileName(meta?.name ?? 'deck'));
+      if (file.exists) file.delete();
+      file.create();
+      file.write(json);
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/json',
+        dialogTitle: `Share "${meta?.name ?? 'Deck'}"`,
+        UTI: 'public.json',
+      });
+    } catch (e) {
+      Alert.alert('Export failed', (e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }, [cards, meta?.name]);
+
   return (
     <SafeAreaView style={s.safe}>
       <Stack.Screen options={{ title: meta?.name ?? 'Deck', headerBackTitle: 'Decks' }} />
@@ -83,6 +115,11 @@ export default function DeckReviewScreen() {
             <Text style={[s.conn, { color: isConnected ? C.accent : C.dim }]}>
               {isConnected ? '● glasses' : '○ no glasses'}
             </Text>
+            {cards && cards.length > 0 && (
+              <Pressable onPress={exportDeck} disabled={exporting} hitSlop={8}>
+                <Text style={[s.edit, exporting && s.editDim]}>{exporting ? '…' : 'Export'}</Text>
+              </Pressable>
+            )}
             <Pressable onPress={editDeck} hitSlop={8}><Text style={s.edit}>Edit</Text></Pressable>
           </View>
 
@@ -131,6 +168,7 @@ const s = StyleSheet.create({
   name: { color: C.text, fontSize: 22, fontWeight: '700', flex: 1 },
   conn: { fontSize: 12, fontWeight: '600', marginLeft: 12 },
   edit: { color: C.accent, fontSize: 15, fontWeight: '600', marginLeft: 12 },
+  editDim: { color: C.dim },
   lensBtn: { flex: 1, marginHorizontal: 8, borderColor: C.accent, borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   lensBtnOn: { backgroundColor: C.accent, borderColor: C.accent },
   lensBtnOff: { borderColor: C.border },
