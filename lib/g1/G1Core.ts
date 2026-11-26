@@ -290,6 +290,15 @@ export class G1Core {
    */
   private _lastTextWriteAt: Record<Side, number> = { L: 0, R: 0 };
   /**
+   * When (ms) the last 0x2C battery poll on this side timed out with no reply,
+   * or 0 when no timeout is outstanding. A 0x2C that arrives with no waiter
+   * while this is set is a late reply and is reported at warn level with its
+   * delay — so a quiet log can tell "lens replied late" from "lens never
+   * replied" (field runs of `ACK timeout op=0x2c`, 2026-11-10 → 11-26).
+   * Cleared when a reply is matched, and on disconnect.
+   */
+  private _batteryTimeoutAt: Record<Side, number> = { L: 0, R: 0 };
+  /**
    * Timestamp (ms) of the last received OP_SILENT (0x03) ACK from the glass,
    * per side. If a successful ACK arrived within the last SILENT_ACK_REUSE_MS,
    * _connectLens skips the 12-second _sendForResult wait (the glass already
@@ -2041,6 +2050,9 @@ export class G1Core {
     // rejected (see _lastTextWriteAt). Without this reset the gate would stay
     // armed from the dead connection and admit the very ghost we guard against.
     this._lastTextWriteAt[side] = 0;
+    // A 0x2C on the next connection answers a new poll, not the one that
+    // timed out on this dead link — don't report it as late.
+    this._batteryTimeoutAt[side] = 0;
     this._scheduleReconnect(side);
   }
 
@@ -2281,6 +2293,13 @@ export class G1Core {
       clearTimeout(pending.timer);
       this._dequeueAckWaiter(ackKey, pending);
       pending.resolve(true);
+      this._batteryTimeoutAt[side] = 0;
+    } else if (op === P.OP_BATTERY && this._batteryTimeoutAt[side] !== 0) {
+      // No waiter, but the last poll on this side timed out: this is that
+      // poll's reply arriving late. Still recorded below as the battery level.
+      const lateMs = Date.now() - this._batteryTimeoutAt[side];
+      this._batteryTimeoutAt[side] = 0;
+      this._warn(`[G1] 0x2c reply [${side}] late — arrived ${lateMs}ms after its ACK timeout (pct=${data[2] ?? '?'})`);
     }
 
     // ── Heartbeat (firmware-initiated) ───────────────────────────────────
@@ -2521,7 +2540,12 @@ export class G1Core {
           : G1Core.ACK_TIMEOUT_DEFAULT_MS;
         const timer = setTimeout(() => {
           if (ackWaiter) this._dequeueAckWaiter(ackKey, ackWaiter);
-          this._warn(`[G1] _send [${side}] ACK timeout op=0x${opHex} seq=${data[1]} after ${ackTimeout}ms`);
+          // 0x2C's data[1] is the phone platform byte (see P.batteryRequest),
+          // not a sequence number — label it so `seq=2` isn't misread.
+          const isBattery = data[0] === P.OP_BATTERY;
+          if (isBattery) this._batteryTimeoutAt[side] = Date.now();
+          const b1 = isBattery ? `platform=${data[1]}` : `seq=${data[1]}`;
+          this._warn(`[G1] _send [${side}] ACK timeout op=0x${opHex} ${b1} after ${ackTimeout}ms`);
           resolve(false);
         }, ackTimeout);
         ackWaiter = { resolve, timer, seq: data[1] };
