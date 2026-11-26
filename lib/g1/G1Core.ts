@@ -156,12 +156,13 @@ export class G1Core {
    * dropped at the queue head — the losing producer never reaches _sendBoth,
    * so it cannot desync the lenses or overwrite the holder's frame.
    *
-   * null = unclaimed: in that state ALL sendText calls pass (preserves the
-   * exact prior behaviour for every existing untagged caller). Untagged calls
-   * (owner===undefined) ALSO always pass even when a holder exists — only a
-   * call that explicitly names a DIFFERENT owner is rejected. This lets the
-   * internal teleprompter plumbing keep working untouched while the two
-   * top-level modes cooperatively hand off via claim/release.
+   * null = unclaimed: in that state ALL sendText calls pass. Untagged calls
+   * (owner===undefined) are treated as LEGACY_OWNER ('teleprompter'), so they
+   * pass only while the lens is unclaimed or held by the teleprompter — they
+   * are dropped while another mode holds it (see sendText). Corollary: a mode
+   * that stops holding the lens while it is still pushing (e.g. after another
+   * mode's yield left it unclaimed) must re-claim, or the teleprompter's
+   * untagged frames will interleave with its own.
    */
   private _displayOwner: string | null = null;
 
@@ -178,9 +179,8 @@ export class G1Core {
    *
    * PRIVATE on purpose: a bare release drops ownership but leaves the last frame
    * lit on the lens — the "stale frame" bug class. External callers must exit via
-   * yieldDisplay() (handoff: blank-via-space + release) or clearDisplay() (idle
-   * exit: Power-Off-grade blank). This primitive only ever runs *after* a blank,
-   * from inside yieldDisplay. See the exit-policy map / stale-frame fix.
+   * yieldDisplay() (blank-via-space + release). This primitive only ever runs
+   * *after* a blank, from inside yieldDisplay. See the stale-frame fix.
    */
   private releaseDisplay(owner: string): void {
     if (this._displayOwner === owner) {
@@ -204,20 +204,13 @@ export class G1Core {
     this.releaseDisplay(owner);
   }
 
-  /**
-   * IDLE exit: nobody is taking the lens next (Power Off, go-to-sleep auto-exit,
-   * last projection closing). Unlike yieldDisplay()'s handoff — which blanks with
-   * an owner-tagged space so the *incoming* tab can immediately overwrite without
-   * a flicker — an idle exit does the Power-Off-grade clear on BOTH lenses, then
-   * drops ownership. Use yieldDisplay() for tab/stop handoffs; use this only when
-   * the lens should go genuinely dark. A non-holder exits nothing.
-   */
-  exitDisplay(owner: string): void {
-    if (this._displayOwner !== owner) return;
-    void this.clearDisplay('L');
-    void this.clearDisplay('R');
-    this.releaseDisplay(owner);
-  }
+  // There is deliberately no "idle exit" that clears via clearDisplay(): that
+  // sends silent(true), which SUSPENDS the display thread on both lenses, and
+  // nothing wakes it short of Power On / reconnect — every later producer's
+  // frames are ACK-stalled and swallowed (field run: 276 frames, none painted;
+  // 7af69e4 fixed the same sleep in useLivePlay). The former exitDisplay() did
+  // exactly that at end-of-stream. yieldDisplay()'s space frame IS dark enough;
+  // only Power Off (settings) should send silent(true).
 
   /** Current display owner, or null if unclaimed. */
   get displayOwner(): string | null { return this._displayOwner; }
