@@ -103,6 +103,14 @@ export class G1Core {
    *  frame, per side. Dumped (then reset) when a real frame arrives, so the
    *  heartbeat rate stays visible without spamming the HUD ring buffer. */
   private _hbRxCount: Record<Side, number> = { L: 0, R: 0 };
+  /** 0x25 RX count per side since the last _reportHbRxRate window, and when
+   *  that window opened. Always-on (not trace): the rate is the signal that
+   *  exposed the 2026-11 echo loop, and one line/min cannot flood the ring. */
+  private _hbRxWindow: Record<Side, number> = { L: 0, R: 0 };
+  private _hbRxWindowStart = 0;
+  /** Above this 0x25 RX rate (per second, per side) the rate line is a warning.
+   *  Expected is ~1 per HEARTBEAT_INTERVAL_MS (0.125/s). */
+  private static readonly HB_RX_WARN_PER_S = 1;
   private reconnectAttempts: Partial<Record<Side, number>> = { L: 0, R: 0 };
   private destroyed = false;
   /** Mutex: if a connect/scan is already in flight, callers share the same promise. */
@@ -2207,6 +2215,7 @@ export class G1Core {
     // non-heartbeat frame so the rate is still visible when triaging.
     if (op === P.OP_HEARTBEAT) {
       this._hbRxCount[side]++;
+      this._hbRxWindow[side]++;
     } else {
       if (this._hbRxCount.L || this._hbRxCount.R) {
         this._trace(`[G1 RX] 0x25 heartbeats since last frame: L=${this._hbRxCount.L} R=${this._hbRxCount.R}`);
@@ -2302,13 +2311,17 @@ export class G1Core {
       this._warn(`[G1] 0x2c reply [${side}] late — arrived ${lateMs}ms after its ACK timeout (pct=${data[2] ?? '?'})`);
     }
 
-    // ── Heartbeat (firmware-initiated) ───────────────────────────────────
-    // The glasses send 0x25 to us; we echo it straight back. We do NOT send
-    // unsolicited heartbeats — the firmware owns the heartbeat clock.
-    if (op === P.OP_HEARTBEAT) {
-      this._send(side, data, false).catch(() => {});
-      return;
-    }
+    // ── Heartbeat ─────────────────────────────────────────────────────────
+    // Do NOT echo 0x25. Since 5b01ec5 (2026-11-04) the app sends its own 0x25
+    // every HEARTBEAT_INTERVAL_MS (_startHeartbeat), and the lens echoes it.
+    // Echoing the echo created a feedback loop: each heartbeat ping-ponged
+    // forever and a new one joined every 8s. Verbose logs measured 22–28 0x25
+    // RX/s per lens (expected ~0.125/s), byte-identical to our own packets
+    // (`25 06 00 <seq> 04 <seq>`, seqs 00–08 cycling in ~400ms). Suspected
+    // cause of the 0x2C battery-poll timeout runs. The app-originated 0x25 is
+    // what satisfies the firmware's 30s sync watchdog; the echo is not needed.
+    // Rate is reported per minute by _reportHbRxRate.
+    if (op === P.OP_HEARTBEAT) return;
 
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
@@ -2983,7 +2996,10 @@ export class G1Core {
     // — the heartbeat is APP→GLASSES, not the reverse as previously assumed.
     // Log shows R dropping every ~31s with ios=7 (remote terminated). Send the
     // official-app heartbeat every 8s: 25 06 00 <seq> 04 <seq>.
+    this._hbRxWindow = { L: 0, R: 0 };
+    this._hbRxWindowStart = Date.now();
     this.heartbeatTimer = setInterval(async () => {
+      if (this._hbCount > 0 && this._hbCount % 8 === 0) this._reportHbRxRate();
       const seq = this._hbCount & 0xff;
       const hb = new Uint8Array([0x25, 0x06, 0x00, seq, 0x04, seq]);
       this._send('L', hb, false).catch(() => {});
@@ -3016,6 +3032,20 @@ export class G1Core {
         }
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** One line per ~64s: 0x25 RX count and rate per side. Warns above
+   *  HB_RX_WARN_PER_S so a quiet export shows an echo loop without verbose. */
+  private _reportHbRxRate(): void {
+    const now = Date.now();
+    const secs = Math.max(1, (now - this._hbRxWindowStart) / 1000);
+    const { L, R } = this._hbRxWindow;
+    const rL = L / secs, rR = R / secs;
+    const line = `[G1] 0x25 RX rate over ${Math.round(secs)}s: L=${L} (${rL.toFixed(2)}/s) R=${R} (${rR.toFixed(2)}/s)`;
+    if (Math.max(rL, rR) > G1Core.HB_RX_WARN_PER_S) this._warn(`${line} — above ${G1Core.HB_RX_WARN_PER_S}/s, possible 0x25 loop`);
+    else this._log(line);
+    this._hbRxWindow = { L: 0, R: 0 };
+    this._hbRxWindowStart = now;
   }
 
   private _stopHeartbeat(): void {
