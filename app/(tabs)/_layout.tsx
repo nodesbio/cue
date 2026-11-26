@@ -33,13 +33,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="compose"
-        options={{
-          title: 'Compose',
-          tabBarIcon: ({ focused }) => <TabIcon label="✎" active={focused} />,
-        }}
-      />
-      <Tabs.Screen
         name="files"
         options={{
           title: 'Scripts',
@@ -51,6 +44,13 @@ export default function TabLayout() {
         options={{
           title: 'Sports',
           tabBarIcon: ({ focused }) => <TabIcon label="🏀" active={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="deck"
+        options={{
+          title: 'Decks',
+          tabBarIcon: ({ focused }) => <TabIcon label="🎴" active={focused} />,
         }}
       />
       <Tabs.Screen

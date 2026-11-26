@@ -21,6 +21,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
 import { useG1, useG1Event } from '@/lib/g1/G1Context';
+import { useLensOwnership } from '@/lib/g1/useLensOwner';
 import { LEGACY_OWNER } from '@/lib/g1/G1Core';
 import { useFocusEffect } from 'expo-router';
 import { loadCalibration } from '@/lib/g1/calibrationStore';
@@ -36,6 +37,7 @@ import {
 import { getEngine } from '@/lib/teleprompter/engine';
 import { remainingSeconds, formatClock } from '@/lib/teleprompter/readTime';
 import { getScript, setMarker, clearMarker, type ResumeMarker } from '@/lib/scripts/ScriptStore';
+import * as Inbox from '@/lib/scripts/Inbox';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -118,17 +120,46 @@ export default function TeleprompterScreen() {
     prevConnectedRef.current = connected;
   }, [connected, core]);
 
+  // Share-to-Cue drain. Text shared from another app is deposited into the
+  // Inbox by app/_layout.tsx; this screen consumes it (Inbox.ts's documented
+  // contract). Drain on mount — a cold-start share lands in the slot before this
+  // screen exists, so take() picks it up here — and on every warm deposit via
+  // subscribe. Loads straight to the engine so the HUD is primed immediately.
+  useEffect(() => {
+    const drain = () => {
+      const text = Inbox.take();
+      if (text?.trim()) getEngine().loadScript(text);
+    };
+    drain();
+    return Inbox.subscribe(drain);
+  }, []);
+
   // The selected tab owns the lens. Take it on focus and re-push the current
   // line, so coming back from another tab doesn't leave the lens blank until
   // the next scroll. Released on blur, as Reader does.
+  //
+  // Only the focus-bound claim/yield uses the shared arbiter hook. The engine
+  // onFrame and the skew/eye-swap/takeover re-anchors deliberately stay as raw
+  // UNtagged sendText calls: an untagged frame always passes the arbiter even
+  // when another owner (a live sports HUD) holds the lens, which is exactly the
+  // owner-agnostic recovery semantics those paths need. Routing them through
+  // lens.push (LEGACY_OWNER-tagged) would get them dropped under sports.
+  // Stable callbacks only — the `lens` object re-identifies when `on` flips,
+  // which would re-fire this focus effect (claim→yield→claim lens flash).
+  const { start: lensStart, stop: lensStop, push: lensPush } =
+    useLensOwnership(core, connected, LEGACY_OWNER);
   useFocusEffect(useCallback(() => {
-    core.claimDisplay(LEGACY_OWNER);
+    lensStart();
     const s = snapRef.current;
-    if (s && connectedRef.current && !core.status.poweredOff) {
-      void core.sendText(s.frame, s.topIndex + 1, s.totalLines, s.topIndex + 1 >= s.totalLines, undefined, LEGACY_OWNER);
+    if (s) {
+      lensPush(s.frame, {
+        curLine: s.topIndex + 1,
+        totalLines: s.totalLines,
+        isLastPage: s.topIndex + 1 >= s.totalLines,
+      });
     }
-    return () => core.yieldDisplay(LEGACY_OWNER);
-  }, [core]));
+    return () => lensStop();
+  }, [lensStart, lensStop, lensPush]));
 
   // ── Foreground resync (lock-screen recovery) ─────────────────────────────
   // While the phone is locked/backgrounded iOS keeps the BLE connection up but

@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { useG1 } from '@/lib/g1/G1Context';
+import { useLensOwnership } from '@/lib/g1/useLensOwner';
 import type { G1Core } from '@/lib/g1/G1Core';
 import { useLivePlay } from '@/lib/sports/useLivePlay';
 import { SportsFeed, DEFAULT_POLL_MS } from '@/lib/sports/SportsFeed';
@@ -138,11 +139,32 @@ function LiveSportsView() {
   const [selected, setSelected] = useState<GameSnapshot | null>(null);
 
   const feedRef = useRef<SportsFeed | null>(null);
-  const isConnectedRef = useRef(isConnected);
-  useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
+
+  // Shared lens arbiter (same hook reader uses). SportsFeed.onFrame is an
+  // imperative producer firing at the poll cadence, so this uses the lifecycle
+  // hook + guarded lens.push() — NOT the reactive wrapper. lens.push owns the
+  // connected/poweredOff guard and the LIVE_OWNER arbiter tag.
+  //
+  // Depend on the hook's stable callbacks, never the `lens` object itself: the
+  // object re-identifies when `on` flips, so a [lens]-keyed cleanup fired the
+  // instant Start claimed the lens — stopping the feed and aborting its first
+  // poll (the "Start 24/7 feed does nothing" bug).
+  //
+  // resyncOnConnect: the first poll usually lands before both lenses are
+  // txReady, so its frame is dropped; replay it the moment they connect
+  // instead of leaving the lens blank until the next 20s poll.
+  const { start: lensStart, stop: lensStop, push: lensPush, reassert: lensReassert } =
+    useLensOwnership(core, isConnected, LIVE_OWNER, { resyncOnConnect: true });
+
+  // Play-by-play "to lens" takes the lens from the HUD; its stop yields and
+  // leaves the lens unclaimed. If the feed is still running, take it back —
+  // otherwise HUD frames and the teleprompter's untagged frames interleave.
+  const onPlayLensReleased = useCallback(() => {
+    if (feedRef.current) lensReassert();
+  }, [lensReassert]);
 
   // Tear down the feed on unmount and hand the lens back to whoever's next.
-  useEffect(() => () => { feedRef.current?.stop(); core.yieldDisplay(LIVE_OWNER); }, [core]);
+  useEffect(() => () => { feedRef.current?.stop(); lensStop(); }, [lensStop]);
 
   const start = useCallback(() => {
     feedRef.current?.stop();
@@ -152,39 +174,36 @@ function LiveSportsView() {
     // line over our scores (the toggling bug). Claiming makes sports the sole
     // owner; teleprompter pushes tagged 'teleprompter' are dropped until we
     // release on stop.
-    core.claimDisplay(LIVE_OWNER);
+    lensStart();
     const feed = new SportsFeed({
       leagues,
       pollMs: DEFAULT_POLL_MS,
       onGames: (g) => { setGames(g); setLastUpdate(Date.now()); },
       onFrame: (frame) => {
-        // Only push to the lenses when both are usable (isConnected = AND of
-        // txReady). Guarding here avoids enqueuing frames that would be dropped.
-        if (isConnectedRef.current && !core.status.poweredOff) {
-          core.note('[sports] push HUD frame');
-          void core.sendText(frame, 1, 1, true, undefined, LIVE_OWNER);
-        }
+        // lens.push guards on connected (AND of txReady) + powered-on and only
+        // enqueues frames that would actually render.
+        core.note('[sports] push HUD frame');
+        lensPush(frame);
       },
       onError: (e) => setError(e instanceof Error ? e.message : String(e)),
     });
     feedRef.current = feed;
     feed.start();
     setLive(true);
-  }, [leagues, core]);
+  }, [leagues, core, lensStart, lensPush]);
 
   const stop = useCallback(() => {
     feedRef.current?.stop();
     feedRef.current = null;
     // Blank + release so the teleprompter (or a future mode) can own it again.
-    core.yieldDisplay(LIVE_OWNER);
+    lensStop();
     setLive(false);
-  }, [core]);
+  }, [lensStop]);
 
   // The selected tab owns the lens: leaving Sports blanks it and stops the feed.
-  useFocusEffect(useCallback(() => () => {
-    core.yieldDisplay(LIVE_OWNER);
-    stop();
-  }, [core, stop]));
+  // `stop` is stable (it depends only on the hook's stable lensStop), so this
+  // cleanup fires on real blur only.
+  useFocusEffect(useCallback(() => () => { stop(); }, [stop]));
 
   // Restarting with a changed league set while live.
   const toggleLeague = useCallback((lg: League) => {
@@ -310,6 +329,7 @@ function LiveSportsView() {
         core={core}
         isConnected={isConnected}
         onClose={() => setSelected(null)}
+        onLensReleased={onPlayLensReleased}
       />
     </View>
   );
@@ -329,11 +349,14 @@ function PlayByPlayModal({
   core,
   isConnected,
   onClose,
+  onLensReleased,
 }: {
   game: GameSnapshot | null;
   core: G1Core;
   isConnected: boolean;
   onClose: () => void;
+  /** Fired after the live-play lens stream stops (it has yielded the lens). */
+  onLensReleased: () => void;
 }) {
   const [plays, setPlays] = useState<PlayLine[]>([]);
   const [loading, setLoading] = useState(false);
@@ -349,6 +372,14 @@ function PlayByPlayModal({
     if (!game && live.streaming) live.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game]);
+
+  // Edge-detect streaming true→false (off-lens tap, Done, or game closed) and
+  // tell the parent, so a still-running Live HUD can take the lens back.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !live.streaming) onLensReleased();
+    wasStreamingRef.current = live.streaming;
+  }, [live.streaming, onLensReleased]);
 
   // Key the fetch on the game's identity, not the snapshot object: the parent
   // hands down a fresh snapshot on every feed poll, and that must not restart

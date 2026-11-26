@@ -156,12 +156,13 @@ export class G1Core {
    * dropped at the queue head — the losing producer never reaches _sendBoth,
    * so it cannot desync the lenses or overwrite the holder's frame.
    *
-   * null = unclaimed: in that state ALL sendText calls pass (preserves the
-   * exact prior behaviour for every existing untagged caller). Untagged calls
-   * (owner===undefined) ALSO always pass even when a holder exists — only a
-   * call that explicitly names a DIFFERENT owner is rejected. This lets the
-   * internal teleprompter plumbing keep working untouched while the two
-   * top-level modes cooperatively hand off via claim/release.
+   * null = unclaimed: in that state ALL sendText calls pass. Untagged calls
+   * (owner===undefined) are treated as LEGACY_OWNER ('teleprompter'), so they
+   * pass only while the lens is unclaimed or held by the teleprompter — they
+   * are dropped while another mode holds it (see sendText). Corollary: a mode
+   * that stops holding the lens while it is still pushing (e.g. after another
+   * mode's yield left it unclaimed) must re-claim, or the teleprompter's
+   * untagged frames will interleave with its own.
    */
   private _displayOwner: string | null = null;
 
@@ -178,9 +179,8 @@ export class G1Core {
    *
    * PRIVATE on purpose: a bare release drops ownership but leaves the last frame
    * lit on the lens — the "stale frame" bug class. External callers must exit via
-   * yieldDisplay() (handoff: blank-via-space + release) or clearDisplay() (idle
-   * exit: Power-Off-grade blank). This primitive only ever runs *after* a blank,
-   * from inside yieldDisplay. See the exit-policy map / stale-frame fix.
+   * yieldDisplay() (blank-via-space + release). This primitive only ever runs
+   * *after* a blank, from inside yieldDisplay. See the stale-frame fix.
    */
   private releaseDisplay(owner: string): void {
     if (this._displayOwner === owner) {
@@ -204,20 +204,13 @@ export class G1Core {
     this.releaseDisplay(owner);
   }
 
-  /**
-   * IDLE exit: nobody is taking the lens next (Power Off, go-to-sleep auto-exit,
-   * last projection closing). Unlike yieldDisplay()'s handoff — which blanks with
-   * an owner-tagged space so the *incoming* tab can immediately overwrite without
-   * a flicker — an idle exit does the Power-Off-grade clear on BOTH lenses, then
-   * drops ownership. Use yieldDisplay() for tab/stop handoffs; use this only when
-   * the lens should go genuinely dark. A non-holder exits nothing.
-   */
-  exitDisplay(owner: string): void {
-    if (this._displayOwner !== owner) return;
-    void this.clearDisplay('L');
-    void this.clearDisplay('R');
-    this.releaseDisplay(owner);
-  }
+  // There is deliberately no "idle exit" that clears via clearDisplay(): that
+  // sends silent(true), which SUSPENDS the display thread on both lenses, and
+  // nothing wakes it short of Power On / reconnect — every later producer's
+  // frames are ACK-stalled and swallowed (field run: 276 frames, none painted;
+  // 7af69e4 fixed the same sleep in useLivePlay). The former exitDisplay() did
+  // exactly that at end-of-stream. yieldDisplay()'s space frame IS dark enough;
+  // only Power Off (settings) should send silent(true).
 
   /** Current display owner, or null if unclaimed. */
   get displayOwner(): string | null { return this._displayOwner; }
@@ -411,6 +404,20 @@ export class G1Core {
   private _monoSide: Side | null = null;
   private _monoBreachStreak = 0;  // consecutive perceptible-skew paired frames
   private _monoRecoverStreak = 0; // consecutive clean frames while in mono
+
+  /** Seqs of whitespace-only TEXT frames (yieldDisplay's handoff blank, etc.).
+   *  A blank can't show doubling, so its skew is excluded from the mono entry
+   *  streak — neither counts nor resets it. Field: the handoff blank carried the
+   *  largest skews in the 2026-11-25 log (+188/+128ms) and started the streak
+   *  that latched a fresh session into mono 400ms after a mode switch. */
+  private _blankSeqs = new Set<number>();
+
+  /** Record whether a TEXT seq is blank. Seqs wrap (one byte), so a non-blank
+   *  send clears any stale entry for the reused number. */
+  private _markTextSeq(seq: number, text: string): void {
+    if (text.trim().length === 0) this._blankSeqs.add(seq);
+    else this._blankSeqs.delete(seq);
+  }
 
   // ── Background ACK-MISS mono trigger ──────────────────────────────────────
   // The skew detector (_evaluateSkew) only ticks when paired ACKs come back, so
@@ -1246,6 +1253,7 @@ export class G1Core {
         return;
       }
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
+      this._markTextSeq(packet[1], str);
       this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
       this._log(`[G1] sendText seq=${packet[1]} owner=${effectiveOwner} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
@@ -2663,7 +2671,11 @@ export class G1Core {
     // mean's sign reliably names the structural laggard. mean>0 ⇒ R leads ⇒ L
     // lags ⇒ keep R, blank L. Hysteresis: slow to enter, slower to leave.
     const meanAbs = Math.abs(this._skewMeanMs);
-    if (this._monoSide === null) {
+    const blankFrame = this._blankSeqs.delete(seq); // consume; true ⇒ whitespace-only
+    if (this._monoSide === null && blankFrame) {
+      // Nothing visible to double — leave the streak exactly as it was.
+      this._trace(`[G1] mono gate: seq=${seq} is a blank frame — skew ${skew}ms not counted`);
+    } else if (this._monoSide === null) {
       // Entry gates on PER-FRAME skew ONLY, for a sustained streak. The windowed
       // MEAN must NOT gate magnitude: the 2026-11-15 log showed the per-frame
       // L-R oscillating across zero (+50, -24, -39, -85) while the mean stayed

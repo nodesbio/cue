@@ -305,9 +305,11 @@ export function useArticleStream(
       timerRef.current = setTimeout(() => {
         setPlaying(false);
         setDone(true);
-        // End of stream → genuinely dark (sleep-safe, no infinite glow), no
-        // handoff. exitDisplay = Power-Off-grade clear on both lenses + release.
-        core.exitDisplay(OWNER);
+        // End of stream → blank + release. NOT a clearDisplay/silent(true)
+        // "go dark": that suspends the display thread with nothing to wake it,
+        // so every producer after a finished stream drew to a sleeping lens.
+        // The space-frame blank is dark enough and leaves the lens awake.
+        core.yieldDisplay(OWNER);
         // Played to the end — nothing left to resume into, so drop the snapshot
         // (a finished stream resuming into darkness would be the masked-empty
         // bug this store exists to avoid).

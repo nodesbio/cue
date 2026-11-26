@@ -281,3 +281,54 @@ describe('mono-fallback — clean-mono is home base', () => {
     expect(frames.every((f) => f.data === ctrl)).toBe(true);
   });
 });
+
+// Blank frames can't show doubling. The 1-char space frame every yieldDisplay()
+// sends on a mode handoff carried the largest skews in the 2026-11-25 device log
+// (+188, +128, -72ms) and STARTED the streak that latched a fresh session into
+// mono 400ms after a handoff (seq 9 blank +128, seq 10 -53, seq 11 -54; mean
+// -9ms). Blank-frame skew must neither count toward the streak nor reset it.
+describe('mono-fallback — blank (whitespace) frames are ignored by the entry gate', () => {
+  /** off>0 ⇒ L acks later. Optionally mark the seq as a blank frame first. */
+  function feed(anyCore: any, seq: number, t: number, off: number, blank = false): void {
+    anyCore._markTextSeq(seq, blank ? ' ' : 'Line of script text');
+    feedPair(anyCore, seq, off >= 0 ? t + off : t, off >= 0 ? t : t - off);
+  }
+
+  it('LOG REPRO 2026-11-25: blank +128 then two content frames ~54ms does NOT trip', () => {
+    const { anyCore } = makeCore();
+    let t = 1_000_000;
+    feed(anyCore, 9, (t += 2000), 128, true);
+    feed(anyCore, 10, (t += 2000), -53);
+    feed(anyCore, 11, (t += 2000), -54);
+    expect(anyCore._monoSide).toBeNull();
+  });
+
+  it('a blank does not RESET a real streak: content, blank, content, content trips', () => {
+    const { anyCore } = makeCore();
+    let t = 1_000_000;
+    feed(anyCore, 1, (t += 2000), 60);
+    feed(anyCore, 2, (t += 2000), 5, true);
+    feed(anyCore, 3, (t += 2000), 60);
+    expect(anyCore._monoSide).toBeNull(); // 2 content breaches so far
+    feed(anyCore, 4, (t += 2000), 60);
+    expect(anyCore._monoSide).not.toBeNull(); // 3rd content breach trips
+  });
+
+  it('blank frames alone never trip, however large their skew', () => {
+    const { anyCore } = makeCore();
+    let t = 1_000_000;
+    for (let seq = 1; seq <= 6; seq++) feed(anyCore, seq, (t += 2000), 300, true);
+    expect(anyCore._monoSide).toBeNull();
+  });
+
+  it('a genuine lag still trips (2026-11-25 02:52 trip: -53, -444, -262 on content)', () => {
+    const { anyCore } = makeCore();
+    let t = 1_000_000;
+    feed(anyCore, 0, (t += 2000), -72, true); // handoff blank — ignored
+    feed(anyCore, 1, (t += 2000), -53);
+    feed(anyCore, 2, (t += 2000), -444);
+    expect(anyCore._monoSide).toBeNull();
+    feed(anyCore, 3, (t += 2000), -262);
+    expect(anyCore._monoSide).not.toBeNull();
+  });
+});

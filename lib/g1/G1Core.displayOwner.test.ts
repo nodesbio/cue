@@ -161,42 +161,20 @@ describe('G1Core tab handoff', () => {
   });
 });
 
-// Idle exit (stale-frame fix). exitDisplay() is the "go genuinely dark" path —
-// Power Off, end-of-stream sleep, last projection closing. Unlike yield's
-// space-frame handoff, it does the Power-Off-grade clear on BOTH lenses so the
-// lens never stays lit with no owner.
-describe('G1Core exitDisplay (idle exit)', () => {
-  function makeConnectedCore() {
+// No idle "exit" that sleeps the lens. The former exitDisplay() cleared via
+// clearDisplay() → silent(true), which suspends the display thread on both
+// lenses with nothing to wake it; end-of-stream used it and every later
+// producer drew to a dark lens. It must not come back.
+describe('G1Core has no sleeping exit', () => {
+  it('exitDisplay is gone', () => {
     const c = new G1Core();
-    c.status.left.txReady = true;
-    c.status.right.txReady = true;
-    return c;
-  }
-
-  it('exit by the holder clears BOTH lenses, then releases', () => {
-    const c = makeConnectedCore();
-    const clearDisplay = jest.spyOn(c, 'clearDisplay').mockResolvedValue(undefined);
-    c.claimDisplay('sports.stream');
-    c.exitDisplay('sports.stream');
-    expect(clearDisplay).toHaveBeenCalledWith('L');
-    expect(clearDisplay).toHaveBeenCalledWith('R');
-    expect(c.displayOwner).toBeNull();
-  });
-
-  it('exit by a non-holder clears nothing and leaves the holder in place', () => {
-    const c = makeConnectedCore();
-    const clearDisplay = jest.spyOn(c, 'clearDisplay').mockResolvedValue(undefined);
-    c.claimDisplay(LEGACY_OWNER);
-    c.exitDisplay('sports.stream'); // not the holder
-    expect(clearDisplay).not.toHaveBeenCalled();
-    expect(c.displayOwner).toBe(LEGACY_OWNER);
+    expect((c as unknown as Record<string, unknown>).exitDisplay).toBeUndefined();
   });
 });
 
 // The invariant this whole fix exists to guarantee: there is NO public way to
-// drop ownership without first blanking the lens. Every public exit leaves
-// owner=null AND emits a blank (yield → space TEXT frame; exit → clearDisplay
-// on both lenses). releaseDisplay() — the bare drop that leaked stale frames —
+// drop ownership without first blanking the lens. The one public exit,
+// yieldDisplay, leaves owner=null AND emits a blank (a space TEXT frame). releaseDisplay() — the bare drop that leaked stale frames —
 // is private and unreachable from here.
 describe('stale-frame invariant: no public release-without-blank', () => {
   function makeConnectedCore() {
@@ -212,16 +190,6 @@ describe('stale-frame invariant: no public release-without-blank', () => {
     c.claimDisplay('sports.deck');
     c.yieldDisplay('sports.deck');
     expect(sendText).toHaveBeenCalledWith(' ', 1, 1, true, undefined, 'sports.deck');
-    expect(c.displayOwner).toBeNull();
-  });
-
-  it('exitDisplay blanks (clears both lenses) AND clears the owner', () => {
-    const c = makeConnectedCore();
-    const clearDisplay = jest.spyOn(c, 'clearDisplay').mockResolvedValue(undefined);
-    c.claimDisplay('sports.deck');
-    c.exitDisplay('sports.deck');
-    expect(clearDisplay).toHaveBeenCalledWith('L');
-    expect(clearDisplay).toHaveBeenCalledWith('R');
     expect(c.displayOwner).toBeNull();
   });
 

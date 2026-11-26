@@ -9,8 +9,8 @@
  *
  * Exit policy (stale-frame fix): releaseDisplay() is now PRIVATE — a bare release
  * drops ownership but leaves the last frame lit (the stale-frame bug class). The
- * only public exits are yieldDisplay() (handoff: blank-via-space + release) and
- * exitDisplay() (idle: Power-Off-grade clear + release). These tests drive the
+ * only public exit is yieldDisplay() (blank-via-space + release; the former
+ * exitDisplay() Power-Off-grade clear was removed — it slept the lens). These tests drive the
  * release *half* of the contract through yieldDisplay(), whose owner-gating is
  * identical to the old releaseDisplay() — so the switch-path invariants are
  * unchanged, now with the guarantee that no exit can leave a stale frame.

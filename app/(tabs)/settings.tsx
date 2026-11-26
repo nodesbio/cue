@@ -50,6 +50,9 @@ export default function SettingsScreen() {
   // Reading-eye auto-alternation (eye-health). Rotates which eye reads in mono
   // on a cadence so a single eye isn't loaded for a whole session.
   const [eyeAlternate, setEyeAlternate]       = useState(EYE_ALT_DEFAULT);
+  // Bumped after re-enabling stereo: core.isMono is read live during render and
+  // is not part of the status snapshot, so nothing else would re-render us.
+  const [, setMonoTick]                       = useState(0);
   const logs = useLogs();
 
   // ── Calibration ───────────────────────────────────────────────────────────
@@ -620,6 +623,34 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* Single-lens state + the deliberate stereo re-enable. The engine
+            latches single-lens for the session by design (stage rule: it must
+            never flip the echo back on by itself mid-presentation). This is the
+            "deliberate operator action" that rule calls for — resetLensSession()
+            had no caller, so a session that tripped single-lens stayed there
+            until the app was killed. Stereo can still re-trip on real skew. */}
+        <View style={s.row}>
+          <View style={s.rowText}>
+            <Text style={s.label}>
+              {core.isMono ? `Single-lens (reading ${core.monoSide === 'L' ? 'left' : 'right'})` : 'Both lenses (stereo)'}
+            </Text>
+            <Text style={s.sub}>
+              {core.isMono
+                ? 'Latched for this session after the lenses drifted apart. Re-enable before you start; it will drop again if they drift.'
+                : 'Drops to one lens automatically if the lenses drift apart.'}
+            </Text>
+          </View>
+        </View>
+        {core.isMono && (
+          <Pressable
+            style={[s.btn, s.btnSecondary]}
+            accessibilityRole="button"
+            onPress={() => { core.resetLensSession(); setMonoTick((n) => n + 1); }}
+          >
+            <Text style={[s.btnText, { color: '#888' }]}>Re-enable stereo</Text>
+          </Pressable>
+        )}
+
         {/* ── Advanced ───────────────────────────────────────
             Field diagnostics (BLE scan, verbose logging). Collapsed by
             default so everyday users are not shown developer tools. */}
@@ -818,6 +849,17 @@ export default function SettingsScreen() {
             }
           </ScrollView>
         )}
+
+        {/* ── About ──────────────────────────────────────────── */}
+        {/* ── Tools ──────────────────────────────────────────── */}
+        <Text style={s.section}>Tools</Text>
+        <Pressable style={s.row} onPress={() => router.push('/live')}>
+          <View style={s.rowText}>
+            <Text style={s.label}>● Live Mirror</Text>
+            <Text style={s.sub}>Type and it appears on the glasses as you go</Text>
+          </View>
+          <Text style={s.value}>›</Text>
+        </Pressable>
 
         {/* ── About ──────────────────────────────────────────── */}
         <Text style={s.section}>About</Text>

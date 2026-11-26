@@ -11,7 +11,8 @@ describe('streamSources — catalog → picker sources (#49)', () => {
     expect(srcs).toHaveLength(1);
     expect(srcs[0].id).toBe('football.college-football.194');
     expect(srcs[0].label).toBe('Ohio State Buckeyes');
-    expect(srcs[0].url).toContain('/football/college-football/teams/194/news');
+    expect(srcs[0].url).toContain('/football/college-football/news?');
+    expect(srcs[0].url).toContain('team=194');
   });
 
   it('appends a league source only when leaguePickable', () => {
@@ -22,13 +23,13 @@ describe('streamSources — catalog → picker sources (#49)', () => {
     expect(srcs).toHaveLength(1);
     expect(srcs[0].id).toBe('racing.f1');
     expect(srcs[0].url).toContain('/racing/f1/news');
-    expect(srcs[0].url).not.toContain('/teams/');
+    expect(srcs[0].url).not.toContain('team=');
   });
 
   it('team-centric league does NOT get a league source', () => {
     const nfl = CATALOG.find((l) => l.league === 'nfl')!;
     const srcs = sourcesForLeague(nfl);
-    expect(srcs.every((s) => s.url.includes('/teams/'))).toBe(true);
+    expect(srcs.every((s) => /[?&]team=\d+/.test(s.url))).toBe(true);
   });
 
   it('a pickable league with teams emits both (teams + league)', () => {
