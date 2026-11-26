@@ -405,6 +405,20 @@ export class G1Core {
   private _monoBreachStreak = 0;  // consecutive perceptible-skew paired frames
   private _monoRecoverStreak = 0; // consecutive clean frames while in mono
 
+  /** Seqs of whitespace-only TEXT frames (yieldDisplay's handoff blank, etc.).
+   *  A blank can't show doubling, so its skew is excluded from the mono entry
+   *  streak — neither counts nor resets it. Field: the handoff blank carried the
+   *  largest skews in the 2026-11-25 log (+188/+128ms) and started the streak
+   *  that latched a fresh session into mono 400ms after a mode switch. */
+  private _blankSeqs = new Set<number>();
+
+  /** Record whether a TEXT seq is blank. Seqs wrap (one byte), so a non-blank
+   *  send clears any stale entry for the reused number. */
+  private _markTextSeq(seq: number, text: string): void {
+    if (text.trim().length === 0) this._blankSeqs.add(seq);
+    else this._blankSeqs.delete(seq);
+  }
+
   // ── Background ACK-MISS mono trigger ──────────────────────────────────────
   // The skew detector (_evaluateSkew) only ticks when paired ACKs come back, so
   // it goes DORMANT when iOS throttles the BLE radio on lockscreen/background —
@@ -1239,6 +1253,7 @@ export class G1Core {
         return;
       }
       const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
+      this._markTextSeq(packet[1], str);
       this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
       this._log(`[G1] sendText seq=${packet[1]} owner=${effectiveOwner} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
       await this._sendBoth(packet);
@@ -2656,7 +2671,11 @@ export class G1Core {
     // mean's sign reliably names the structural laggard. mean>0 ⇒ R leads ⇒ L
     // lags ⇒ keep R, blank L. Hysteresis: slow to enter, slower to leave.
     const meanAbs = Math.abs(this._skewMeanMs);
-    if (this._monoSide === null) {
+    const blankFrame = this._blankSeqs.delete(seq); // consume; true ⇒ whitespace-only
+    if (this._monoSide === null && blankFrame) {
+      // Nothing visible to double — leave the streak exactly as it was.
+      this._trace(`[G1] mono gate: seq=${seq} is a blank frame — skew ${skew}ms not counted`);
+    } else if (this._monoSide === null) {
       // Entry gates on PER-FRAME skew ONLY, for a sustained streak. The windowed
       // MEAN must NOT gate magnitude: the 2026-11-15 log showed the per-frame
       // L-R oscillating across zero (+50, -24, -39, -85) while the mean stayed
