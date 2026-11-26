@@ -149,8 +149,19 @@ function LiveSportsView() {
   // object re-identifies when `on` flips, so a [lens]-keyed cleanup fired the
   // instant Start claimed the lens — stopping the feed and aborting its first
   // poll (the "Start 24/7 feed does nothing" bug).
-  const { start: lensStart, stop: lensStop, push: lensPush } =
-    useLensOwnership(core, isConnected, LIVE_OWNER);
+  //
+  // resyncOnConnect: the first poll usually lands before both lenses are
+  // txReady, so its frame is dropped; replay it the moment they connect
+  // instead of leaving the lens blank until the next 20s poll.
+  const { start: lensStart, stop: lensStop, push: lensPush, reassert: lensReassert } =
+    useLensOwnership(core, isConnected, LIVE_OWNER, { resyncOnConnect: true });
+
+  // Play-by-play "to lens" takes the lens from the HUD; its stop yields and
+  // leaves the lens unclaimed. If the feed is still running, take it back —
+  // otherwise HUD frames and the teleprompter's untagged frames interleave.
+  const onPlayLensReleased = useCallback(() => {
+    if (feedRef.current) lensReassert();
+  }, [lensReassert]);
 
   // Tear down the feed on unmount and hand the lens back to whoever's next.
   useEffect(() => () => { feedRef.current?.stop(); lensStop(); }, [lensStop]);
@@ -318,6 +329,7 @@ function LiveSportsView() {
         core={core}
         isConnected={isConnected}
         onClose={() => setSelected(null)}
+        onLensReleased={onPlayLensReleased}
       />
     </View>
   );
@@ -337,11 +349,14 @@ function PlayByPlayModal({
   core,
   isConnected,
   onClose,
+  onLensReleased,
 }: {
   game: GameSnapshot | null;
   core: G1Core;
   isConnected: boolean;
   onClose: () => void;
+  /** Fired after the live-play lens stream stops (it has yielded the lens). */
+  onLensReleased: () => void;
 }) {
   const [plays, setPlays] = useState<PlayLine[]>([]);
   const [loading, setLoading] = useState(false);
@@ -357,6 +372,14 @@ function PlayByPlayModal({
     if (!game && live.streaming) live.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game]);
+
+  // Edge-detect streaming true→false (off-lens tap, Done, or game closed) and
+  // tell the parent, so a still-running Live HUD can take the lens back.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !live.streaming) onLensReleased();
+    wasStreamingRef.current = live.streaming;
+  }, [live.streaming, onLensReleased]);
 
   // Key the fetch on the game's identity, not the snapshot object: the parent
   // hands down a fresh snapshot on every feed poll, and that must not restart

@@ -76,6 +76,13 @@ export interface UseLensOwnership {
   /** Convenience toggle for a single Play/Pause control. */
   toggle: () => void;
   /**
+   * Take the lens back and replay the last pushed frame. For an imperative
+   * producer that is still running after another producer claimed and then
+   * yielded (which leaves the lens unclaimed — the teleprompter's untagged
+   * frames would then interleave with ours). Stable identity.
+   */
+  reassert: () => void;
+  /**
    * Push one frame NOW, guarded (active + non-empty + connected + powered on).
    * Returns true if the write was issued. Imperative producers (timer state
    * machines, gesture handlers) call this at their own sequencing points so
@@ -96,9 +103,20 @@ export function useLensOwnership(
   core: G1Core,
   isConnected: boolean,
   owner: string,
-  opts: { enabled?: boolean } = {},
+  opts: {
+    enabled?: boolean;
+    /**
+     * Replay the last pushed frame when isConnected goes false→true while this
+     * owner holds the lens. A frame pushed before both lenses are txReady is
+     * dropped by the guard; without this, an imperative producer stays blank
+     * until its next scheduled push. Opt-in: the teleprompter has its own
+     * resync from the engine snapshot, and a replay of its last *focus* frame
+     * would be stale.
+     */
+    resyncOnConnect?: boolean;
+  } = {},
 ): UseLensOwnership {
-  const { enabled = true } = opts;
+  const { enabled = true, resyncOnConnect = false } = opts;
   const [on, setOn] = useState(false);
 
   // Synchronous ownership flag. `on` (React state) lags one render behind the
@@ -115,8 +133,13 @@ export function useLensOwnership(
     setOn(true);
   }, [core, owner, enabled]);
 
+  // The last frame this owner asked to show, sent or not — what a resync or
+  // reassert replays. Cleared on stop so a new session never replays old data.
+  const lastRef = useRef<{ frame: string; args: LensPushArgs } | null>(null);
+
   const stop = useCallback(() => {
     ownedRef.current = false;
+    lastRef.current = null;
     setOn(false);
     core.yieldDisplay(owner);
   }, [core, owner]);
@@ -133,6 +156,7 @@ export function useLensOwnership(
 
   const push = useCallback((frame: string, args: LensPushArgs = {}): boolean => {
     const text = frame.trim();
+    if (ownedRef.current && text.length > 0) lastRef.current = { frame: text, args };
     if (!shouldPushFrame({ on: ownedRef.current, frame: text, isConnected: connectedRef.current, poweredOff: core.status.poweredOff })) {
       return false;
     }
@@ -140,6 +164,30 @@ export function useLensOwnership(
     void core.sendText(text, curLine, totalLines, resolveIsLastPage(curLine, totalLines, isLastPage), newScreen, owner);
     return true;
   }, [core, owner]);
+
+  /** Re-push the last frame (guarded like any push). */
+  const replay = useCallback((why: string) => {
+    const last = lastRef.current;
+    if (!last) return;
+    if (push(last.frame, last.args)) core.note(`[lens] ${owner} ${why} → re-push last frame`);
+  }, [core, owner, push]);
+
+  const reassert = useCallback(() => {
+    if (!enabled) return;
+    core.claimDisplay(owner);
+    ownedRef.current = true;
+    setOn(true);
+    replay('reassert');
+  }, [core, owner, enabled, replay]);
+
+  // Connect-edge resync. Declared after the connectedRef effect so push()'s
+  // guard already sees the new value (effects run in declaration order).
+  const prevConnectedRef = useRef(isConnected);
+  useEffect(() => {
+    const was = prevConnectedRef.current;
+    prevConnectedRef.current = isConnected;
+    if (resyncOnConnect && isConnected && !was) replay('reconnect resync');
+  }, [isConnected, resyncOnConnect, replay]);
 
   // If the producer gets disabled (e.g. tab blur) while mirroring, hand the lens
   // back rather than stranding the last frame on the glasses.
@@ -156,8 +204,8 @@ export function useLensOwnership(
   // claim that flips `on`, calling stop() the tick after start() (this killed
   // the sports 24/7 feed).
   return useMemo(
-    () => ({ on, start, stop, toggle, push }),
-    [on, start, stop, toggle, push],
+    () => ({ on, start, stop, toggle, push, reassert }),
+    [on, start, stop, toggle, push, reassert],
   );
 }
 
