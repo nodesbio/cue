@@ -141,10 +141,21 @@ export async function fetchLiveGames(
   );
 
   const games: GameSnapshot[] = [];
+  const failures: string[] = [];
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') games.push(...r.value);
-    else console.warn(`[sports] ${leagues[i]} fetch failed:`, r.reason?.message ?? r.reason);
+    else {
+      const msg = r.reason?.message ?? String(r.reason);
+      failures.push(msg);
+      console.warn(`[sports] ${leagues[i]} fetch failed:`, msg);
+    }
   });
+  // Every league failing (offline / ESPN down) is an error, not a quiet night:
+  // returning [] here put "No live games right now" on the lens and onError
+  // never fired. Partial failure is still tolerated (above).
+  if (leagues.length > 0 && failures.length === leagues.length) {
+    throw new Error(`All ${leagues.length} leagues failed: ${failures[0]}`);
+  }
   games.sort((a, b) => b.excitement - a.excitement);
   return games;
 }
