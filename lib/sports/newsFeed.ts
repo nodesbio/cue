@@ -82,9 +82,16 @@ export function normalizeNewsList(payload: EspnNewsListResponse): NewsItem[] {
   return out;
 }
 
-/** Build the team news URL for a given sport path + numeric team id. */
+/**
+ * Build the team news URL for a given sport path + numeric team id.
+ *
+ * Uses the league endpoint's `?team=` filter. The old `/teams/{id}/news` path
+ * now answers HTTP 200 with an empty `{}` body in every sport (verified
+ * 2026-11-25 across NFL/CFB/NBA/NHL/NCAAM), which emptied the Stream picker;
+ * `?team=` returns items all tagged with that team (cards.ts uses the same).
+ */
 export function teamNewsUrl(sportPath: string, teamId: string, limit = 50): string {
-  return `${SITE_API_BASE}/${sportPath}/teams/${teamId}/news?limit=${limit}`;
+  return `${SITE_API_BASE}/${sportPath}/news?limit=${limit}&team=${teamId}`;
 }
 
 /** Build the league-wide news URL for a given sport path. */
@@ -101,5 +108,10 @@ export async function fetchNewsList(url: string, signal?: AbortSignal): Promise<
   const resp = await fetch(url, { signal });
   if (!resp.ok) throw new Error(`ESPN news HTTP ${resp.status} for ${url}`);
   const payload = (await resp.json()) as EspnNewsListResponse;
+  // A 200 without an articles array is a changed/dead endpoint, not "no news":
+  // returning [] here is what made a dead URL look like an empty team.
+  if (!Array.isArray(payload?.articles)) {
+    throw new Error(`ESPN news: no articles array in response for ${url}`);
+  }
   return normalizeNewsList(payload);
 }

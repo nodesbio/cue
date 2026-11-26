@@ -13,6 +13,7 @@ import {
   normalizeNewsList,
   teamNewsUrl,
   leagueNewsUrl,
+  fetchNewsList,
   type EspnNewsListResponse,
 } from './newsFeed';
 
@@ -89,9 +90,14 @@ describe('normalizeNewsList', () => {
 });
 
 describe('news URL builders (sport/team-agnostic)', () => {
-  it('builds a team news URL for OSU football (team 194)', () => {
+  // The old /teams/{id}/news path now returns HTTP 200 with an empty `{}` body
+  // in every sport (verified 2026-11-25: NFL 4/5, CFB 194, NBA 2, NHL 1,
+  // NCAAM 194) — so the Stream picker showed "no articles" for every team.
+  // The league endpoint's ?team= filter returns 50 items, 50/50 tagged with
+  // that team (unfiltered: 4/50). cards.ts already used this form.
+  it('builds a team news URL for OSU football (team 194) via the ?team= filter', () => {
     expect(teamNewsUrl('football/college-football', '194', 25)).toBe(
-      'https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams/194/news?limit=25',
+      'https://site.api.espn.com/apis/site/v2/sports/football/college-football/news?limit=25&team=194',
     );
   });
 
@@ -99,5 +105,22 @@ describe('news URL builders (sport/team-agnostic)', () => {
     expect(leagueNewsUrl('basketball/mens-college-basketball')).toBe(
       'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/news?limit=50',
     );
+  });
+});
+
+describe('fetchNewsList — a missing articles array is an error, not "no articles"', () => {
+  const realFetch = global.fetch;
+  afterEach(() => { global.fetch = realFetch; });
+  const respond = (body: unknown) =>
+    jest.fn(async () => ({ ok: true, status: 200, json: async () => body }) as unknown as Response) as typeof fetch;
+
+  it('throws on a 200 with an empty {} body (the dead /teams/{id}/news shape)', async () => {
+    global.fetch = respond({});
+    await expect(fetchNewsList('https://x/news')).rejects.toThrow(/no articles array/i);
+  });
+
+  it('an explicit empty articles list is still a valid empty result', async () => {
+    global.fetch = respond({ articles: [] });
+    await expect(fetchNewsList('https://x/news')).resolves.toEqual([]);
   });
 });
