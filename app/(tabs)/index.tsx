@@ -144,19 +144,22 @@ export default function TeleprompterScreen() {
   // when another owner (a live sports HUD) holds the lens, which is exactly the
   // owner-agnostic recovery semantics those paths need. Routing them through
   // lens.push (LEGACY_OWNER-tagged) would get them dropped under sports.
-  const lens = useLensOwnership(core, connected, LEGACY_OWNER);
+  // Stable callbacks only — the `lens` object re-identifies when `on` flips,
+  // which would re-fire this focus effect (claim→yield→claim lens flash).
+  const { start: lensStart, stop: lensStop, push: lensPush } =
+    useLensOwnership(core, connected, LEGACY_OWNER);
   useFocusEffect(useCallback(() => {
-    lens.start();
+    lensStart();
     const s = snapRef.current;
     if (s) {
-      lens.push(s.frame, {
+      lensPush(s.frame, {
         curLine: s.topIndex + 1,
         totalLines: s.totalLines,
         isLastPage: s.topIndex + 1 >= s.totalLines,
       });
     }
-    return () => lens.stop();
-  }, [lens]));
+    return () => lensStop();
+  }, [lensStart, lensStop, lensPush]));
 
   // ── Foreground resync (lock-screen recovery) ─────────────────────────────
   // While the phone is locked/backgrounded iOS keeps the BLE connection up but

@@ -78,7 +78,10 @@ export default function ReaderScreen() {
   // imperative timer state machine, so it uses the lifecycle hook (claim on
   // focus / yield on blur+unmount) and calls lens.push() at its own sequencing
   // points — NOT the reactive useLensOwner wrapper, which would double-write.
-  const lens = useLensOwnership(core, isConnected, OWNER);
+  // Stable callbacks only — the `lens` object re-identifies when `on` flips,
+  // which would re-fire the focus effect below (claim→yield→claim churn).
+  const { start: lensStart, stop: lensStop, push: lensPush } =
+    useLensOwnership(core, isConnected, OWNER);
   const [cards, setCards] = useState<NewsCard[]>([]);
   const [idx, setIdx] = useState(0);
   const [expanded, setExpanded] = useState(false);   // showing the blurb vs the headline
@@ -157,8 +160,8 @@ export default function ReaderScreen() {
     ].join('\n');
     core.note(`[reader] push idx=${idxRef.current}/${list.length} expanded=${expandedRef.current}`);
     // lens.push owns the connected/poweredOff guard + arbiter owner tag.
-    lens.push(frame);
-  }, [core, lens]);
+    lensPush(frame);
+  }, [core, lensPush]);
 
   const clearCycle = useCallback(() => {
     if (cycleRef.current) { clearTimeout(cycleRef.current); cycleRef.current = null; }
@@ -261,7 +264,7 @@ export default function ReaderScreen() {
 
   // ── Own the display + input while focused; the auto-read cycle starts on focus ─
   useFocusEffect(useCallback(() => {
-    lens.start();                 // claim the lens (synchronous; push() is safe now)
+    lensStart();                  // claim the lens (synchronous; push() is safe now)
     frozenRef.current = false;    // opening Reader (re)starts the hands-free cycle
     expandedRef.current = false;
     setFrozen(false);
@@ -283,9 +286,9 @@ export default function ReaderScreen() {
     return () => {
       clearCycle();
       core.removeEventHandler(handler);
-      lens.stop();
+      lensStop();
     };
-  }, [core, lens, tick, skip, freeze, resume, toggleFreeze, clearCycle]));
+  }, [core, lensStart, lensStop, tick, skip, freeze, resume, toggleFreeze, clearCycle]));
 
   const current = cards[idx];
 

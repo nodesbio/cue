@@ -144,10 +144,16 @@ function LiveSportsView() {
   // imperative producer firing at the poll cadence, so this uses the lifecycle
   // hook + guarded lens.push() — NOT the reactive wrapper. lens.push owns the
   // connected/poweredOff guard and the LIVE_OWNER arbiter tag.
-  const lens = useLensOwnership(core, isConnected, LIVE_OWNER);
+  //
+  // Depend on the hook's stable callbacks, never the `lens` object itself: the
+  // object re-identifies when `on` flips, so a [lens]-keyed cleanup fired the
+  // instant Start claimed the lens — stopping the feed and aborting its first
+  // poll (the "Start 24/7 feed does nothing" bug).
+  const { start: lensStart, stop: lensStop, push: lensPush } =
+    useLensOwnership(core, isConnected, LIVE_OWNER);
 
   // Tear down the feed on unmount and hand the lens back to whoever's next.
-  useEffect(() => () => { feedRef.current?.stop(); lens.stop(); }, [lens]);
+  useEffect(() => () => { feedRef.current?.stop(); lensStop(); }, [lensStop]);
 
   const start = useCallback(() => {
     feedRef.current?.stop();
@@ -157,7 +163,7 @@ function LiveSportsView() {
     // line over our scores (the toggling bug). Claiming makes sports the sole
     // owner; teleprompter pushes tagged 'teleprompter' are dropped until we
     // release on stop.
-    lens.start();
+    lensStart();
     const feed = new SportsFeed({
       leagues,
       pollMs: DEFAULT_POLL_MS,
@@ -166,31 +172,27 @@ function LiveSportsView() {
         // lens.push guards on connected (AND of txReady) + powered-on and only
         // enqueues frames that would actually render.
         core.note('[sports] push HUD frame');
-        lens.push(frame);
+        lensPush(frame);
       },
       onError: (e) => setError(e instanceof Error ? e.message : String(e)),
     });
     feedRef.current = feed;
     feed.start();
     setLive(true);
-  }, [leagues, core, lens]);
+  }, [leagues, core, lensStart, lensPush]);
 
   const stop = useCallback(() => {
     feedRef.current?.stop();
     feedRef.current = null;
     // Blank + release so the teleprompter (or a future mode) can own it again.
-    lens.stop();
+    lensStop();
     setLive(false);
-  }, [lens]);
+  }, [lensStop]);
 
   // The selected tab owns the lens: leaving Sports blanks it and stops the feed.
-  // stopRef keeps the cleanup's identity stable so this focus effect fires only
-  // on real focus/blur — NOT every time `stop`'s identity changes (it changes
-  // when `live`/`on` flips, and a re-fired cleanup would call stop() and kill
-  // the feed the instant Start runs).
-  const stopRef = useRef(stop);
-  useEffect(() => { stopRef.current = stop; }, [stop]);
-  useFocusEffect(useCallback(() => () => { stopRef.current(); }, []));
+  // `stop` is stable (it depends only on the hook's stable lensStop), so this
+  // cleanup fires on real blur only.
+  useFocusEffect(useCallback(() => () => { stop(); }, [stop]));
 
   // Restarting with a changed league set while live.
   const toggleLeague = useCallback((lg: League) => {

@@ -150,12 +150,11 @@ export function useLensOwnership(
   // Last line of defence: unmount must not leave a claimed, stale lens.
   useEffect(() => () => { core.yieldDisplay(owner); }, [core, owner]);
 
-  // Stable object identity across renders. Consumers put `lens` in useCallback
-  // dep arrays (e.g. sports' start/stop, which feed a useFocusEffect cleanup); a
-  // fresh object every render would churn those callbacks and re-fire the focus
-  // cleanup, which calls stop() — killing the feed the instant Start sets `on`.
-  // `on` is the only value that changes, so the memo depends on it plus the
-  // (stable) callbacks.
+  // Memoized so the object only re-identifies when `on` changes — but it DOES
+  // re-identify then. Consumers must put the (stable) start/stop/push callbacks
+  // in dep arrays, never the object: a [lens]-keyed cleanup fires on the very
+  // claim that flips `on`, calling stop() the tick after start() (this killed
+  // the sports 24/7 feed).
   return useMemo(
     () => ({ on, start, stop, toggle, push }),
     [on, start, stop, toggle, push],
