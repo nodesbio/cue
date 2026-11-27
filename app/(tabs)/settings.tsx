@@ -16,13 +16,13 @@ import {
   type Calibration, type Side as CalSide,
 } from '@/lib/g1/calibrationStore';
 import { WIDTH_PROBE_FRAMES } from '@/lib/g1/widthProbe';
+import { EYE_ALT_DEFAULT } from '@/lib/g1/G1Core';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
-// Reading-eye auto-alternation. ON by default (killer comfort feature) — absent
-// key means ON, only an explicit 'false' turns it off. See EYE_ALT_DEFAULT.
+// Reading-eye auto-alternation. Absent key → EYE_ALT_DEFAULT (owned by G1Core,
+// currently OFF); an explicit 'true'/'false' is the user's choice.
 export const EYE_ALT_KEY       = 'eye_alternate_enabled';
-export const EYE_ALT_DEFAULT   = true;
 
 // Skew/lens-race harness buttons — internal diagnostics, hidden from the normal
 // UI. Flip to true to re-expose them during link-layer debugging. (Already
@@ -382,7 +382,7 @@ export default function SettingsScreen() {
     AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY, EYE_ALT_KEY]).then(pairs => {
       if (pairs[0][1] === 'true') setGesturesEnabled(true);
       if (pairs[1][1] === 'true') setGesturesSwapped(true);
-      // Absent → default ON; only an explicit 'false' disables it.
+      // Absent → EYE_ALT_DEFAULT; an explicit value is the user's choice.
       const eyeOn = pairs[2][1] === null ? EYE_ALT_DEFAULT : pairs[2][1] === 'true';
       setEyeAlternate(eyeOn);
       core?.setEyeAlternation(eyeOn);

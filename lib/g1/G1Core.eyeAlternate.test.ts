@@ -3,10 +3,10 @@
  *
  * The killer comfort feature: in mono (single-lens) mode, rotate which eye
  * shows content on a cadence so one eye isn't loaded for a whole session.
- * ON by default (field default flipped 2026-11-xx) — see _eyeAlternateEnabled.
+ * OFF by default since 2026-11-27 (mid-scroll swap → blackout) — see EYE_ALT_DEFAULT.
  *
  * BEHAVIOR UNDER TEST:
- *   1. Default: _eyeAlternateEnabled is true (default-ON contract).
+ *   1. Default: _eyeAlternateEnabled follows EYE_ALT_DEFAULT (OFF).
  *   2. setEyeAlternation(true) arms an interval; (false) clears it.
  *   3. A tick swaps _monoSide L↔R and fires the HUD re-push handler so the new
  *      reading eye lights immediately.
@@ -33,7 +33,7 @@ jest.mock('base-64', () => ({
   decode: (s: string) => Buffer.from(s, 'base64').toString('binary'),
 }));
 
-import { G1Core, type Side } from './G1Core';
+import { G1Core, EYE_ALT_DEFAULT, type Side } from './G1Core';
 
 function makeCore() {
   const core = new G1Core({});
@@ -50,9 +50,10 @@ function makeCore() {
 afterEach(() => jest.useRealTimers());
 
 describe('eye-alternation — eye-health rotation', () => {
-  it('is ON by default (the killer-feature default-ON contract)', () => {
+  it('is OFF by default, via the single exported EYE_ALT_DEFAULT', () => {
     const { anyCore } = makeCore();
-    expect(anyCore._eyeAlternateEnabled).toBe(true);
+    expect(EYE_ALT_DEFAULT).toBe(false);
+    expect(anyCore._eyeAlternateEnabled).toBe(EYE_ALT_DEFAULT);
   });
 
   it('arms a timer on setEyeAlternation(true) and clears it on (false)', () => {

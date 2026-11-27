@@ -75,6 +75,15 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 10000];
  */
 export const LEGACY_OWNER = 'teleprompter';
 
+/**
+ * Reading-eye auto-alternation default — the single source of truth (Settings
+ * imports this; do not restate it). OFF since 2026-11-27: a swap during active
+ * scrolling preceded a both-lens blackout (F5 00 storm, lenses ACK frames but
+ * render nothing, self-recovered within ~5 min), reproduced on builds 77 and
+ * 79. Under investigation — re-enable only with a mid-scroll on-device check.
+ */
+export const EYE_ALT_DEFAULT = false;
+
 function uint8ToBase64(data: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
@@ -632,19 +641,19 @@ export class G1Core {
   // Unlocked by the 2026-11-16 keep-both-live finding: since EITHER lens can be
   // the reader, we periodically swap which eye shows content to avoid loading a
   // single eye for a whole session. Default cadence 5 min (binocular-display
-  // comfort guidance; tune via setEyeAlternationMinutes). ON by default — the
-  // 2026-11-16 keep-both-live finding made eye-health rotation the headline
-  // comfort feature, so new users get it without opt-in. The swap is invisible
-  // and fully guarded (see below), so it cannot surprise a live operator: it
-  // only ever fires in mono with BOTH lenses healthy. The settings toggle
-  // persists an explicit override (EYE_ALT_KEY) for anyone who wants it off.
+  // comfort guidance; tune via setEyeAlternationMinutes). OFF by default (see
+  // EYE_ALT_DEFAULT): the earlier claim that the swap "cannot surprise a live
+  // operator" was never checked mid-scroll, and the 2026-11-27 field log shows
+  // a swap during active scrolling followed 1.6s later by an F5 00 storm and a
+  // both-lens blackout. The guard below (mono + both lenses healthy) does not
+  // cover that. The settings toggle persists an explicit opt-in (EYE_ALT_KEY).
   //
   // Swap mechanics reuse the proven "core decides, HUD re-pushes" pattern (see
   // _onSkewResync): the timer flips _monoSide and fires _onReadingEyeSwap so the
   // HUD re-pushes the current frame, lighting the new reading eye immediately.
   // Guarded: only swaps while in mono with BOTH lenses healthy (can't move the
   // reader onto a dead lens), and never clears the stereo latch.
-  private _eyeAlternateEnabled = true;
+  private _eyeAlternateEnabled = EYE_ALT_DEFAULT;
   private _eyeAlternateMs = 5 * 60_000;
   private _eyeAlternateTimer: ReturnType<typeof setInterval> | null = null;
   private _onReadingEyeSwap: ((side: Side) => void) | null = null;
@@ -787,7 +796,7 @@ export class G1Core {
       }
     });
 
-    // Arm eye-alternation at construction so the default-ON state is REAL — the
+    // Arm eye-alternation at construction so an ON default would be REAL — the
     // _eyeAlternateEnabled field alone is inert (it only gates the tick); the
     // timer must actually be running. Without this a user who never opens
     // Settings would have the flag on but no timer, i.e. the setting would claim
