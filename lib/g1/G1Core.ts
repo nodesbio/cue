@@ -2342,6 +2342,7 @@ export class G1Core {
 
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
+      if (event?.subcmd === 0x00) this._trackF5Storm(side);
       if (event) {
         // Routine housekeeping events fire every ~47s (status_ping, battery,
         // charging). Trace-only — they account for ~45% of ring-buffer lines
@@ -3067,6 +3068,66 @@ export class G1Core {
     else this._log(line);
     this._hbRxWindow = { L: 0, R: 0 };
     this._hbRxWindowStart = now;
+  }
+
+  // ── F5 00 storm detector ──────────────────────────────────────────────────
+  // F5 00 ('exit_to_dashboard') is the firmware rejecting the current screen,
+  // not a user gesture (packets.ts NewScreen doc). A burst of them is the
+  // blackout state: the lens ACKs frames but renders nothing (2026-11-27 field
+  // log, both lenses dark ~5 min, self-recovered). Individual event lines were
+  // easy to miss, so a burst is one always-on warning with the sync context,
+  // plus an end line giving how long the lens stayed in that state.
+  // Thresholds replayed against every 2026-11 field log: the firmware sends
+  // each F5 00 as a pair ~450ms apart, so events within F5_DUP_MS count once;
+  // 2 distinct events within 5s then flags only the 2026-11-27 blackout (L and
+  // R) and no other session. 3-in-5s raw missed L entirely.
+  private static readonly F5_DUP_MS = 600;
+  private static readonly F5_STORM_COUNT = 2;
+  private static readonly F5_STORM_WINDOW_MS = 5_000;
+  private static readonly F5_STORM_QUIET_MS = 10_000;
+  private _f5Recent: Record<Side, number[]> = { L: [], R: [] };
+  private _f5LastAt: Record<Side, number> = { L: 0, R: 0 };
+  private _f5Storm: Record<Side, { start: number; count: number; quiet: ReturnType<typeof setTimeout> } | null> = { L: null, R: null };
+
+  private _trackF5Storm(side: Side): void {
+    const now = Date.now();
+    const dup = now - this._f5LastAt[side] < G1Core.F5_DUP_MS;
+    this._f5LastAt[side] = now;
+    const storm = this._f5Storm[side];
+    if (storm) {
+      if (!dup) storm.count++;
+      clearTimeout(storm.quiet);
+      storm.quiet = setTimeout(() => this._endF5Storm(side), G1Core.F5_STORM_QUIET_MS);
+      return;
+    }
+    if (dup) return;
+    const recent = this._f5Recent[side].filter(t => now - t < G1Core.F5_STORM_WINDOW_MS);
+    recent.push(now);
+    this._f5Recent[side] = recent;
+    if (recent.length < G1Core.F5_STORM_COUNT) return;
+    this._f5Recent[side] = [];
+    this._f5Storm[side] = {
+      start: recent[0],
+      count: recent.length,
+      quiet: setTimeout(() => this._endF5Storm(side), G1Core.F5_STORM_QUIET_MS),
+    };
+    const reader = this._monoSide ? `mono reader=${this._monoSide}` : 'stereo';
+    this._warn(
+      `[G1] F5 00 storm [${side}] — ${recent.length} distinct exit_to_dashboard in ` +
+      `${now - recent[0]}ms (firmware rejecting screen; lens likely dark). ` +
+      `${reader} ${this.syncSnapshot}`,
+    );
+  }
+
+  private _endF5Storm(side: Side): void {
+    const storm = this._f5Storm[side];
+    if (!storm) return;
+    this._f5Storm[side] = null;
+    const lastAt = Date.now() - G1Core.F5_STORM_QUIET_MS;
+    this._warn(
+      `[G1] F5 00 storm [${side}] ended — ${storm.count} events over ` +
+      `${Math.round((lastAt - storm.start) / 1000)}s (quiet ${G1Core.F5_STORM_QUIET_MS / 1000}s since)`,
+    );
   }
 
   private _stopHeartbeat(): void {
