@@ -1354,6 +1354,9 @@ export class G1Core {
     // isLastPage is kept for callers but no longer selects the screen byte.
     void isLastPage;
     const ns = newScreen ?? P.NewScreen.TEXT;
+    // Remember the newest accepted frame (untagged) so the head-down re-push
+    // can restore exactly what the holder last asked to show.
+    this._lastTextArgs = { str, curLine, totalLines, isLastPage, newScreen, owner: effectiveOwner };
     const myGen = ++this._textGen;
     return this._enqueue(async () => {
       if (myGen !== this._textGen) {
@@ -1528,6 +1531,7 @@ export class G1Core {
     this.destroyed = true;
     this._stopHeartbeat();
     if (this._eyeAlternateTimer) { clearInterval(this._eyeAlternateTimer); this._eyeAlternateTimer = null; }
+    this._cancelHeadDownRepush();
     this._resolveWake('L'); this._resolveWake('R'); // #27: don't leave _connectLensInner parked forever
     clearTimeout(this._reconnectTimers.L); this._reconnectTimers.L = undefined;
     clearTimeout(this._reconnectTimers.R); this._reconnectTimers.R = undefined;
@@ -2430,6 +2434,8 @@ export class G1Core {
     if (op === P.OP_EVENT) {
       const event = P.parseEvent(data, side);
       if (event?.subcmd === 0x00) this._trackF5Storm(side);
+      if (event?.name === 'head_up') this._cancelHeadDownRepush();
+      if (event?.name === 'head_down') this._scheduleHeadDownRepush();
       if (event) {
         // Routine housekeeping events fire every ~47s (status_ping, battery,
         // charging). Trace-only — they account for ~45% of ring-buffer lines
@@ -3157,6 +3163,47 @@ export class G1Core {
     else this._log(line);
     this._hbRxWindow = { L: 0, R: 0 };
     this._hbRxWindowStart = now;
+  }
+
+  // ── Head-down re-push (L/R content-split mitigation) ─────────────────────
+  // Field (2026-11-28, frame-number tag, build 83): three L/R content splits,
+  // each with L left on an older frame, and each missed frame arriving around
+  // the end of a head tilt — #95 during a head-up (45ms before head_down), #73
+  // 3.1s after head_down, #46 7.9s after. Base rate of frames within 8s of a
+  // head_down is 9–16%. Both lenses ACK the missed frame (ACK = receipt, not
+  // render), so the app cannot detect the split. Suspected: the firmware's
+  // head-up dashboard and L's restore from it. Not proven (n=3; ~17 other
+  // frames sent during head-up had no reported split).
+  //
+  // Mitigation: after each head_down, re-send the newest frame at +2s, +6s and
+  // +12s (spans the observed 0–8s window). Same content, new seq; the arbiter
+  // still gates it, so it only reaches the lens if that owner still holds the
+  // display. A new head_up cancels pending re-pushes. Each re-push is logged,
+  // so a split that outlives one shows re-sending cannot recover L.
+  private static readonly HEAD_DOWN_REPUSH_MS = [2_000, 6_000, 12_000] as const;
+  private _headDownTimers: ReturnType<typeof setTimeout>[] = [];
+  private _lastTextArgs: {
+    str: string; curLine: number; totalLines: number; isLastPage: boolean;
+    newScreen?: P.NewScreenValue; owner: string;
+  } | null = null;
+
+  private _cancelHeadDownRepush(): void {
+    for (const t of this._headDownTimers) clearTimeout(t);
+    this._headDownTimers = [];
+  }
+
+  private _scheduleHeadDownRepush(): void {
+    this._cancelHeadDownRepush();
+    this._headDownTimers = G1Core.HEAD_DOWN_REPUSH_MS.map(ms =>
+      setTimeout(() => this._headDownRepush(ms), ms));
+  }
+
+  private _headDownRepush(ms: number): void {
+    const a = this._lastTextArgs;
+    if (!a || this._displayOwner === null || this._displayOwner !== a.owner) return;
+    if (!this.isConnected || this.status.poweredOff) return;
+    this._log(`[G1] head-down re-push +${ms}ms → owner=${a.owner} line=${a.curLine}/${a.totalLines}`);
+    void this.sendText(a.str, a.curLine, a.totalLines, a.isLastPage, a.newScreen, a.owner);
   }
 
   // ── F5 00 storm detector ──────────────────────────────────────────────────
