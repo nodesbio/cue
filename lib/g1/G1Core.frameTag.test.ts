@@ -8,6 +8,8 @@
  *     packet's seq byte (the number in the log).
  *  2. OFF (default): text is unchanged.
  *  3. The tag survives the 191-byte frame cut: long text is trimmed instead.
+ *  3b. The tag never adds a line or pushes a line past MAX_CHARS: it goes on
+ *      the first line with room (teleprompter: the status bar).
  *  4. A whitespace-only frame still counts as blank for the mono gate.
  */
 
@@ -28,6 +30,8 @@ jest.mock('base-64', () => ({
 
 import { G1Core, type Side } from './G1Core';
 import * as P from './packets';
+import { MAX_CHARS } from '../teleprompter/lineWrapper';
+import { formatFrame } from '../teleprompter/lineWrapper';
 
 function makeReadyCore() {
   const core = new G1Core({});
@@ -97,6 +101,38 @@ describe('frame-number tag on lenses', () => {
     expect(out2.endsWith(' #7')).toBe(true);
     expect(new TextEncoder().encode(out2).length).toBeLessThanOrEqual(P.TEXT_MAX_BYTES);
     expect(out2).not.toContain('�');
+  });
+
+  it('teleprompter frame: tag lands on the status bar, layout unchanged', () => {
+    // Status bar + 3 full lines + a short one: within the 191-byte frame, with
+    // the last content line full so a naive append would overflow MAX_CHARS.
+    const full = 'a'.repeat(MAX_CHARS);
+    const frame = ['9:41 L80% R79% ▶12/381', 'short', full, full, full].join('\n');
+    expect(new TextEncoder().encode(frame).length + 5).toBeLessThanOrEqual(P.TEXT_MAX_BYTES);
+    const out = G1Core._withFrameTag(frame, 212).split('\n');
+    expect(out).toHaveLength(5);
+    expect(out[0]).toBe('9:41 L80% R79% ▶12/381 #212');
+    expect(out.slice(1)).toEqual(['short', full, full, full]);
+    for (const l of out) expect(Array.from(l).length).toBeLessThanOrEqual(MAX_CHARS);
+  });
+
+  it('real formatFrame output keeps every line within MAX_CHARS', () => {
+    const lines = Array.from({ length: 10 }, (_, k) => `${k} ` + 'w'.repeat(MAX_CHARS - 2));
+    const frame = formatFrame('9:41 ▶3/10', lines, 2);
+    const before = frame.split('\n').length;
+    const out = G1Core._withFrameTag(frame, 99).split('\n');
+    expect(out).toHaveLength(before);
+    expect(out.join('\n')).toContain(' #99');
+    for (const l of out) expect(Array.from(l).length).toBeLessThanOrEqual(MAX_CHARS);
+  });
+
+  it('every line full: first line is shortened so the tag still shows', () => {
+    const full = 'b'.repeat(MAX_CHARS);
+    const out = G1Core._withFrameTag([full, full].join('\n'), 5).split('\n');
+    expect(out).toHaveLength(2);
+    expect(out[0].endsWith(' #5')).toBe(true);
+    expect(Array.from(out[0]).length).toBe(MAX_CHARS);
+    expect(out[1]).toBe(full);
   });
 
   it('a whitespace-only frame still counts as blank with the tag on', async () => {

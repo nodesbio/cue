@@ -7,6 +7,7 @@
 import { BleManager, Device, State, Characteristic, Subscription, BleError, BleErrorCode } from 'react-native-ble-plx';
 import { encode as btoa } from 'base-64';
 import * as P from './packets';
+import { MAX_CHARS } from '../teleprompter/lineWrapper';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 
 /** Platform byte for 0x2C — see P.batteryRequest. */
@@ -807,17 +808,29 @@ export class G1Core {
    *  ACKs are not render confirmations (37bc0d0), so the app cannot observe
    *  the split — the operator's eyes are the only instrument. */
   public showFrameTag = false;
-  /** Append ` #<seq>`, trimming the text so the tag always survives
-   *  P.text's 191-byte cut (a tag lost to truncation would read as "no tag").
-   *  ASCII only — the G1 font's coverage of symbols like U+00B7 is unknown. */
+  /** Add ` #<seq>` where the lens will actually show it. Frames are up to 5
+   *  lines of ≤ MAX_CHARS (teleprompter: status bar + 4 script lines), so a
+   *  tag appended to a full last line would wrap onto a line the lens cannot
+   *  show. Rules: (1) trim trailing text so the result fits P.TEXT_MAX_BYTES;
+   *  (2) tag the FIRST line with room (teleprompter: the short status bar);
+   *  (3) if none has room, shorten the first line to make room. Never adds a
+   *  line, never pushes a line past MAX_CHARS. ASCII only — the G1 font's
+   *  coverage of symbols like U+00B7 is unknown. */
   static _withFrameTag(str: string, seq: number): string {
     const tag = ` #${seq}`;
     const enc = new TextEncoder();
     let body = str;
-    while (body.length > 0 && enc.encode(body + tag).length > P.TEXT_MAX_BYTES) {
+    while (body.length > 0 && enc.encode(body).length + tag.length > P.TEXT_MAX_BYTES) {
       body = Array.from(body).slice(0, -1).join('');
     }
-    return body + tag;
+    const lines = body.split('\n');
+    let i = lines.findIndex(l => Array.from(l).length + tag.length <= MAX_CHARS);
+    if (i < 0) {
+      i = 0;
+      lines[0] = Array.from(lines[0]).slice(0, Math.max(0, MAX_CHARS - tag.length)).join('');
+    }
+    lines[i] += tag;
+    return lines.join('\n');
   }
 
   setShowFrameTag(on: boolean): void {
