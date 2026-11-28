@@ -43,6 +43,7 @@ export default function SettingsScreen() {
   const [showAdvanced, setShowAdvanced]       = useState(false);
   const [showLogs, setShowLogs]               = useState(false);
   const [verboseLogs, setVerboseLogs]         = useState(false);
+  const [frameTag, setFrameTag]               = useState(() => !!core?.showFrameTag);
   const [harnessRunning, setHarnessRunning]   = useState(false);
   // Width probe (DEV-only): sends ruler/fill/word frames to the lens so you can
   // MEASURE the real firmware wrap column instead of trusting the spec's "36".
@@ -708,6 +709,23 @@ export default function SettingsScreen() {
               <Switch
                 value={verboseLogs}
                 onValueChange={(val) => { setVerboseLogs(val); core.setVerbose(val); }}
+                trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
+                thumbColor="#fff"
+              />
+            </View>
+
+            {/* Frame-number tag — diagnostic for L/R content splits. Appends
+                the frame seq (" #23") to every lens frame; when the lenses
+                disagree, close one eye at a time and note both numbers, then
+                match them to `sendText seq=` in the log. Resets on restart. */}
+            <View style={s.row}>
+              <View style={s.rowText}>
+                <Text style={s.label}>Show frame number on lenses</Text>
+                <Text style={s.sub}>Adds " #23" to each frame. If the lenses disagree, note each eye's number. Resets on restart.</Text>
+              </View>
+              <Switch
+                value={frameTag}
+                onValueChange={(val) => { setFrameTag(val); core.setShowFrameTag(val); }}
                 trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
                 thumbColor="#fff"
               />

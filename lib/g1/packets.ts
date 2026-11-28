@@ -179,6 +179,9 @@ export function exitToDashboard(): Uint8Array {
  *
  * Pass newScreen explicitly to override (e.g. NewScreen.MANUAL for manual mode).
  */
+/** Max UTF-8 payload bytes per OP_TEXT frame; longer text is cut. */
+export const TEXT_MAX_BYTES = 191;
+
 export function text(
   str: string,
   seq: number,
@@ -186,7 +189,7 @@ export function text(
   maxPage = 1,
   newScreen: NewScreenValue = NewScreen.AUTO_MID,
 ): Uint8Array {
-  const encoded = new TextEncoder().encode(str).slice(0, 191);
+  const encoded = new TextEncoder().encode(str).slice(0, TEXT_MAX_BYTES);
   const header = u8(OP_TEXT, seq & 0xff, 1, 0, newScreen, 0x00, 0x00, curPage & 0xff, maxPage & 0xff);
   return concat(header, encoded);
 }

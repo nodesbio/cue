@@ -799,6 +799,32 @@ export class G1Core {
    *  Flip on (via `setVerbose(true)`) when triaging a specific frame-level bug. */
   public verbose = false;
 
+  /** Diagnostic: append the frame's seq (e.g. ` #23`) to every sendText frame
+   *  so an operator can read which frame EACH lens is showing during an L/R
+   *  content split, and match it to `sendText seq=23` in the log. Same seq on
+   *  both lenses by construction. Off by default; not persisted (resets on
+   *  restart). Added 2026-11-28 for "Bug B" (one frame lands on one lens only):
+   *  ACKs are not render confirmations (37bc0d0), so the app cannot observe
+   *  the split — the operator's eyes are the only instrument. */
+  public showFrameTag = false;
+  /** Append ` #<seq>`, trimming the text so the tag always survives
+   *  P.text's 191-byte cut (a tag lost to truncation would read as "no tag").
+   *  ASCII only — the G1 font's coverage of symbols like U+00B7 is unknown. */
+  static _withFrameTag(str: string, seq: number): string {
+    const tag = ` #${seq}`;
+    const enc = new TextEncoder();
+    let body = str;
+    while (body.length > 0 && enc.encode(body + tag).length > P.TEXT_MAX_BYTES) {
+      body = Array.from(body).slice(0, -1).join('');
+    }
+    return body + tag;
+  }
+
+  setShowFrameTag(on: boolean): void {
+    this.showFrameTag = on;
+    this._log(`[G1] frame-number tag on lenses ${on ? 'ON' : 'OFF'}`);
+  }
+
   /** Toggle verbose trace logging at runtime (e.g. from a dev-menu switch). */
   setVerbose(on: boolean): void {
     this.verbose = on;
@@ -1325,7 +1351,12 @@ export class G1Core {
         this._trace(`[G1] sendText line=${curLine} superseded (gen ${myGen} < ${this._textGen}) — skipped`);
         return;
       }
-      const packet = P.text(str, this._nextSeq(), curLine, totalLines, ns);
+      const seq = this._nextSeq();
+      // Tag after the arbiter and coalescer so the number is the seq actually
+      // on the wire. Blank detection (_markTextSeq) uses the UNtagged text so a
+      // whitespace handoff frame still counts as blank for the mono gate.
+      const shown = this.showFrameTag ? G1Core._withFrameTag(str, seq) : str;
+      const packet = P.text(shown, seq, curLine, totalLines, ns);
       this._markTextSeq(packet[1], str);
       this._lastSent = { seq: packet[1], line: curLine, total: totalLines, at: Date.now() };
       this._log(`[G1] sendText seq=${packet[1]} owner=${effectiveOwner} ns=0x${ns.toString(16)} line=${curLine}/${totalLines} len=${str.length} poweredOff=${this.status.poweredOff}`);
