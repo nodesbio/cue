@@ -55,6 +55,9 @@ function feedPair(anyCore: any, seq: number, lAckAt: number, rAckAt: number): vo
 
 function makeCore() {
   const core = new G1Core({});
+  // These tests cover the automatic mono path, which is OFF by default since
+  // 2026-11-28 (AUTO_MONO_DEFAULT). Opt in so the old path stays covered.
+  core.setAutoMono(true);
   const anyCore = core as any;
   anyCore._log = () => {};
   anyCore._trace = () => {};

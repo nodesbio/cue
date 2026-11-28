@@ -84,6 +84,27 @@ export const LEGACY_OWNER = 'teleprompter';
  */
 export const EYE_ALT_DEFAULT = false;
 
+/**
+ * Automatic single-lens (mono) switching default — single source of truth
+ * (Settings imports this). OFF since 2026-11-28. Governs the three automatic
+ * triggers: app leaving 'active', the skew gate, and the ACK-MISS streak. When
+ * off, each logs what it would have done (throttled) and stays stereo. Manual
+ * paths (emergency key, Re-enable stereo) are unaffected.
+ *
+ * Why off: in the field the auto paths cost far more than they protected.
+ *  - Every lock / notification pull latched one lens dark for the session
+ *    (2026-11-28 logs: 5 latches in one Sports session, L blank each time).
+ *  - The premise of the lock trigger (bad2dde: "JS suspended while locked")
+ *    is contradicted by field logs: frames, timers and ACK timeouts all ran
+ *    while backgrounded.
+ *  - The skew and ACK-MISS gates are driven by ACK timing, which 37bc0d0
+ *    documented does not measure render skew (R's 0x4e is a fixed ~810ms
+ *    firmware timer); the ACK-MISS probe window (~800ms) races that timer.
+ *  - Operator, 2026-11-28: no visible doubling "in a while".
+ * Re-enable (Settings → Auto single-lens) if visible doubling returns.
+ */
+export const AUTO_MONO_DEFAULT = false;
+
 function uint8ToBase64(data: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < data.length; i++) binary += String.fromCharCode(data[i]);
@@ -466,6 +487,10 @@ export class G1Core {
    *  2026-11 keep-both-live finding (see _sendBoth mono branch) EITHER lens can
    *  be the reader, so this is now freely honored — no forced keep-R. */
   private _preferredEye: Side | null = null;
+  /** See AUTO_MONO_DEFAULT. Gates the automatic mono triggers only. */
+  private _autoMono = AUTO_MONO_DEFAULT;
+  private _autoMonoSuppressedAt = 0;
+  private static readonly AUTO_MONO_SUPPRESS_LOG_MS = 30_000;
 
   /** Session-latch: once the operator (or an emergency drop) forces mono, the
    *  engine STAYS mono for the rest of the session — no automatic stereo
@@ -532,6 +557,25 @@ export class G1Core {
       `stereo latched off for session`,
     );
     this._onReadingEyeSwap?.(keep);
+  }
+
+  /** Turn automatic single-lens switching on/off (Settings). Turning it off
+   *  does not leave a session already in mono — use resetLensSession. */
+  setAutoMono(on: boolean): void {
+    this._autoMono = on;
+    this._log(`[G1] auto single-lens ${on ? 'ON' : 'OFF'}`);
+  }
+
+  /** Automatic triggers call this instead of _tripMono. When auto single-lens
+   *  is off, logs (at most every 30s) what would have happened and stays
+   *  stereo, so the signal survives without blanking a healthy lens. */
+  private _autoTripMono(keep: Side, reason: string): void {
+    if (this._autoMono) { this._tripMono(keep, reason); return; }
+    const now = Date.now();
+    if (now - this._autoMonoSuppressedAt >= G1Core.AUTO_MONO_SUPPRESS_LOG_MS) {
+      this._autoMonoSuppressedAt = now;
+      this._log(`[G1] auto single-lens OFF — staying stereo (would have dropped to ${keep}: ${reason})`);
+    }
   }
 
   /** Re-enable stereo for a NEW session (deliberate operator action only — e.g.
@@ -774,7 +818,10 @@ export class G1Core {
         this._log(`[G1] APPSTATE ${this._appState} → ${next}`);
         const leavingActive = this._appState === 'active' && next !== 'active';
         this._appState = next;
-        // PRE-EMPTIVE MONO ON LOCK/BACKGROUND. Verified limitation (2026-11-17,
+        // PRE-EMPTIVE MONO ON LOCK/BACKGROUND — gated by AUTO_MONO_DEFAULT (OFF).
+        // RETRACTED PREMISE (2026-11-28): field logs show frames, timers and
+        // ACK timeouts running while backgrounded, contrary to the claim below.
+        // Original rationale kept for history. Verified limitation (2026-11-17,
         // confirmed against Apple CoreBluetooth background docs): on lockscreen
         // iOS suspends the RN JS runloop, so NO setTimeout/BLE-ACK callback
         // fires and the skew + ACK-MISS detectors go dark — a lens that dies
@@ -791,7 +838,7 @@ export class G1Core {
         // needlessly latch mono before the operator ever starts.
         if (leavingActive && this.isConnected && this._monoSide === null) {
           const keep = this._pickMonoSide(this._skewMeanMs);
-          this._tripMono(keep, `app left active (${next}) — can't detect dead lens while locked`);
+          this._autoTripMono(keep, `app left active (${next})`);
         }
       }
     });
@@ -2747,7 +2794,9 @@ export class G1Core {
             `frames (meanSign=${this._skewMeanMs >= 0 ? '+' : '-'}${meanAbs.toFixed(0)}ms)`,
           );
           // Shared drop: latches stereo off, resets streaks, notifies the HUD.
-          this._tripMono(keep, `skew seq=${seq}`);
+          // Reset the streak here so a suppressed trip re-arms cleanly.
+          this._monoBreachStreak = 0;
+          this._autoTripMono(keep, `skew seq=${seq}`);
         }
       } else {
         this._monoBreachStreak = 0;
@@ -2955,7 +3004,7 @@ export class G1Core {
             }
             if (this._ackMissStreak >= G1Core.ACK_MISS_MONO_COUNT) {
               const keep: Side = miss === 'R' ? 'L' : 'R'; // keep the acking lens
-              this._tripMono(keep, `ack-miss x${this._ackMissStreak} side=${miss}`);
+              this._autoTripMono(keep, `ack-miss x${this._ackMissStreak} side=${miss}`);
               this._ackMissSide = null;
               this._ackMissStreak = 0;
             }

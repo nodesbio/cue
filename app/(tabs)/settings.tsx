@@ -16,13 +16,15 @@ import {
   type Calibration, type Side as CalSide,
 } from '@/lib/g1/calibrationStore';
 import { WIDTH_PROBE_FRAMES } from '@/lib/g1/widthProbe';
-import { EYE_ALT_DEFAULT } from '@/lib/g1/G1Core';
+import { EYE_ALT_DEFAULT, AUTO_MONO_DEFAULT } from '@/lib/g1/G1Core';
 
 export const GESTURE_KEY      = 'gesture_nav_enabled';
 export const GESTURE_SWAP_KEY = 'gesture_nav_swapped';
 // Reading-eye auto-alternation. Absent key → EYE_ALT_DEFAULT (owned by G1Core,
 // currently OFF); an explicit 'true'/'false' is the user's choice.
 export const EYE_ALT_KEY       = 'eye_alternate_enabled';
+// Automatic single-lens switching. Absent key → AUTO_MONO_DEFAULT (G1Core, OFF).
+export const AUTO_MONO_KEY     = 'auto_mono_enabled';
 
 // Skew/lens-race harness buttons — internal diagnostics, hidden from the normal
 // UI. Flip to true to re-expose them during link-layer debugging. (Already
@@ -50,6 +52,7 @@ export default function SettingsScreen() {
   // Reading-eye auto-alternation (eye-health). Rotates which eye reads in mono
   // on a cadence so a single eye isn't loaded for a whole session.
   const [eyeAlternate, setEyeAlternate]       = useState(EYE_ALT_DEFAULT);
+  const [autoMono, setAutoMono]               = useState(AUTO_MONO_DEFAULT);
   // Bumped after re-enabling stereo: core.isMono is read live during render and
   // is not part of the status snapshot, so nothing else would re-render us.
   const [, setMonoTick]                       = useState(0);
@@ -379,13 +382,16 @@ export default function SettingsScreen() {
   }
 
   useEffect(() => {
-    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY, EYE_ALT_KEY]).then(pairs => {
+    AsyncStorage.multiGet([GESTURE_KEY, GESTURE_SWAP_KEY, EYE_ALT_KEY, AUTO_MONO_KEY]).then(pairs => {
       if (pairs[0][1] === 'true') setGesturesEnabled(true);
       if (pairs[1][1] === 'true') setGesturesSwapped(true);
       // Absent → EYE_ALT_DEFAULT; an explicit value is the user's choice.
       const eyeOn = pairs[2][1] === null ? EYE_ALT_DEFAULT : pairs[2][1] === 'true';
       setEyeAlternate(eyeOn);
       core?.setEyeAlternation(eyeOn);
+      const autoOn = pairs[3][1] === null ? AUTO_MONO_DEFAULT : pairs[3][1] === 'true';
+      setAutoMono(autoOn);
+      core?.setAutoMono(autoOn);
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [core]);
@@ -601,6 +607,26 @@ export default function SettingsScreen() {
         {/* ── Single-lens mode ───────────────────────────────── */}
         <Text style={s.section}>Single-Lens Mode</Text>
 
+        {/* Automatic single-lens switching (skew protection). OFF by default —
+            see AUTO_MONO_DEFAULT for the field evidence. Turn on if visible
+            doubling returns. */}
+        <View style={s.row}>
+          <View style={s.rowText}>
+            <Text style={s.label}>Auto single-lens</Text>
+            <Text style={s.sub}>Drop to one lens automatically on lock or when the lenses drift apart. Off keeps both lenses on.</Text>
+          </View>
+          <Switch
+            value={autoMono}
+            onValueChange={(val) => {
+              setAutoMono(val);
+              core.setAutoMono(val);
+              AsyncStorage.setItem(AUTO_MONO_KEY, val ? 'true' : 'false').catch(() => {});
+            }}
+            trackColor={{ false: '#1a1a1a', true: '#00c47a' }}
+            thumbColor="#fff"
+          />
+        </View>
+
         {/* Reading-eye auto-alternation (eye-health). In mono (single-lens)
             mode, rotates which eye shows content every few minutes so one eye
             isn't loaded for a whole session. Only acts while both lenses are
@@ -637,7 +663,7 @@ export default function SettingsScreen() {
             <Text style={s.sub}>
               {core.isMono
                 ? 'Latched for this session after the lenses drifted apart. Re-enable before you start; it will drop again if they drift.'
-                : 'Drops to one lens automatically if the lenses drift apart.'}
+                : autoMono ? 'Drops to one lens automatically if the lenses drift apart.' : 'Both lenses stay on.'}
             </Text>
           </View>
         </View>
