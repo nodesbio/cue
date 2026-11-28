@@ -812,9 +812,10 @@ export class G1Core {
    *  lines of ≤ MAX_CHARS (teleprompter: status bar + 4 script lines), so a
    *  tag appended to a full last line would wrap onto a line the lens cannot
    *  show. Rules: (1) trim trailing text so the result fits P.TEXT_MAX_BYTES;
-   *  (2) tag the FIRST line with room (teleprompter: the short status bar);
-   *  (3) if none has room, shorten the first line to make room. Never adds a
-   *  line, never pushes a line past MAX_CHARS. ASCII only — the G1 font's
+   *  (2) always tag LINE 1 — the status line on every screen (teleprompter:
+   *  clock/battery/position; Sports: league + game clock), so the operator
+   *  looks in one place; (3) if line 1 is full, shorten it to make room.
+   *  Never adds a line, never pushes a line past MAX_CHARS. ASCII only — the G1 font's
    *  coverage of symbols like U+00B7 is unknown. */
   static _withFrameTag(str: string, seq: number): string {
     const tag = ` #${seq}`;
@@ -824,12 +825,7 @@ export class G1Core {
       body = Array.from(body).slice(0, -1).join('');
     }
     const lines = body.split('\n');
-    let i = lines.findIndex(l => Array.from(l).length + tag.length <= MAX_CHARS);
-    if (i < 0) {
-      i = 0;
-      lines[0] = Array.from(lines[0]).slice(0, Math.max(0, MAX_CHARS - tag.length)).join('');
-    }
-    lines[i] += tag;
+    lines[0] = Array.from(lines[0]).slice(0, Math.max(0, MAX_CHARS - tag.length)).join('') + tag;
     return lines.join('\n');
   }
 

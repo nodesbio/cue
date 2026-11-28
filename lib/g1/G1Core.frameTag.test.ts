@@ -8,8 +8,8 @@
  *     packet's seq byte (the number in the log).
  *  2. OFF (default): text is unchanged.
  *  3. The tag survives the 191-byte frame cut: long text is trimmed instead.
- *  3b. The tag never adds a line or pushes a line past MAX_CHARS: it goes on
- *      the first line with room (teleprompter: the status bar).
+ *  3b. The tag always goes on LINE 1 (the status line on every screen), never
+ *      adds a line, and never pushes a line past MAX_CHARS.
  *  4. A whitespace-only frame still counts as blank for the mono gate.
  */
 
@@ -124,6 +124,16 @@ describe('frame-number tag on lenses', () => {
     expect(out).toHaveLength(before);
     expect(out.join('\n')).toContain(' #99');
     for (const l of out) expect(Array.from(l).length).toBeLessThanOrEqual(MAX_CHARS);
+  });
+
+  it('Sports frame: tag on the league/clock line even when line 1 is full', () => {
+    const header = 'NBA  · 2:13 4th Qtr'.padEnd(MAX_CHARS, ' ');
+    const frame = [header, 'BOS 98', 'LAL 96'].join('\n');
+    const out = G1Core._withFrameTag(frame, 31).split('\n');
+    expect(out[0].endsWith(' #31')).toBe(true);
+    expect(out[0].startsWith('NBA  · 2:13 4th Qtr')).toBe(true);
+    expect(Array.from(out[0]).length).toBeLessThanOrEqual(MAX_CHARS);
+    expect(out.slice(1)).toEqual(['BOS 98', 'LAL 96']); // short line 2 NOT used
   });
 
   it('every line full: first line is shortened so the tag still shows', () => {
